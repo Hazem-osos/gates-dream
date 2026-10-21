@@ -1,6 +1,8 @@
 "use client";
 import * as React from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Landmark } from "lucide-react";
 import {
   CompactFormField,
@@ -131,6 +133,24 @@ function InputDesign() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loadedParentId, setLoadedParentId] = useState('');
   const [loadedCode, setLoadedCode] = useState('');
+
+  type AccountCardDraft = typeof formData;
+  const draftSnapshot = useMemo(() => formData, [formData]);
+  const applyAccountDraft = useCallback((payload: AccountCardDraft) => {
+    setFormData(payload);
+    setSelectedId(null);
+    setLoadedParentId('');
+    setLoadedCode('');
+    setError('');
+  }, []);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'account-card',
+    editingId: selectedId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.arabicName.trim() && !d.code.trim(),
+    applyRestore: applyAccountDraft,
+    restoreMessage: 'يوجد مسودة بطاقة حساب غير محفوظة',
+  });
   const { data: settingsRes } = useAccountingSettingsQuery();
   const autoNumbering = settingsRes?.data?.general?.coaAutoNumbering !== false;
   const accountRecordCount = settingsRes?.data?.general?.numberingRecordCounts?.accounts ?? 0;
@@ -247,9 +267,11 @@ function InputDesign() {
     try {
       if (selectedId) {
         await updateMut.mutateAsync({ id: selectedId, ...payload });
+        clearDraft();
         setSuccess('تم حفظ تعديلات الحساب');
       } else {
         const res = await createMut.mutateAsync(payload);
+        clearDraft();
         const created = res?.data as { id?: string; arabicName?: string; code?: string } | undefined;
         if (created?.id) {
           quickCreate.complete({
@@ -279,6 +301,7 @@ function InputDesign() {
   };
 
   const handleCancel = () => {
+    clearDraft();
     setSelectedId(null);
     setLoadedParentId('');
     setLoadedCode('');
@@ -322,6 +345,14 @@ function InputDesign() {
       }
       favoriteHref="/accounting/cards/account"
     >
+      <MasterCardDraftRestoreGate<AccountCardDraft>
+        editingId={selectedId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyAccountDraft}
+        message="يوجد مسودة بطاقة حساب غير محفوظة."
+      />
       <div className="mb-4">
       </div>
       <form className="w-full text-base">

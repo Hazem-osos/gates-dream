@@ -56,6 +56,8 @@ export type SalesInvoiceLineForm = {
   size?: string;
   customRevenueAccountId?: string;
   lineAccountId?: string;
+  sourceKind?: 'GOODS_RECEIPT' | 'PURCHASE_ORDER' | 'SALES_ORDER' | 'PRICE_QUOTE';
+  sourceLineId?: string;
 };
 
 function optionalUuid(value?: string | null): string | undefined {
@@ -197,7 +199,10 @@ export function mapSalesFormToM5CreateBody(
       serialNumbers: line.serialNumbers || undefined,
       lineNotes: line.lineNotes || undefined,
       taxExemptionReason: line.taxExemptionReason || undefined,
-      warehouseId: optionalUuid(line.warehouseId) || optionalUuid(data.warehouseId),
+      warehouseId:
+        opts.invoiceKind === 'SALE_RETURN' || opts.invoiceKind === 'PURCHASE_RETURN'
+          ? optionalUuid(data.warehouseId)
+          : optionalUuid(line.warehouseId) || optionalUuid(data.warehouseId),
       itemReservationId: optionalUuid(line.itemReservationId),
       reservationFulfillQuantity: optionalUuid(line.itemReservationId)
         ? baseQty
@@ -209,6 +214,12 @@ export function mapSalesFormToM5CreateBody(
       color: line.color || undefined,
       size: line.size || undefined,
       customRevenueAccountId: optionalUuid(line.customRevenueAccountId) || optionalUuid(line.lineAccountId),
+      ...(line.sourceKind && line.sourceLineId
+        ? {
+            sourceKind: line.sourceKind,
+            sourceLineId: optionalUuid(line.sourceLineId),
+          }
+        : {}),
     };
   });
 
@@ -223,7 +234,7 @@ export function mapSalesFormToM5CreateBody(
     exchangeRate: data.exchangeRate && data.exchangeRate > 0 ? data.exchangeRate : undefined,
     customerId: optionalUuid(data.customerId),
     supplierId: optionalUuid(data.supplierId),
-    warehouseId: data.warehouseId,
+    warehouseId: optionalUuid(data.warehouseId),
     documentProfileId: optionalUuid(data.documentProfileId),
     sourceType: data.sourceType && data.sourceType !== 'NONE' ? data.sourceType : 'NONE',
     sourceId: optionalUuid(data.sourceId),
@@ -242,8 +253,8 @@ export function mapSalesFormToM5CreateBody(
     paymentSplits: Array.isArray(data.paymentSplits) && data.paymentSplits.length ? data.paymentSplits : undefined,
     internalNotes: data.internalNotes,
     isSalesTaxInvoice: applyTax,
-    allowReturn: data.allowReturn ?? false,
-    returnDays: data.allowReturn ? (data.returnDays ?? 365) : null,
+    allowReturn: data.allowReturn !== false,
+    returnDays: data.allowReturn === false ? 0 : data.returnDays && data.returnDays > 0 ? data.returnDays : 365,
     invoiceConditions: data.invoiceConditions,
     developmentFeeRate: feePreview.developmentFeeRate,
     developmentFeeAmount: feePreview.developmentFeeAmount,
@@ -283,6 +294,10 @@ export function mapSalesFormToM5UpdateBody(
      * silently overwriting a newer save.
      */
     expectedVersion?: number;
+    /** When the invoice already has treasury settlements — do not send tender fields. */
+    lockPaymentTenders?: boolean;
+    /** User confirmed saving when net is below linked سند الصرف. */
+    confirmNetBelowCollections?: boolean;
   }
 ): Record<string, unknown> {
   const body = mapSalesFormToM5CreateBody(data, opts);
@@ -290,8 +305,15 @@ export function mapSalesFormToM5UpdateBody(
   if (!optionalInvoiceNumber(data.invoiceNumber)) {
     delete body.invoiceNumber;
   }
+  if (opts.lockPaymentTenders) {
+    delete body.paymentMethod;
+    delete body.paymentSplits;
+  }
   if (typeof opts.expectedVersion === 'number') {
     body.expectedVersion = opts.expectedVersion;
+  }
+  if (opts.confirmNetBelowCollections) {
+    body.confirmNetBelowCollections = true;
   }
   return body;
 }

@@ -6,6 +6,7 @@ export const FLUSH_DRAFTS_EVENT = 'gates:flush-drafts';
 export const QC_RETURN_KEY = 'gates:qc-return-path';
 export const DRAFT_SESSION_KEY = 'gates:draft-session-id';
 export const DRAFT_ENVELOPE_VERSION = 2;
+const DRAFT_DISMISS_PREFIX = 'gates:draft-dismiss:';
 
 export type DraftEnvelope<T> = {
   version: number;
@@ -94,6 +95,33 @@ export function readDraft<T>(storageKey: string): DraftEnvelope<T> | null {
   }
 }
 
+export function recordDraftDismissal(storageKey: string, savedAt: string) {
+  if (typeof window === 'undefined' || !storageKey || !savedAt) return;
+  try {
+    localStorage.setItem(`${DRAFT_DISMISS_PREFIX}${storageKey}`, savedAt);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function wasDraftDismissed(storageKey: string, savedAt: string): boolean {
+  if (typeof window === 'undefined' || !storageKey || !savedAt) return false;
+  try {
+    return localStorage.getItem(`${DRAFT_DISMISS_PREFIX}${storageKey}`) === savedAt;
+  } catch {
+    return false;
+  }
+}
+
+export function clearDraftDismissal(storageKey: string) {
+  if (typeof window === 'undefined' || !storageKey) return;
+  try {
+    localStorage.removeItem(`${DRAFT_DISMISS_PREFIX}${storageKey}`);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function writeDraft<T>(storageKey: string, payload: T, meta: DraftWriteMeta): string | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -101,6 +129,7 @@ export function writeDraft<T>(storageKey: string, payload: T, meta: DraftWriteMe
     if (existing && existing.writeSeq > meta.writeSeq) {
       return existing.savedAt;
     }
+    clearDraftDismissal(storageKey);
     const savedAt = new Date().toISOString();
     const envelope: DraftEnvelope<T> = {
       version: DRAFT_ENVELOPE_VERSION,
@@ -120,13 +149,16 @@ export function writeDraft<T>(storageKey: string, payload: T, meta: DraftWriteMe
   }
 }
 
-export function removeDraft(storageKey: string) {
+export function removeDraft(storageKey: string, options?: { keepDismissal?: boolean }) {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(storageKey);
+  if (!options?.keepDismissal) clearDraftDismissal(storageKey);
 }
 
 export function shouldAutoRestoreDraft(envelope: DraftEnvelope<unknown>, companyId: string): boolean {
-  if (!envelope.sessionId || envelope.sessionId !== getDraftSessionId()) return false;
   if (envelope.companyId && companyId && envelope.companyId !== companyId) return false;
-  return true;
+  if (envelope.sessionId && envelope.sessionId === getDraftSessionId()) return true;
+  const saved = Date.parse(envelope.savedAt);
+  if (Number.isFinite(saved) && Date.now() - saved < 7 * 24 * 60 * 60 * 1000) return true;
+  return false;
 }

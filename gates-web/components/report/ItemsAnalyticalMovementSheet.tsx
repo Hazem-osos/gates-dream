@@ -1,5 +1,7 @@
 'use client';
 
+import { isReportColumnVisible } from '@/lib/reportEngine/reportColumnVisible';
+
 type Row = Record<string, unknown>;
 
 export type ItemsAnalyticalDelegate = { id: string; name: string };
@@ -65,28 +67,42 @@ export function readItemsAnalyticalSheet(summary: unknown, rows: Row[]) {
   return { delegates, totals };
 }
 
-export function ItemsAnalyticalMovementSheet({ rows, summary }: { rows: Row[]; summary?: unknown }) {
+export function ItemsAnalyticalMovementSheet({
+  rows,
+  summary,
+  visibleColumnIds,
+}: {
+  rows: Row[];
+  summary?: unknown;
+  visibleColumnIds?: string[];
+}) {
   const { delegates, totals } = readItemsAnalyticalSheet(summary, rows);
+  const on = (id: string) => isReportColumnVisible(visibleColumnIds, id);
+  const shownDelegates = delegates.filter((delegate) => on(`delegate:${delegate.id}`));
 
   return (
     <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-md border border-[#9BB6CE] bg-white" data-print-layout="landscape">
       <table className="min-w-full border-collapse text-xs text-slate-800" dir="rtl">
         <thead>
           <tr className="bg-[#4F86C6] text-white">
-            <th rowSpan={2} className="min-w-24 border border-[#3E6FA6] px-2 py-2 text-center font-semibold">
-              الكود
-            </th>
-            <th rowSpan={2} className="min-w-40 border border-[#3E6FA6] px-2 py-2 text-center font-semibold">
-              الصنف
-            </th>
-            {delegates.map((delegate) => (
+            {on('itemSerial') ? (
+              <th rowSpan={2} className="min-w-24 border border-[#3E6FA6] px-2 py-2 text-center font-semibold">
+                الكود
+              </th>
+            ) : null}
+            {on('itemName') ? (
+              <th rowSpan={2} className="min-w-40 border border-[#3E6FA6] px-2 py-2 text-center font-semibold">
+                الصنف
+              </th>
+            ) : null}
+            {shownDelegates.map((delegate) => (
               <th key={delegate.id} colSpan={2} className="border border-[#3E6FA6] px-2 py-2 text-center font-semibold">
                 {delegate.name}
               </th>
             ))}
           </tr>
           <tr className="bg-[#5B94D1] text-white">
-            {delegates.map((delegate) => (
+            {shownDelegates.map((delegate) => (
               <PairHeaders key={delegate.id} />
             ))}
           </tr>
@@ -94,11 +110,15 @@ export function ItemsAnalyticalMovementSheet({ rows, summary }: { rows: Row[]; s
         <tbody>
           {rows.map((row, index) => (
             <tr key={String(row.itemId ?? index)} className="bg-white">
-              <td className="border border-[#D5E1EC] px-2 py-1.5 text-center whitespace-nowrap">
-                {String(row.itemSerial ?? '') || '—'}
-              </td>
-              <td className="border border-[#D5E1EC] px-2 py-1.5 text-right">{String(row.itemName ?? '') || '—'}</td>
-              {delegates.map((delegate) => (
+              {on('itemSerial') ? (
+                <td className="border border-[#D5E1EC] px-2 py-1.5 text-center whitespace-nowrap">
+                  {String(row.itemSerial ?? '') || '—'}
+                </td>
+              ) : null}
+              {on('itemName') ? (
+                <td className="border border-[#D5E1EC] px-2 py-1.5 text-right">{String(row.itemName ?? '') || '—'}</td>
+              ) : null}
+              {shownDelegates.map((delegate) => (
                 <PairCells key={delegate.id} cell={cellOf(row, delegate.id)} />
               ))}
             </tr>
@@ -106,9 +126,9 @@ export function ItemsAnalyticalMovementSheet({ rows, summary }: { rows: Row[]; s
         </tbody>
         <tfoot>
           <tr className="bg-[#E8F1FA] font-semibold text-[#0E4C6E]">
-            <td className="border border-[#B7C9D9] px-2 py-2" />
-            <td className="border border-[#B7C9D9] px-2 py-2 text-right">الإجمالي</td>
-            {delegates.map((delegate) => (
+            {on('itemSerial') ? <td className="border border-[#B7C9D9] px-2 py-2" /> : null}
+            {on('itemName') ? <td className="border border-[#B7C9D9] px-2 py-2 text-right">الإجمالي</td> : null}
+            {shownDelegates.map((delegate) => (
               <PairCells key={delegate.id} cell={totals[delegate.id] ?? { quantity: 0, amount: 0 }} strong />
             ))}
           </tr>

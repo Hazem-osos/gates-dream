@@ -1,5 +1,6 @@
 import { accountingModules } from '@/app/components/Sidebar';
 import { inventoryModules } from '@/app/components/InventorySidebar';
+import { extractsModules } from '@/app/components/ExtractsSidebar';
 import { isRouteUnavailable } from '@/lib/navigation/route-visibility';
 
 export type CommandEntry = {
@@ -42,6 +43,7 @@ function flattenNav(nodes: NavNode[], prefix = ''): CommandEntry[] {
 export const staticPageCommands: CommandEntry[] = [
   ...flattenNav(inventoryModules as NavNode[]),
   ...flattenNav(accountingModules as NavNode[]),
+  ...flattenNav(extractsModules as NavNode[]),
 ];
 
 export const quickActionCommands: CommandEntry[] = [
@@ -129,6 +131,14 @@ export const quickActionCommands: CommandEntry[] = [
     label: '⚙️ إعدادات مردودات المشتريات',
     keywords: 'إعدادات مردود مشتريات سياسات إرجاع حر',
     href: '/inventory/settings/transactions/purchase-return',
+    action: 'navigate',
+    group: 'actions',
+  },
+  {
+    id: 'action:inventory-settings',
+    label: '⚙️ إعدادات المخازن',
+    keywords: 'إعدادات المخازن ترقيم ترحيل إذن صرف إضافة نقل تجميع',
+    href: '/inventory/settings',
     action: 'navigate',
     group: 'actions',
   },

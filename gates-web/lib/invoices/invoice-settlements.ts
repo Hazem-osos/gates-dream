@@ -19,12 +19,20 @@ export type InvoiceCashSettlement = {
   journalEntryId?: string | null;
   safeId?: string | null;
   bankAccountId?: string | null;
-  safe?: { id?: string | null; arabicName?: string | null; code?: string | null } | null;
+  safe?: {
+    id?: string | null;
+    arabicName?: string | null;
+    code?: string | null;
+    glAccount?: { id?: string | null; code?: string | null; arabicName?: string | null } | null;
+  } | null;
   bankAccount?: {
     id?: string | null;
     accountNumber?: string | null;
+    glAccount?: { id?: string | null; code?: string | null; arabicName?: string | null } | null;
     bank?: { arabicName?: string | null } | null;
   } | null;
+  treasuryReceipt?: { voucherNumber?: string | null } | null;
+  treasuryPayment?: { voucherNumber?: string | null } | null;
 };
 
 export type InvoiceChequeSettlement = {
@@ -46,6 +54,7 @@ export type InvoiceSettlementHistoryRow = {
   href: string | null;
   methodLabel: string;
   channel: string;
+  ledgerAccountLabel: string;
   amount: number;
   date: string;
   statusLabel: string;
@@ -61,6 +70,22 @@ function formatDate(value: string | Date | null | undefined): string {
   if (!value) return '—';
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('ar-EG');
+}
+
+function resolveCashVoucherNumber(row: InvoiceCashSettlement): string {
+  const fromPayment = String(row.treasuryPayment?.voucherNumber ?? '').trim();
+  if (fromPayment) return fromPayment;
+  const fromReceipt = String(row.treasuryReceipt?.voucherNumber ?? '').trim();
+  if (fromReceipt) return fromReceipt;
+  return String(row.voucherNumber ?? '').trim();
+}
+
+function cashLedgerAccountLabel(row: InvoiceCashSettlement): string {
+  const gl = row.safe?.glAccount ?? row.bankAccount?.glAccount;
+  if (gl?.code || gl?.arabicName) {
+    return [gl.code, gl.arabicName].filter(Boolean).join(' — ');
+  }
+  return '—';
 }
 
 function cashChannel(row: InvoiceCashSettlement): { source: 'CASH' | 'BANK'; channel: string; methodLabel: string } {
@@ -108,10 +133,11 @@ export function buildInvoiceSettlementHistory(
 
   for (const row of cashRows ?? []) {
     const channel = cashChannel(row);
+    const voucherNo = resolveCashVoucherNumber(row);
     rows.push({
       id: `cash-${row.id}`,
       source: channel.source,
-      number: String(row.voucherNumber || '').trim() || row.id.slice(0, 8),
+      number: voucherNo || '—',
       href: hrefForCashTransaction({
         id: row.id,
         documentRole: row.documentRole,
@@ -121,9 +147,14 @@ export function buildInvoiceSettlementHistory(
       }),
       methodLabel: channel.methodLabel,
       channel: row.description?.trim() || channel.channel,
+      ledgerAccountLabel: cashLedgerAccountLabel(row),
       amount: Number(row.amount) || 0,
       date: formatDate(row.date),
-      statusLabel: row.isCancelled ? 'ملغى' : row.isPosted ? 'مرحّل' : 'مسودة',
+      statusLabel: row.isCancelled
+        ? 'ملغى'
+        : row.isPosted
+          ? 'مرحّل'
+          : 'غير مرحّل',
       cancelled: Boolean(row.isCancelled),
     });
   }
@@ -136,6 +167,7 @@ export function buildInvoiceSettlementHistory(
       href: hrefForCheque({ id: row.id, direction: row.direction }),
       methodLabel: 'شيك',
       channel: row.bankName?.trim() || row.description?.trim() || 'شيك',
+      ledgerAccountLabel: '—',
       amount: Number(row.amount) || 0,
       date: formatDate(row.dueDate),
       statusLabel: chequeStatusLabel(row.status),
@@ -147,7 +179,9 @@ export function buildInvoiceSettlementHistory(
 }
 
 export function activeSettlementTotal(rows: InvoiceSettlementHistoryRow[]): number {
-  return rows.filter((row) => !row.cancelled).reduce((sum, row) => sum + row.amount, 0);
+  return rows
+    .filter((row) => !row.cancelled && row.statusLabel === 'مرحّل')
+    .reduce((sum, row) => sum + row.amount, 0);
 }
 
 export type InvoicePaymentStance = 'unpaid' | 'partial' | 'settled';
@@ -168,6 +202,14 @@ export function resolveInvoicePaymentStance(netAmount: number, paidAmount: numbe
 
 const INVOICE_MONEY_EPS = 0.009;
 
+export function invoiceRemainingForCollect(inv: Record<string, unknown> | undefined): number | null {
+  if (!inv) return null;
+  const net = Number(inv.netAmount ?? inv.totalAmount ?? 0);
+  const paid = Number(inv.paidAmount ?? 0);
+  const r = net - paid;
+  return r > 0.009 ? r : null;
+}
+
 /** Posted invoices: server `paidAmount` (settlements). Draft: tender splits / advance field. */
 export function invoiceCashPaidDisplayAmount(input: {
   isPosted: boolean;
@@ -179,8 +221,11 @@ export function invoiceCashPaidDisplayAmount(input: {
   pendingAdvanceTotal?: number;
 }): number {
   const pending = Number(input.pendingAdvanceTotal) || 0;
-  if (input.isPosted) {
-    return Math.max(0, Number(input.savedPaidAmount) || 0) + pending;
+  const saved = Math.max(0, Number(input.savedPaidAmount) || 0);
+  // Unpost-for-edit must keep التحصيل visible; those rows live on the invoice
+  // even while the invoice itself is draft.
+  if (input.isPosted || saved > INVOICE_MONEY_EPS) {
+    return saved + pending;
   }
   const draft =
     input.paymentMethod === 'split'

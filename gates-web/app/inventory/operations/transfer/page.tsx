@@ -16,7 +16,8 @@ import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
-import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
+import { isUnsetOrDefaultWarehouse } from '@/lib/drafts/form-lines-draft';
 import {
   StockVoucherLinesGrid,
   blankStockVoucherLine,
@@ -65,7 +66,6 @@ import Link from 'next/link';
 import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
 import { stockHeaderFieldsFromSource } from '@/lib/inventory/apply-source-to-stock-document';
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
-import { STOCK_TRANSFER_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
 import { toast } from '@/lib/feedback/toast';
 import { useStockMovementPanel } from '@/lib/inventory/use-stock-movement-panel';
 import { resolveWarehouseAverageUnitCost } from '@/lib/inventory/assembly-pricing';
@@ -79,6 +79,7 @@ import {
   useApplyDefaultWarehouseFromTransactionSettings,
   useTransactionDocumentSettings,
 } from '@/lib/transaction-settings/use-transaction-document-settings';
+import { datetimeLocalToIso, toDatetimeLocalValue } from '@/lib/datetime/local-datetime';
 
 
 interface TransferLine {
@@ -110,11 +111,10 @@ type TransferDraft = {
 };
 
 function emptyTransferFormDefaults(): InventoryTransferHeaderFormInput {
-  const t = new Date().toISOString().split('T')[0];
   return {
     serialNumber: '',
     description: '',
-    date: t,
+    date: toDatetimeLocalValue(),
     hijriDate: '',
     fromWarehouseId: '',
     toWarehouseId: '',
@@ -130,9 +130,7 @@ function headerFromTransferDoc(doc: TransferDocumentDetail): InventoryTransferHe
   return {
     serialNumber: String(doc.serialNumber ?? doc.serial ?? ''),
     description: String(doc.description ?? ''),
-    date: doc.date
-      ? new Date(String(doc.date)).toISOString().split('T')[0]
-      : new Date().toISOString().split('T')[0],
+    date: doc.date ? toDatetimeLocalValue(String(doc.date)) : toDatetimeLocalValue(),
     hijriDate: String(doc.hijriDate ?? ''),
     fromWarehouseId: String(doc.fromWarehouseId ?? ''),
     toWarehouseId: String(doc.toWarehouseId ?? ''),
@@ -168,12 +166,15 @@ function linesFromTransferDoc(doc: TransferDocumentDetail): TransferLine[] {
   });
 }
 
-function isTransferDraftEmpty(draft: TransferDraft): boolean {
+function isTransferDraftEmpty(
+  draft: TransferDraft,
+  defaultFromWarehouseId?: string | null,
+): boolean {
   const form = draft.form;
   return (
     !form.serialNumber?.trim() &&
     !form.description?.trim() &&
-    !form.fromWarehouseId &&
+    isUnsetOrDefaultWarehouse(form.fromWarehouseId, defaultFromWarehouseId) &&
     !form.toWarehouseId &&
     !(draft.lines ?? []).some((line) => line.itemId || Number(line.quantity) || Number(line.unitPrice))
   );
@@ -236,7 +237,6 @@ function TransferPageInner() {
   const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } =
     useRepostAfterUnpost(autoPostOnSave);
   const invalidateQuery = useInvalidateQuery();
-  const todayStr = new Date().toISOString().split('T')[0];
   const skipServerHydrateRef = useRef(false);
   const postAfterSaveRef = useRef(false);
   const [mfgTransferHint, setMfgTransferHint] = useState<{
@@ -261,7 +261,7 @@ function TransferPageInner() {
     defaultValues: {
       serialNumber: '',
       description: '',
-      date: todayStr,
+      date: toDatetimeLocalValue(),
       hijriDate: '',
       fromWarehouseId: '',
       toWarehouseId: '',
@@ -278,6 +278,7 @@ function TransferPageInner() {
   const hideExistingQty = watch('hideExistingQty');
   const fromWarehouseId = watch('fromWarehouseId');
   const toWarehouseId = watch('toWarehouseId');
+  const documentDate = watch('date');
   const watchedForm = watch();
 
   const [transferLines, setTransferLines] = useState<TransferLine[]>([]);
@@ -297,7 +298,7 @@ function TransferPageInner() {
   );
 
   useEffect(() => {
-    if (!fromWarehouseId) return;
+    if (!fromWarehouseId || statusPosted) return;
     const rows = transferLinesRef.current;
     const indexed = rows
       .map((line, index) => ({ line, index }))
@@ -308,7 +309,12 @@ function TransferPageInner() {
       const patches = await Promise.all(
         indexed.map(async ({ line, index }) => ({
           index,
-          unitPrice: await resolveWarehouseAverageUnitCost(line.itemId, fromWarehouseId),
+          unitPrice: await resolveWarehouseAverageUnitCost(
+            line.itemId,
+            fromWarehouseId,
+            null,
+            documentDate
+          ),
         }))
       );
       if (cancelled) return;
@@ -323,7 +329,7 @@ function TransferPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [fromWarehouseId, replaceTransferLines]);
+  }, [fromWarehouseId, documentDate, statusPosted, replaceTransferLines]);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -427,8 +433,8 @@ function TransferPageInner() {
     value: draftSnapshot,
     enabled: !statusPosted,
     applyRestore: applyTransferDraft,
-    isEmpty: isTransferDraftEmpty,
-    restoreMessage: 'تم استعادة مسودة النقل المخزني',
+    isEmpty: (draft) => isTransferDraftEmpty(draft, txDefaultWarehouseId),
+    restoreMessage: 'يوجد مسودة نقل مخزني غير محفوظة',
   });
 
   // Fetch single transfer for editing
@@ -658,7 +664,11 @@ function TransferPageInner() {
       onSuccess: () => {
         setSuccess('تم إلغاء النقل');
         invalidateStockViews(invalidateQuery);
-        if (selectedTransferId) invalidateQuery(['transfer', selectedTransferId]);
+        if (selectedTransferId) {
+          invalidateQuery(['transfer', selectedTransferId]);
+          invalidateQuery(['journal-entries-by-source', selectedTransferId]);
+        }
+        invalidateQuery(['journal-entry']);
         setValue('statusPosted', false);
       },
       onError: (error: ApiError) => {
@@ -721,6 +731,9 @@ function TransferPageInner() {
             setValue('statusPosted', false);
             markUnpostedForEdit();
             invalidateStockViews(invalidateQuery);
+            if (selectedTransferId) invalidateQuery(['transfer', selectedTransferId]);
+            invalidateQuery(['journal-entries']);
+            invalidateQuery(['journal-entry']);
           },
           onError: (error: ApiError) => {
             setError(error.message || 'حدث خطأ أثناء فك الترحيل');
@@ -765,13 +778,6 @@ function TransferPageInner() {
     setError('');
     setSuccess('');
     clearTransferForNext();
-  };
-
-  const handleRestoreDraft = () => {
-    const payload = acceptRestore();
-    if (!payload) return;
-    applyTransferDraft(payload);
-    setSuccess('تم استعادة مسودة النقل المخزني');
   };
 
   const addTransferLine = () => {
@@ -832,7 +838,7 @@ function TransferPageInner() {
       serial: values.serialNumber || undefined,
       serialNumber: values.serialNumber || undefined,
       description: values.description,
-      date: new Date(values.date).toISOString(),
+      date: datetimeLocalToIso(values.date),
       hijriDate: values.hijriDate || undefined,
       fromWarehouseId: values.fromWarehouseId,
       toWarehouseId: values.toWarehouseId,
@@ -860,7 +866,7 @@ function TransferPageInner() {
           <Link href="/inventory/guide" className="font-semibold text-[#0E78AA] underline">
             دليل المخازن (حساب المخزون لكل مخزن)
           </Link>
-          {' '}قبل إعادة الترحيل. التحويل يحفظ كمسودة أولاً؛ الترحيل يحرّك الكميات ويُنشئ القيد في الجرد المستمر.
+          {' '}قبل إعادة الترحيل. التحويل يُحفظ غير مرحّل أولاً؛ الترحيل يحرّك الكميات ويُنشئ القيد في الجرد المستمر.
         </p>
       ) : null}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
@@ -888,13 +894,17 @@ function TransferPageInner() {
         </div>
       ) : null}
 
-      {restoreOffer && !selectedTransferId ? (
-        <PageDraftRestoreBanner
-          message="يوجد مسودة غير محفوظة من قبل ما خرجت من الصفحة."
-          onRestore={handleRestoreDraft}
-          onDismiss={dismissRestore}
-        />
-      ) : null}
+      <PageDraftRestoreGate<TransferDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedTransferId)}
+        message="يوجد مسودة نقل مخزني غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyTransferDraft(payload);
+          setSuccess('تم استعادة مسودة النقل المخزني');
+        }}
+      />
 
       <ErpDocumentPageHeader
         breadcrumbs={[
@@ -984,15 +994,6 @@ function TransferPageInner() {
             طباعة
           </Button>
         }
-        sourceActions={
-          <DocumentSourceLoadBar
-            key={sourceBarKey}
-            hasExistingLines={transferLines.some((l) => Boolean(l.itemId))}
-            disabled={isReadOnly || statusPosted}
-            allowedTypes={STOCK_TRANSFER_SOURCE_TYPES}
-            onHydrate={handleSourceHydrate}
-          />
-        }
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="التحويلات السابقة">
@@ -1011,7 +1012,19 @@ function TransferPageInner() {
 
       <DocumentReadOnlyBanner />
       <DocumentFormLock>
-      <FormSectionCard title="بيانات التحويل" subtitle="المسلسل والتاريخ والمخازن">
+      <FormSectionCard
+        title="بيانات التحويل"
+        subtitle="المسلسل والتاريخ والمخازن"
+        sourceActions={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={transferLines.some((l) => Boolean(l.itemId))}
+            disabled={isReadOnly || statusPosted}
+            currentAffectsStock
+            onHydrate={handleSourceHydrate}
+          />
+        }
+      >
           <CompactFormField
             label="المسلسل"
             placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل رقم المسلسل'}
@@ -1020,7 +1033,8 @@ function TransferPageInner() {
           />
           <CompactFormField
             label="التاريخ"
-            type="date"
+            type="datetime-local"
+            step="1"
             error={errors.date?.message}
             {...register('date')}
           />
@@ -1128,6 +1142,7 @@ function TransferPageInner() {
           <StockVoucherLinesGrid
             lines={stockGridLines.length ? stockGridLines : [blankStockVoucherLine()]}
             warehouseId={fromWarehouseId}
+            asOfDate={documentDate}
             hideExistingQty={hideExistingQty}
             priceLabel="متوسط التكلفة"
             lockUnitPrice

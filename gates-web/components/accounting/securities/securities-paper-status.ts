@@ -62,6 +62,8 @@ export type SecuritiesPaperRecord = {
   partyAccountId?: string | null;
   depositAccountId?: string | null;
   depositDate?: string | Date | null;
+  payBeneficiaryFirst?: boolean | null;
+  bearerCheque?: boolean | null;
   invoiceAllocations?: Array<{ invoiceId: string; allocatedAmount: number | string }> | null;
   commissionAmount?: number | string | null;
   commissionAccountId?: string | null;
@@ -104,6 +106,9 @@ export function resolveSecuritiesPaperCase(
 export function securitiesPaperStatus(record?: Partial<SecuritiesPaperRecord> | null): SecuritiesPaperStatus {
   if (!record?.id) return { tone: 'info', label: 'جديدة', paperCase: 'ISSUED' };
   const paperCase = resolveSecuritiesPaperCase(record);
+  if (record.isCancelled && paperCase !== 'BOUNCED') {
+    return { tone: 'danger', label: 'ملغي', paperCase };
+  }
   return { tone: CASE_TONE[paperCase], label: SECURITIES_PAPER_CASE_LABEL[paperCase], paperCase };
 }
 
@@ -176,4 +181,12 @@ export function buildSecuritiesEndorseDescription(
 ) {
   const base = buildSecuritiesPaperDescription('receipt', chequeNumber, partyName, dueDate);
   return base ? `تظهير ${base}` : '';
+}
+
+export function unpostBlockedByPaperCase(paperCase?: string | null): string | null {
+  if (paperCase === 'COLLECTED') return 'فك التحصيل أولاً حتى يمكن فك الترحيل';
+  if (paperCase === 'MULTI_COLLECTED') return 'ألغِ بنود التحصيل المتعدد أولاً حتى يمكن فك الترحيل';
+  if (paperCase === 'ENDORSED') return 'فك التظهير أولاً حتى يمكن فك الترحيل';
+  if (paperCase === 'BOUNCED') return 'فك الارتداد أولاً حتى يمكن فك الترحيل';
+  return null;
 }

@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Palette, Shirt } from 'lucide-react';
 import {
   Button,
@@ -59,6 +61,35 @@ export default function ColorSizeMatrixPage() {
   const [saving, setSaving] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
+  type ColorSizeMatrixDraft = {
+    selectedColorIds: string[];
+    selectedSizeIds: string[];
+    combos: ComboRow[];
+  };
+  const draftSnapshot = useMemo<ColorSizeMatrixDraft>(
+    () => ({
+      selectedColorIds: [...selectedColors],
+      selectedSizeIds: [...selectedSizes],
+      combos,
+    }),
+    [combos, selectedColors, selectedSizes]
+  );
+  const applyColorSizeDraft = useCallback((payload: ColorSizeMatrixDraft) => {
+    setSelectedColors(new Set(payload.selectedColorIds));
+    setSelectedSizes(new Set(payload.selectedSizeIds));
+    setCombos(payload.combos);
+    setError('');
+    setSuccess('');
+  }, []);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'color-size-matrix',
+    editingId: null,
+    value: draftSnapshot,
+    isEmpty: (d) => d.combos.length === 0 && d.selectedColorIds.length === 0 && d.selectedSizeIds.length === 0,
+    applyRestore: applyColorSizeDraft,
+    restoreMessage: 'يوجد مسودة تركيب ألوان ومقاسات غير محفوظة',
+  });
+
   const { data: colorsRes } = useApiQuery<ClothingColor[]>(
     queryKeys.clothingColors(),
     '/inventory/clothing-matrix/colors',
@@ -102,6 +133,7 @@ export default function ColorSizeMatrixPage() {
   }, [combosRes, hydrated]);
 
   const handleNew = () => {
+    clearDraft();
     setSelectedColors(new Set());
     setSelectedSizes(new Set());
     setCombos([]);
@@ -168,6 +200,7 @@ export default function ColorSizeMatrixPage() {
           }))
         );
       }
+      clearDraft();
       setSuccess('تم حفظ تركيبات الألوان والمقاسات');
       invalidateQuery(['clothing-combos']);
     } catch (err: unknown) {
@@ -242,6 +275,14 @@ export default function ColorSizeMatrixPage() {
         { id: 'print', label: 'طباعة الباركود', onClick: printBarcodes, disabled: combos.length === 0 },
       ]}
     >
+      <MasterCardDraftRestoreGate<ColorSizeMatrixDraft>
+        editingId={null}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyColorSizeDraft}
+        message="يوجد مسودة تركيب ألوان ومقاسات غير محفوظة."
+      />
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 

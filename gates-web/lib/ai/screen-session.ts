@@ -35,5 +35,7 @@ export function inferDocumentStatus(statusTone: string, statusLabel: string): Ai
   const label = String(statusLabel ?? '').trim();
   if (/ملغ|cancelled/i.test(label)) return 'CANCELLED';
   if (statusTone === 'success' || /مرحّل|مرحل|posted/i.test(label)) return 'POSTED';
+  if (/غير\s*مرح/.test(label)) return 'DRAFT';
+  if (/مسودة|جديد/i.test(label)) return 'DRAFT';
   return 'DRAFT';
 }

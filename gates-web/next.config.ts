@@ -49,7 +49,10 @@ const nextConfig: NextConfig = {
    */
   async rewrites() {
     const backendOrigin = resolveBackendOrigin();
-    return [{ source: '/api/v1/:path*', destination: `${backendOrigin}/api/v1/:path*` }];
+    return [
+      { source: '/backend-health', destination: `${backendOrigin}/health` },
+      { source: '/api/v1/:path*', destination: `${backendOrigin}/api/v1/:path*` },
+    ];
   },
   /** Sidebar / legacy URLs that don't match on-disk route folders */
   async redirects() {

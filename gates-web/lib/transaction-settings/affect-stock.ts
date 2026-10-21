@@ -1,8 +1,7 @@
 import type { TransactionSettings } from '@/lib/transaction-settings/types';
 import type { InvoiceLineColumnId } from '@/lib/invoices/invoiceLineColumns';
 import {
-  PURCHASE_INVOICE_SOURCE_TYPES,
-  SALES_INVOICE_SOURCE_TYPES,
+  complementarySourceTypes,
   type SelectableSourceType,
 } from '@/lib/invoices/sourceDocument';
 
@@ -12,9 +11,8 @@ export function transactionAffectsStock(
   return settings?.affectStock !== false;
 }
 
-const STOCK_RELATED_COLUMN_IDS = new Set<InvoiceLineColumnId>([
-  'warehouse',
-  'stockBalance',
+/** Hidden on non-stock invoices — batch/serial only (warehouse + balance stay optional in the grid). */
+const STOCK_ONLY_COLUMN_IDS = new Set<InvoiceLineColumnId>([
   'batchAndExpiry',
   'batchNumber',
   'expiryDate',
@@ -27,27 +25,26 @@ export function invoiceLineColumnsForStockPolicy(
   affectsStock: boolean
 ): InvoiceLineColumnId[] {
   if (affectsStock) return columnIds;
-  return columnIds.filter((id) => !STOCK_RELATED_COLUMN_IDS.has(id));
+  return columnIds.filter((id) => !STOCK_ONLY_COLUMN_IDS.has(id));
 }
 
+const DEFAULT_INVOICE_STOCK_POLICIES = {
+  salesInvoiceAffectsStock: true,
+  purchaseInvoiceAffectsStock: true,
+};
+
 /**
- * فاتورة تؤثر على المخزن → تحميل من مستندات تجارية فقط (عرض سعر / أمر).
- * فاتورة لا تؤثر على المخزن → يمكن تحميل إذن صرف (المخزون خُصم بالإذن مسبقاً).
+ * فاتورة تؤثر على المخزن → أقسام لا تؤثر على المخزن.
+ * لا تؤثر → كل الأقسام.
  */
 export function salesInvoiceSourceTypes(affectsStock: boolean): readonly SelectableSourceType[] {
-  if (affectsStock) {
-    return SALES_INVOICE_SOURCE_TYPES.filter((t) => t !== 'DELIVERY_NOTE');
-  }
-  return SALES_INVOICE_SOURCE_TYPES;
+  return complementarySourceTypes(affectsStock, DEFAULT_INVOICE_STOCK_POLICIES);
 }
 
 /**
- * فاتورة مشتريات تؤثر على المخزن → أمر/فاتورة فقط (بدون إذن إضافة).
- * لا تؤثر → يمكن تحميل من إذن إضافة مرحّل.
+ * فاتورة مشتريات تؤثر على المخزن → أقسام لا تؤثر على المخزن.
+ * لا تؤثر → كل الأقسام.
  */
 export function purchaseInvoiceSourceTypes(affectsStock: boolean): readonly SelectableSourceType[] {
-  if (affectsStock) {
-    return PURCHASE_INVOICE_SOURCE_TYPES;
-  }
-  return [...PURCHASE_INVOICE_SOURCE_TYPES, 'GOODS_RECEIPT'];
+  return complementarySourceTypes(affectsStock, DEFAULT_INVOICE_STOCK_POLICIES);
 }

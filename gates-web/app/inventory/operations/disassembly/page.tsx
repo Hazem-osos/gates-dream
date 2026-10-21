@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { pinDocumentTabQuery } from '@/lib/navigation/tab-memory';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { GenericRecordsList } from '@/components/erp/GenericRecordsList';
@@ -31,10 +32,19 @@ import {
 } from '@/lib/inventory/use-document-post-mutation';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { printManufacturingVoucher } from '@/lib/print/printManufacturingVoucher';
+import { maybeAutoPrintAfterSave } from '@/lib/printer/print-prefs';
 import { useStoreDocumentSerial } from '@/lib/inventory/use-store-document-serial';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
+import {
+  useApplyDefaultWarehouseFromTransactionSettings,
+  useTransactionDocumentSettings,
+} from '@/lib/transaction-settings/use-transaction-document-settings';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
-import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { isUnsetOrDefaultWarehouse } from '@/lib/drafts/form-lines-draft';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
+import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
 
 type ParentItem = {
   id: string;
@@ -103,13 +113,16 @@ type DisassemblyDraft = {
   lines: DisassemblyComponentLine[];
 };
 
-function isDisassemblyDraftEmpty(draft: DisassemblyDraft): boolean {
+function isDisassemblyDraftEmpty(
+  draft: DisassemblyDraft,
+  defaultWarehouseId?: string | null,
+): boolean {
   return (
     !draft.serial.trim() &&
     !draft.description.trim() &&
     !draft.parentItemId &&
-    !draft.sourceWarehouseId &&
-    !draft.targetWarehouseId &&
+    isUnsetOrDefaultWarehouse(draft.sourceWarehouseId, defaultWarehouseId) &&
+    isUnsetOrDefaultWarehouse(draft.targetWarehouseId, defaultWarehouseId) &&
     !draft.costCenterId.trim() &&
     !(draft.parentUnitCost > 0) &&
     !draft.lines.some(isEnteredDisassemblyLine)
@@ -119,13 +132,24 @@ function isDisassemblyDraftEmpty(draft: DisassemblyDraft): boolean {
 function DisassemblyPageInner() {
   const searchParams = useOwnTabSearchParams();
   const invalidateQuery = useInvalidateQuery();
-  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
+  const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
+  const {
+    autoPostOnSave,
+    autoPrintOnSave,
+    saveLabel: legacySaveLabel,
+    defaultWarehouseId: txDefaultWarehouseId,
+  } = useTransactionDocumentSettings('STOCK_DISASSEMBLY');
+  const disassemblySaveLabel = autoPostOnSave ? 'حفظ وترحيل التفكيك' : legacySaveLabel;
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost(
+    autoPostOnSave
+  );
   const [selectedId, setSelectedId] = useState<string | null>(
     () => searchParams.get('id')?.trim() || null
   );
   const [browseOpen, setBrowseOpen] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [restorePending, setRestorePending] = useState(false);
   const [explodePending, setExplodePending] = useState(false);
   const postAfterSaveRef = useRef(false);
 
@@ -143,12 +167,21 @@ function DisassemblyPageInner() {
   const [glSkipped, setGlSkipped] = useState(false);
   const [parentUnitCost, setParentUnitCost] = useState(0);
   const [lines, setLines] = useState<DisassemblyComponentLine[]>([emptyDisassemblyComponentLine()]);
-  const [viewLocked, setViewLocked] = useState(false);
 
   const { serialAutomatic, invalidateNextSerial } = useStoreDocumentSerial({
     kind: 'disassembly',
     enabled: !selectedId,
     setSerial,
+  });
+
+  useApplyDefaultWarehouseFromTransactionSettings({
+    selectedId,
+    warehouseId: sourceWarehouseId,
+    defaultWarehouseId: txDefaultWarehouseId,
+    setWarehouseId: (id) => {
+      setSourceWarehouseId(id);
+      if (!targetWarehouseId) setTargetWarehouseId(id);
+    },
   });
 
   const { data: itemsResponse } = useApiQuery<ParentItem[]>(
@@ -201,8 +234,16 @@ function DisassemblyPageInner() {
         notes: '',
       }))
     );
-    setViewLocked(true);
   }, [loaded, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setMode('create');
+      return;
+    }
+    if (isCancelled || isPosted) lockToView();
+    else setMode('edit');
+  }, [isCancelled, isPosted, lockToView, selectedId, setMode]);
 
   const entered = useMemo(() => lines.filter(isEnteredDisassemblyLine), [lines]);
   const recoveredValue = useMemo(
@@ -210,7 +251,7 @@ function DisassemblyPageInner() {
     [entered]
   );
   const parentTotal = parentUnitCost * (disassemblyQuantity || 1);
-  const readOnly = isPosted || isCancelled || viewLocked;
+  const readOnly = isPosted || isCancelled || isReadOnly;
 
   const draftSnapshot = useMemo<DisassemblyDraft>(
     () => ({
@@ -240,7 +281,7 @@ function DisassemblyPageInner() {
   );
 
   const applyDisassemblyDraft = useCallback((payload: DisassemblyDraft) => {
-    setViewLocked(false);
+    setMode('create');
     setSelectedId(null);
     setSerial(payload.serial);
     setDescription(payload.description);
@@ -259,7 +300,7 @@ function DisassemblyPageInner() {
     setJournalEntryId(null);
     setGlSkipped(false);
     setError('');
-    window.history.replaceState(null, '', window.location.pathname);
+    pinDocumentTabQuery(null);
   }, []);
 
   const {
@@ -274,14 +315,14 @@ function DisassemblyPageInner() {
     value: draftSnapshot,
     enabled: !selectedId && !isPosted && !isCancelled,
     applyRestore: applyDisassemblyDraft,
-    isEmpty: isDisassemblyDraftEmpty,
+    isEmpty: (draft) => isDisassemblyDraftEmpty(draft, txDefaultWarehouseId),
     restoreMessage: 'تم استعادة مسودة أمر التفكيك',
   });
 
   const resetNew = useCallback(() => {
     clearDraft();
     resetKeepPosted();
-    setViewLocked(false);
+    setMode('create');
     setSelectedId(null);
     setSerial('');
     void invalidateNextSerial();
@@ -300,27 +341,20 @@ function DisassemblyPageInner() {
     setLines([emptyDisassemblyComponentLine()]);
     setError('');
     setSuccess('');
-    window.history.replaceState(null, '', window.location.pathname);
+    pinDocumentTabQuery(null);
   }, [clearDraft, invalidateNextSerial, resetKeepPosted]);
-
-  const handleRestoreDraft = () => {
-    const payload = acceptRestore();
-    if (!payload) return;
-    applyDisassemblyDraft(payload);
-    setSuccess('تم استعادة مسودة أمر التفكيك');
-  };
 
   const stayOnDisassembly = (id?: string | null, serialNumber?: string | null) => {
     if (!id) return;
     setSelectedId(id);
     if (serialNumber) setSerial(serialNumber);
-    window.history.replaceState(null, '', `?id=${id}`);
+    pinDocumentTabQuery(id);
     invalidateStockViews(invalidateQuery);
   };
 
   const openDisassembly = (id: string) => {
     setSelectedId(id);
-    window.history.replaceState(null, '', `?id=${id}`);
+    pinDocumentTabQuery(id);
   };
 
   const applyPostResponse = (res: ApiResponse<unknown>) => {
@@ -329,7 +363,29 @@ function DisassemblyPageInner() {
     setGlSkipped(skipped);
   };
 
+  const printDisassembly = () => {
+    const parent = items.find((i) => i.id === parentItemId);
+    printManufacturingVoucher({
+      title: 'أمر التفكيك',
+      number: serial,
+      date,
+      description,
+      parentItemLabel: parent?.arabicName,
+      quantity: disassemblyQuantity,
+      rows: entered.map((line) => ({
+        code: line.itemCode,
+        name: line.itemName,
+        quantity: line.quantity,
+        unitCost: line.unitCost,
+        total: disassemblyLineTotal(line),
+      })),
+      totalAmount: parentTotal,
+      totalsLabel: 'قيمة الصنف المفكك',
+    });
+  };
+
   const finishDisassemblySave = (posted: boolean, id?: string | null, number?: string | null) => {
+    maybeAutoPrintAfterSave(autoPrintOnSave, printDisassembly);
     finishDocumentSave({
       label: 'تفكيك',
       number,
@@ -427,6 +483,31 @@ function DisassemblyPageInner() {
 
   const unpostMutation = useDocumentPostMutation('/inventory/disassemblies', selectedId, 'unpost');
 
+  const handleRestoreCancelled = async () => {
+    if (!selectedId || restorePending) return;
+    setRestorePending(true);
+    try {
+      await restoreCancelledDocument({
+        restorePath: `/inventory/disassemblies/${selectedId}/restore`,
+        postPath: `/inventory/disassemblies/${selectedId}/post`,
+        kind: 'named',
+        autoPostOnSave,
+      });
+      setIsCancelled(false);
+      const posted = autoPostOnSave === true;
+      setIsPosted(posted);
+      if (posted) lockToView();
+      else setMode('edit');
+      invalidateQuery(['disassembly', selectedId]);
+      invalidateStockViews(invalidateQuery);
+      setSuccess(posted ? 'تمت الاستعادة والترحيل' : 'تمت الاستعادة — المستند غير مرحّل');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر الاستعادة');
+    } finally {
+      setRestorePending(false);
+    }
+  };
+
   const cancelMutation = useApiMutation<unknown, Record<string, never>>(
     selectedId ? `/inventory/disassemblies/${selectedId}/cancel` : '/inventory/disassemblies',
     'POST',
@@ -436,6 +517,7 @@ function DisassemblyPageInner() {
         setIsCancelled(true);
         setSuccess('تم إلغاء أمر التفكيك');
         invalidateQuery(['disassemblies']);
+        if (selectedId) invalidateQuery(['disassembly', selectedId]);
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر إلغاء التفكيك'),
     }
@@ -481,6 +563,12 @@ function DisassemblyPageInner() {
       postAfterSaveRef.current = false;
       setError(err instanceof Error ? err.message : 'تحقق من البيانات');
     }
+  };
+
+  const handleSaveDraft = () => {
+    if (isPosted || isCancelled) return;
+    postAfterSaveRef.current = autoPostOnSave;
+    handleSave();
   };
 
   const handleSaveAndPost = () => {
@@ -548,13 +636,17 @@ function DisassemblyPageInner() {
         {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
         {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
-        {restoreOffer && !selectedId ? (
-          <PageDraftRestoreBanner
-            message="يوجد مسودة غير محفوظة لأمر التفكيك من قبل ما خرجت من الصفحة."
-            onRestore={handleRestoreDraft}
-            onDismiss={dismissRestore}
-          />
-        ) : null}
+        <PageDraftRestoreGate<DisassemblyDraft>
+          restoreOffer={restoreOffer}
+          hide={Boolean(selectedId)}
+          message="يوجد مسودة أمر تفكيك غير محفوظة."
+          acceptRestore={acceptRestore}
+          dismissRestore={dismissRestore}
+          onRestored={(payload) => {
+            applyDisassemblyDraft(payload);
+            setSuccess('تم استعادة مسودة أمر التفكيك');
+          }}
+        />
 
         <ItemDisassemblyHeader
           docNumber={serial}
@@ -563,6 +655,7 @@ function DisassemblyPageInner() {
           onSerialChange={setSerial}
           isPosted={isPosted}
           isCancelled={isCancelled}
+          documentId={selectedId}
           parentItemId={parentItemId}
           onParentItemId={setParentItemId}
           parentItems={items}
@@ -585,93 +678,62 @@ function DisassemblyPageInner() {
           explodePending={explodePending}
           canExplode={Boolean(parentItemId) && disassemblyQuantity > 0 && !isPosted && !isCancelled}
           onExplode={() => void handleExplodeBOM()}
-          onSaveDraft={handleSaveAndPost}
+          onSaveDraft={handleSaveDraft}
           onCancel={resetNew}
+          saveLabel={disassemblySaveLabel}
           savePending={savePending}
           canSave={!readOnly && !savePending}
           onBrowseList={() => setBrowseOpen(true)}
-          moreMenuItems={[
-            { id: 'new', label: 'جديد', onClick: resetNew },
-            {
-              id: 'edit',
-              label: 'تعديل',
-              disabled: !selectedId || isPosted || isCancelled || !viewLocked,
-              onClick: () => {
-                if (isPosted) {
-                  setError('يجب فك الترحيل أولاً للتعديل');
-                  return;
+          onRestore={() => void handleRestoreCancelled()}
+          restorePending={restorePending}
+          menuActions={{
+            transactionSettingsDocumentType: 'STOCK_DISASSEMBLY',
+            onTransactionSettingsSaved: () => {
+              invalidateAfterTransactionSettingsSave(invalidateQuery, 'STOCK_DISASSEMBLY');
+              void invalidateNextSerial();
+            },
+            onNew: resetNew,
+            onEdit: () => {
+              if (isPosted || isCancelled) {
+                setError('يجب فك الترحيل أولاً للتعديل');
+                return;
+              }
+              unlockForEdit();
+              setSuccess('');
+            },
+            onPost: () => handleSaveAndPost(),
+            postLabel: 'ترحيل أمر التفكيك',
+            postPending: savePending,
+            onUnpost: () => {
+              if (!selectedId) return;
+              unpostMutation.mutate(
+                {},
+                {
+                  onSuccess: () => {
+                    setIsPosted(false);
+                    setIsCancelled(false);
+                    setGlSkipped(false);
+                    setMode('edit');
+                    markUnpostedForEdit();
+                    setSuccess('تم فك ترحيل التفكيك');
+                    stayOnDisassembly(selectedId);
+                    invalidateQuery(['disassembly', selectedId]);
+                    invalidateQuery(['journal-entries']);
+                    invalidateQuery(['journal-entry']);
+                  },
+                  onError: (err: ApiError) => setError(err.message || 'فشل فك الترحيل'),
                 }
-                setViewLocked(false);
-                setSuccess('');
-              },
+              );
             },
-            {
-              id: 'post',
-              label: 'ترحيل أمر التفكيك',
-              disabled: isPosted || isCancelled || savePending,
-              onClick: () => handleSaveAndPost(),
+            unpostPending: unpostMutation.isPending,
+            onPrint: printDisassembly,
+            printLabel: 'طباعة أمر التفكيك',
+            onVoid: () => {
+              if (selectedId) cancelMutation.mutate({});
             },
-            {
-              id: 'unpost',
-              label: 'فك ترحيل التفكيك',
-              disabled: !selectedId || !isPosted || unpostMutation.isPending,
-              onClick: () => {
-                if (!selectedId) return;
-                void confirmAction('فك ترحيل أمر التفكيك؟ سيتم إرجاع الكميات للمخزن.').then((ok) => {
-                  if (ok)
-                    unpostMutation.mutate(
-                      {},
-                      {
-                        onSuccess: () => {
-                          setIsPosted(false);
-                          setJournalEntryId(null);
-                          setGlSkipped(false);
-                          setViewLocked(false);
-                          markUnpostedForEdit();
-                          setSuccess('تم فك ترحيل التفكيك');
-                          stayOnDisassembly(selectedId);
-                          invalidateQuery(['disassembly', selectedId]);
-                        },
-                        onError: (err: ApiError) => setError(err.message || 'فشل فك الترحيل'),
-                      }
-                    );
-                });
-              },
-            },
-            {
-              id: 'print',
-              label: 'طباعة أمر التفكيك',
-              onClick: () => {
-                const parent = items.find((i) => i.id === parentItemId);
-                printManufacturingVoucher({
-                  title: 'أمر التفكيك',
-                  number: serial,
-                  date,
-                  description,
-                  parentItemLabel: parent?.arabicName,
-                  quantity: disassemblyQuantity,
-                  rows: entered.map((line) => ({
-                    code: line.itemCode,
-                    name: line.itemName,
-                    quantity: line.quantity,
-                    unitCost: line.unitCost,
-                    total: disassemblyLineTotal(line),
-                  })),
-                  totalAmount: parentTotal,
-                  totalsLabel: 'قيمة الصنف المفكك',
-                });
-              },
-            },
-            {
-              id: 'cancel',
-              label: 'إلغاء التفكيك',
-              disabled: !selectedId || isPosted || isCancelled,
-              destructive: true,
-              onClick: () => {
-                if (selectedId) cancelMutation.mutate({});
-              },
-            },
-          ]}
+            voidLabel: 'إلغاء التفكيك',
+            voidPending: cancelMutation.isPending,
+          }}
         />
 
         <DisassemblyLinesTable
@@ -679,6 +741,7 @@ function DisassemblyPageInner() {
           lines={lines}
           onChange={setLines}
           warehouseId={targetWarehouseId}
+          asOfDate={date}
           disabled={readOnly}
         />
 
@@ -722,18 +785,10 @@ function DisassemblyPageInner() {
                 getValue: (r) => Number(r.totalAmount ?? 0).toLocaleString('ar-EG'),
               },
             ]}
-            resolveStatus={(r) =>
-              r.isCancelled
-                ? { variant: 'danger', label: 'ملغي' }
-                : r.isPosted
-                  ? { variant: 'success', label: 'مرحّل' }
-                  : { variant: 'warning', label: selectedId ? 'غير مرحّل' : 'جديد' }
-            }
             onSelect={(id) => {
               setSelectedId(id);
-              setViewLocked(true);
               setBrowseOpen(false);
-              window.history.replaceState(null, '', `?id=${id}`);
+              pinDocumentTabQuery(id);
             }}
           />
         </DocumentBrowseDrawer>
@@ -744,8 +799,10 @@ function DisassemblyPageInner() {
 
 export default function DisassemblyPage() {
   return (
-    <Suspense fallback={<p className="p-6 text-sm text-muted-foreground">جاري فتح شاشة التفكيك…</p>}>
-      <DisassemblyPageInner />
-    </Suspense>
+    <DocumentModeProvider>
+      <Suspense fallback={<p className="p-6 text-sm text-muted-foreground">جاري فتح شاشة التفكيك…</p>}>
+        <DisassemblyPageInner />
+      </Suspense>
+    </DocumentModeProvider>
   );
 }

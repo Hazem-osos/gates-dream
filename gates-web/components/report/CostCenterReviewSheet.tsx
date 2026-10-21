@@ -1,5 +1,8 @@
 'use client';
 
+import { AccountLedgerLink } from '@/components/report/AccountLedgerLink';
+import { BalanceRowEye } from '@/components/report/BalanceAnalysisProvider';
+
 type Center = { id: string; code: string; name: string };
 type Cell = { debit?: number; credit?: number; balance?: number };
 type Row = {
@@ -27,7 +30,15 @@ function readCenters(summary: unknown): Center[] {
   );
 }
 
-export function CostCenterReviewSheet({ rows, summary }: { rows: Record<string, unknown>[]; summary?: unknown }) {
+export function CostCenterReviewSheet({
+  rows,
+  summary,
+  drillQuery,
+}: {
+  rows: Record<string, unknown>[];
+  summary?: unknown;
+  drillQuery?: Record<string, string>;
+}) {
   const centers = readCenters(summary);
   const accounts = rows as Row[];
   const totals = centers.map((center) =>
@@ -50,10 +61,13 @@ export function CostCenterReviewSheet({ rows, summary }: { rows: Record<string, 
         <table className="w-max min-w-full border-collapse text-sm" dir="rtl">
           <thead>
             <tr className="bg-[#0E4C6E] text-white">
-              <th className="sticky right-0 z-20 w-28 border-e border-white/10 bg-[#0E4C6E] px-3 py-3 text-right font-medium">
+              <th className="sticky right-0 z-20 w-10 border-e border-white/10 bg-[#0E4C6E] px-1 py-3 no-print">
+                تحليل
+              </th>
+              <th className="sticky right-10 z-20 w-28 border-e border-white/10 bg-[#0E4C6E] px-3 py-3 text-right font-medium">
                 رقم الحساب
               </th>
-              <th className="sticky right-28 z-20 min-w-52 border-e border-white/10 bg-[#0E4C6E] px-3 py-3 text-right font-medium">
+              <th className="sticky right-[9.5rem] z-20 min-w-52 border-e border-white/10 bg-[#0E4C6E] px-3 py-3 text-right font-medium">
                 اسم الحساب
               </th>
               {centers.map((center) => (
@@ -64,8 +78,9 @@ export function CostCenterReviewSheet({ rows, summary }: { rows: Record<string, 
               ))}
             </tr>
             <tr className="bg-[#1787B8] text-xs text-white">
-              <th className="sticky right-0 z-20 border-e border-white/10 bg-[#1787B8]" />
-              <th className="sticky right-28 z-20 border-e border-white/10 bg-[#1787B8]" />
+              <th className="sticky right-0 z-20 border-e border-white/10 bg-[#1787B8] no-print" />
+              <th className="sticky right-10 z-20 border-e border-white/10 bg-[#1787B8]" />
+              <th className="sticky right-[9.5rem] z-20 border-e border-white/10 bg-[#1787B8]" />
               {centers.map((center) => (
                 <FragmentHeaders key={center.id} />
               ))}
@@ -75,27 +90,48 @@ export function CostCenterReviewSheet({ rows, summary }: { rows: Record<string, 
             {accounts.map((row, index) => (
               <tr key={row.accountId ?? index} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                 <td
-                  className={`sticky right-0 z-10 border-b border-e border-slate-100 px-3 py-2 tabular-nums text-slate-600 ${
+                  className={`sticky right-0 z-10 border-b border-e border-slate-100 px-1 py-2 text-center no-print ${
                     index % 2 === 0 ? 'bg-white' : 'bg-slate-50'
                   }`}
                 >
-                  {row.code}
+                  <BalanceRowEye
+                    accountId={row.accountId}
+                    label={[row.code, row.account].filter(Boolean).join(' — ')}
+                    query={drillQuery}
+                  />
                 </td>
                 <td
-                  className={`sticky right-28 z-10 border-b border-e border-slate-100 px-3 py-2 font-medium text-slate-800 ${
+                  className={`sticky right-10 z-10 border-b border-e border-slate-100 px-3 py-2 tabular-nums text-slate-600 ${
                     index % 2 === 0 ? 'bg-white' : 'bg-slate-50'
                   }`}
                 >
-                  {row.account}
+                  <AccountLedgerLink accountId={row.accountId} query={drillQuery} showIcon={false}>
+                    {row.code}
+                  </AccountLedgerLink>
+                </td>
+                <td
+                  className={`sticky right-[9.5rem] z-10 border-b border-e border-slate-100 px-3 py-2 font-medium text-slate-800 ${
+                    index % 2 === 0 ? 'bg-white' : 'bg-slate-50'
+                  }`}
+                >
+                  <AccountLedgerLink accountId={row.accountId} query={drillQuery} showIcon={false}>
+                    {row.account}
+                  </AccountLedgerLink>
                 </td>
                 {centers.map((center) => {
                   const cell = row.cells?.[center.id];
+                  const scoped = {
+                    ...(drillQuery ?? {}),
+                    costCenterId: center.id,
+                  };
                   return (
                     <FragmentCells
                       key={center.id}
                       debit={amount(cell?.debit)}
                       credit={amount(cell?.credit)}
                       balance={amount(cell?.balance)}
+                      accountId={row.accountId}
+                      query={scoped}
                     />
                   );
                 })}
@@ -104,7 +140,7 @@ export function CostCenterReviewSheet({ rows, summary }: { rows: Record<string, 
           </tbody>
           <tfoot>
             <tr className="bg-[#0E4C6E] font-semibold text-white">
-              <td className="sticky right-0 z-10 bg-[#0E4C6E] px-3 py-3" colSpan={2}>
+              <td className="sticky right-0 z-10 bg-[#0E4C6E] px-3 py-3" colSpan={3}>
                 المجموع
               </td>
               {totals.map((total, index) => (
@@ -144,19 +180,32 @@ function FragmentCells({
   credit,
   balance,
   footer = false,
+  accountId,
+  query,
 }: {
   debit: number;
   credit: number;
   balance: number;
   footer?: boolean;
+  accountId?: string;
+  query?: Record<string, string>;
 }) {
   const tone = footer ? 'text-white' : '';
+  const figure = (value: number) => {
+    if (footer) return money(value);
+    if (!value) return <Figure value={value} />;
+    return (
+      <AccountLedgerLink accountId={accountId} query={query} showIcon={false}>
+        {money(value)}
+      </AccountLedgerLink>
+    );
+  };
   return (
     <>
-      <td className={`border-b border-slate-100 px-2 py-2 text-center ${tone}`}>{footer ? money(debit) : <Figure value={debit} />}</td>
-      <td className={`border-b border-slate-100 px-2 py-2 text-center ${tone}`}>{footer ? money(credit) : <Figure value={credit} />}</td>
+      <td className={`border-b border-slate-100 px-2 py-2 text-center ${tone}`}>{figure(debit)}</td>
+      <td className={`border-b border-slate-100 px-2 py-2 text-center ${tone}`}>{figure(credit)}</td>
       <td className={`border-b border-e border-slate-100 px-2 py-2 text-center font-medium ${tone}`}>
-        {footer ? money(balance) : <Figure value={balance} />}
+        {figure(balance)}
       </td>
     </>
   );

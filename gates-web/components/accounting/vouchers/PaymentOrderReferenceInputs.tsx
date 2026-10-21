@@ -67,6 +67,10 @@ export function PaymentOrderReferenceInputs({
           onErrorRef.current('أمر الصرف غير موجود');
           return;
         }
+        if (order.isPosted !== true) {
+          onErrorRef.current('يجب ترحيل أمر الصرف أولاً ثم تحميله على سند الصرف');
+          return;
+        }
         if (order.executionStatus === 'COMPLETED') {
           onErrorRef.current('تم صرف هذا الأمر بالفعل ولا يمكن تحميله مرة أخرى');
           return;
@@ -84,7 +88,7 @@ export function PaymentOrderReferenceInputs({
   }, [departmentId, departments, disabled, number]);
 
   return (
-    <div className="flex justify-end lg:col-span-2">
+    <div className="inline-flex">
       <DocumentSectionNumberPair>
         <div className="w-[8.5rem] shrink-0">
           <label className={sectionNumberLabelClass}>القسم</label>

@@ -60,7 +60,7 @@ const emptyForm = (startDate = todayIso(), code = ''): FormState => ({
 });
 
 function AccountingPeriodsPageInner() {
-  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const { isReadOnly, unlockForEdit, setMode } = useDocumentMode();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
@@ -120,7 +120,7 @@ function AccountingPeriodsPageInner() {
   };
 
   const hydrate = (row: PeriodRow) => {
-    lockToView();
+    unlockForEdit();
     setSelectedId(row.id);
     setForm({
       code: row.code ?? '',

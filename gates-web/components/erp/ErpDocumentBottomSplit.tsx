@@ -1,10 +1,14 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Card, CardContent } from '@/app/components/ui/card';
 import { FinancialSummaryCard, type FinancialSummaryRow } from '@/components/erp/FinancialSummaryCard';
 import { GeneratedJournalTab } from '@/components/erp/GeneratedJournalTab';
 import { LiveJournalPreviewTable } from '@/components/erp/LiveJournalPreviewTable';
+import { AuditActivityTab } from '@/components/erp/AuditActivityTab';
+import type { DocumentEntityType } from '@/app/components/accounting/DocumentActivityLog';
+import { useApiQuery } from '@/lib/hooks/useApi';
+import { resolveLinkedJournalId } from '@/lib/documents/linked-journal-preview';
 
 export type ErpBottomTab = {
   id: string;
@@ -23,6 +27,7 @@ type Props = {
   activeTabId?: string;
   onActiveTabChange?: (tabId: string) => void;
   journalEntryId?: string | null;
+  sourceDocumentId?: string | null;
   journalOptions?: { id: string; label: string }[];
   onJournalIdChange?: (id: string) => void;
   showJournalTab?: boolean;
@@ -30,6 +35,14 @@ type Props = {
   currencyCode?: string | null;
   highlightHeader?: ReactNode;
   besideNet?: ReactNode;
+  /** Hide journal/stock tabs — show financial summary only (orders & quotes). */
+  hideLeftPanel?: boolean;
+  netOnly?: boolean;
+  /** Appends «سجل النشاط» when not already in `tabs`. */
+  auditLog?: {
+    entityType: DocumentEntityType;
+    entityId: string | null;
+  };
 };
 
 export function ErpDocumentBottomSplit({
@@ -43,6 +56,7 @@ export function ErpDocumentBottomSplit({
   activeTabId,
   onActiveTabChange,
   journalEntryId,
+  sourceDocumentId,
   journalOptions,
   onJournalIdChange,
   showJournalTab = true,
@@ -50,8 +64,23 @@ export function ErpDocumentBottomSplit({
   currencyCode,
   highlightHeader,
   besideNet,
+  hideLeftPanel = false,
+  netOnly = false,
+  auditLog,
 }: Props) {
   const activeJournalOption = journalOptions?.find((option) => option.id === journalEntryId) ?? journalOptions?.[0];
+  const sourceId = sourceDocumentId?.trim() || null;
+  const { data: sourceJournals } = useApiQuery<Array<{ id?: string | null }>>(
+    ['journal-entries-by-source', sourceId],
+    '/accounting/journal-entries',
+    { sourceId, limit: 5, sortBy: 'createdAt', sortDir: 'desc' },
+    { enabled: Boolean(sourceId), retry: false, skipErrorNotify: true }
+  );
+  const previewJournalEntryId =
+    resolveLinkedJournalId(
+      journalEntryId || activeJournalOption?.id || null,
+      sourceJournals?.data
+    );
   const journalPreview = (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -72,18 +101,34 @@ export function ErpDocumentBottomSplit({
           </label>
         ) : null}
         <GeneratedJournalTab
-          journalEntryId={journalEntryId || activeJournalOption?.id}
+          journalEntryId={previewJournalEntryId}
           journalNumber={activeJournalOption?.label}
         />
       </div>
       <LiveJournalPreviewTable
-        journalEntryId={journalEntryId}
+        journalEntryId={previewJournalEntryId}
+        sourceDocumentId={sourceDocumentId}
         title=""
         compact
         emptyTitle={journalEmptyTitle}
       />
     </div>
   );
+  const extraTabs = useMemo(() => {
+    const base = tabs.filter((t) => t.id !== 'gl' && t.id !== 'audit');
+    if (!auditLog || tabs.some((t) => t.id === 'audit')) return base;
+    return [
+      ...base,
+      {
+        id: 'audit',
+        label: 'سجل النشاط',
+        content: (
+          <AuditActivityTab entityType={auditLog.entityType} entityId={auditLog.entityId} />
+        ),
+      },
+    ];
+  }, [auditLog, tabs]);
+
   const allTabs: ErpBottomTab[] = showJournalTab
     ? [
         {
@@ -91,9 +136,9 @@ export function ErpDocumentBottomSplit({
           label: 'معاينة القيد المحاسبي',
           content: journalPreview,
         },
-        ...tabs.filter((t) => t.id !== 'gl'),
+        ...extraTabs,
       ]
-    : tabs;
+    : extraTabs;
 
   const [internalTab, setInternalTab] = useState(defaultTabId ?? allTabs[0]?.id ?? 'gl');
   const isControlled = activeTabId !== undefined;
@@ -121,6 +166,28 @@ export function ErpDocumentBottomSplit({
     </button>
   );
 
+  const summaryCard = (
+    <FinancialSummaryCard
+      rows={financialRows}
+      netAmount={netAmount}
+      netLabel={netLabel}
+      currencyCode={currencyCode}
+      showTafqeet={showTafqeet}
+      footer={financialFooter}
+      highlightHeader={highlightHeader}
+      besideNet={besideNet}
+      netOnly={netOnly}
+    />
+  );
+
+  if (hideLeftPanel) {
+    return (
+      <div className="erp-keep-cols mt-4 flex justify-end" dir="rtl">
+        <div className="min-w-0 w-full max-w-md">{summaryCard}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="erp-keep-cols mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" dir="ltr">
       <Card className="flex min-h-[220px] min-w-0 max-w-full flex-col overflow-hidden rounded-xl border-slate-200 shadow-sm">
@@ -136,16 +203,7 @@ export function ErpDocumentBottomSplit({
       </Card>
 
       <div className="min-w-0" dir="rtl">
-        <FinancialSummaryCard
-          rows={financialRows}
-          netAmount={netAmount}
-          netLabel={netLabel}
-          currencyCode={currencyCode}
-          showTafqeet={showTafqeet}
-          footer={financialFooter}
-          highlightHeader={highlightHeader}
-          besideNet={besideNet}
-        />
+        {summaryCard}
       </div>
     </div>
   );

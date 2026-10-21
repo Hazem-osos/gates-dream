@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { ErpDocumentPageHeader, type ErpHeaderMenuItem } from '@/components/erp/ErpDocumentPageHeader';
 import type { StatusTone } from '@/components/ui/StatusBadge';
+import type { DocumentLifecycleInput } from '@/lib/documents/document-status-labels';
 import type { DocumentActionExtraItem, DocumentActionMenuProps } from './DocumentActionMenu';
 import type { WhatsAppInvoicePayload } from '@/lib/whatsapp-share';
 import type { DocumentNavEntity } from './DocumentPreviousBrowser';
@@ -12,13 +13,15 @@ type Props = {
   breadcrumbs: { href?: string; label: string }[];
   title: string;
   docNumber?: string;
-  statusTone: StatusTone;
-  statusLabel: string;
+  statusTone?: StatusTone;
+  statusLabel?: string;
+  lifecycle?: DocumentLifecycleInput;
   onSaveDraft: () => void;
   saveLabel?: string;
   savePending?: boolean;
   canSave?: boolean;
   extraActions?: ReactNode;
+  sourceActions?: ReactNode;
   autoSaveIndicator?: ReactNode;
   favoriteHref?: string;
   favoriteLabel?: string;
@@ -53,11 +56,13 @@ export function DocumentHeaderBar(props: Props) {
       docNumber={props.docNumber}
       statusTone={props.statusTone}
       statusLabel={props.statusLabel}
+      lifecycle={props.lifecycle}
       onSaveDraft={props.onSaveDraft}
       saveLabel={saveLabel}
       savePending={props.savePending}
       canSave={props.canSave}
       extraActions={props.extraActions}
+      sourceActions={props.sourceActions}
       autoSaveIndicator={props.autoSaveIndicator}
       favoriteHref={props.favoriteHref}
       favoriteLabel={props.favoriteLabel}

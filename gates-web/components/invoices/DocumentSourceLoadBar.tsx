@@ -3,9 +3,9 @@
 import { useCallback, useState } from 'react';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
 import {
-  SELECTABLE_SOURCE_TYPES,
   type SelectableSourceType,
   type SourceHydratePayload,
+  type SourceLoadRole,
 } from '@/lib/invoices/sourceDocument';
 
 type ControlledProps = {
@@ -20,6 +20,8 @@ type Props = {
   disabled?: boolean;
   onHydrate: (payload: SourceHydratePayload) => void;
   allowedTypes?: readonly SelectableSourceType[];
+  currentAffectsStock?: boolean;
+  sourceRole?: SourceLoadRole;
   className?: string;
 } & Partial<ControlledProps>;
 
@@ -28,7 +30,9 @@ export function DocumentSourceLoadBar({
   hasExistingLines,
   disabled = false,
   onHydrate,
-  allowedTypes = SELECTABLE_SOURCE_TYPES,
+  allowedTypes,
+  currentAffectsStock = false,
+  sourceRole = 'general',
   className,
   sourceType: controlledType,
   sourceId: controlledId,
@@ -69,7 +73,7 @@ export function DocumentSourceLoadBar({
   );
 
   return (
-    <div className={className}>
+    <div className={className ? `inline-flex ${className}` : 'inline-flex'}>
       <InvoiceSourceDocumentControl
         sourceType={sourceType}
         sourceId={sourceId}
@@ -77,6 +81,8 @@ export function DocumentSourceLoadBar({
         hasExistingLines={hasExistingLines}
         disabled={disabled}
         allowedTypes={allowedTypes}
+        currentAffectsStock={currentAffectsStock}
+        sourceRole={sourceRole}
         onTypeChange={handleTypeChange}
         onHydrate={handleHydrate}
       />

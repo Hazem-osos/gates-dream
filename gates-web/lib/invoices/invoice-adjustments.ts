@@ -120,6 +120,19 @@ export function extrasFromApi(rows: InvoiceAdjustmentApiRow[] | undefined): Invo
   });
 }
 
+export function validateInvoiceExtrasForSave(rows: InvoiceExtraRow[]): string | null {
+  if (
+    rows.some(
+      (row) =>
+        !String(row.accountId ?? '').trim() &&
+        (parseDecimal(row.additionValue) > 0 || parseDecimal(row.discountValue) > 0)
+    )
+  ) {
+    return 'حدد الحساب لكل إضافة أو خصم';
+  }
+  return null;
+}
+
 export function extrasToApi(rows: InvoiceExtraRow[]): InvoiceAdjustmentApiRow[] {
   const payload: InvoiceAdjustmentApiRow[] = [];
   for (const row of rows) {

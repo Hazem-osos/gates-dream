@@ -132,6 +132,16 @@ export function useReportColumnVisibility(
         setHydrated(true);
         return;
       }
+      if (pickable.some((c) => c.id === 'companyBalance') && !valid.includes('companyBalance')) {
+        const at = valid.indexOf('balance');
+        if (at >= 0) valid.splice(at + 1, 0, 'companyBalance');
+        else valid.push('companyBalance');
+      }
+      if (pickable.some((c) => c.id === 'averageCost') && !valid.includes('averageCost')) {
+        const at = valid.indexOf('companyBalance');
+        if (at >= 0) valid.splice(at + 1, 0, 'averageCost');
+        else valid.push('averageCost');
+      }
       setVisibleIds(valid.length ? valid : allIds);
     } else {
       setVisibleIds(allIds);

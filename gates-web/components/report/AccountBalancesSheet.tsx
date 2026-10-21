@@ -1,8 +1,12 @@
 'use client';
 
 import { useApiQuery } from '@/lib/hooks/useApi';
+import { AccountLedgerLink } from '@/components/report/AccountLedgerLink';
+import { BalanceAnalysisProvider, BalanceRowEye } from '@/components/report/BalanceAnalysisProvider';
 
 type BalanceRow = {
+  accountId?: string;
+  code?: string;
   account: string;
   depth: number;
   accountKind?: string;
@@ -47,10 +51,12 @@ export function AccountBalancesSheet({ query }: { query: Record<string, string> 
   const cell = 'border border-[#d5e6f0] px-2 py-1';
 
   return (
+    <BalanceAnalysisProvider query={query}>
     <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-lg border border-[#9ec3d8] bg-white">
       <table className="w-full min-w-[980px] border-collapse text-xs text-slate-800" dir="rtl">
         <thead>
           <tr className="bg-[#7eb6d9] text-white">
+            <th className="w-10 border border-[#6aa4c8] px-1 py-2 no-print">تحليل</th>
             <th className="border border-[#6aa4c8] px-2 py-2 text-right">الحساب</th>
             {COLUMNS.map((column) => (
               <th key={column.key} className="border border-[#6aa4c8] px-2 py-2 text-center">
@@ -64,12 +70,21 @@ export function AccountBalancesSheet({ query }: { query: Record<string, string> 
             const header = row.accountKind === 'HEADER' || row.depth === 0;
             return (
               <tr key={`${row.account}-${index}`} className={header ? 'bg-[#f4fafc] font-semibold' : 'odd:bg-white even:bg-[#f8fbfd]'}>
+                <td className={`${cell} text-center no-print`}>
+                  <BalanceRowEye accountId={row.accountId} label={row.account} query={query} />
+                </td>
                 <td className={`${cell} text-right`}>
-                  <span style={{ paddingInlineStart: `${row.depth * 16}px` }}>{row.account}</span>
+                  <span style={{ paddingInlineStart: `${row.depth * 16}px` }}>
+                    <AccountLedgerLink accountId={row.accountId} query={query} showIcon={false}>
+                      {row.account}
+                    </AccountLedgerLink>
+                  </span>
                 </td>
                 {COLUMNS.map((column) => (
                   <td key={column.key} className={`${cell} text-center tabular-nums`}>
-                    {money(Number(row[column.key] ?? 0))}
+                    <AccountLedgerLink accountId={row.accountId} query={query} showIcon={false}>
+                      {money(Number(row[column.key] ?? 0))}
+                    </AccountLedgerLink>
                   </td>
                 ))}
               </tr>
@@ -78,5 +93,6 @@ export function AccountBalancesSheet({ query }: { query: Record<string, string> 
         </tbody>
       </table>
     </div>
+    </BalanceAnalysisProvider>
   );
 }

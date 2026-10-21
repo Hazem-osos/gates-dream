@@ -18,11 +18,16 @@ type Props = {
   savedLines?: (InvoiceSummaryLine & { itemId?: string })[];
   warehouseId?: string;
   journalEntryId?: string | null;
+  journalEmptyTitle?: string;
+  journalOptions?: { id: string; label: string }[];
+  onJournalIdChange?: (id: string) => void;
   selectedInvoiceId: string | null;
   isPosted: boolean;
   auditExtra?: ReactNode;
   pricingCalculationBasis?: string;
+  currencyCode?: string | null;
   settlements?: InvoiceCashSettlement[];
+  settlementHistory?: InvoiceCashSettlement[];
   cheques?: InvoiceChequeSettlement[];
   installments?: InvoiceInstallmentSource[];
   paidAmount?: number;
@@ -33,6 +38,7 @@ type Props = {
   /** Purchases add stock. Purchase returns remove it. */
   stockSign?: 1 | -1;
   settlementDirection?: 'RECEIPT' | 'PAYMENT';
+  totalsOnly?: boolean;
   cashPayment?: {
     paidAmount: number;
     method: InvoicePaymentMethod;
@@ -45,6 +51,7 @@ type Props = {
     onLinkAdvance?: () => void;
     linkHint?: string;
     splitSummary?: string;
+    cashVoucherHint?: string;
   };
 };
 

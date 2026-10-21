@@ -11,6 +11,7 @@ export type DebitCreditTotalsProps = {
   creditLabel?: string;
   currencyCode?: string;
   showBalance?: boolean;
+  showIcons?: boolean;
   netLabel?: string;
   netValue?: number;
   className?: string;
@@ -31,6 +32,7 @@ export function DebitCreditTotals({
   creditLabel = 'الدائن',
   currencyCode = 'EGP',
   showBalance = true,
+  showIcons = true,
   netLabel,
   netValue,
   className = '',
@@ -41,9 +43,11 @@ export function DebitCreditTotals({
   return (
     <div className={`flex flex-wrap items-stretch gap-2 ${className}`} dir="rtl">
       <div className="flex min-w-[9.5rem] flex-1 items-center gap-2.5 rounded-2xl border border-emerald-200 bg-gradient-to-l from-emerald-50 to-white px-3 py-2 shadow-sm">
+        {showIcons ? (
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm">
           <ArrowDownLeft className="h-4 w-4" />
         </span>
+        ) : null}
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-emerald-700">{debitLabel}</p>
           <p className="truncate text-sm font-black tabular-nums text-emerald-900">
@@ -53,9 +57,11 @@ export function DebitCreditTotals({
       </div>
 
       <div className="flex min-w-[9.5rem] flex-1 items-center gap-2.5 rounded-2xl border border-[#B7E0F2] bg-gradient-to-l from-[#E8F4FA] to-white px-3 py-2 shadow-sm">
+        {showIcons ? (
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#0E78AA] text-white shadow-sm">
           <ArrowUpRight className="h-4 w-4" />
         </span>
+        ) : null}
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-[#0E78AA]">{creditLabel}</p>
           <p className="truncate text-sm font-black tabular-nums text-[#094C6B]">

@@ -33,6 +33,14 @@ export function ReceiptOrderReferenceInputs({ disabled, onLoaded, onError }: Pro
         onError('أمر التوريد غير موجود');
         return;
       }
+      if (order.isPosted !== true) {
+        onError('يجب ترحيل أمر التوريد أولاً ثم تحميله على سند التوريد');
+        return;
+      }
+      if (order.executionStatus === 'COMPLETED') {
+        onError('تم توريد هذا الأمر بالفعل ولا يمكن تحميله مرة أخرى');
+        return;
+      }
       onLoaded(order);
     } catch (e) {
       onError(e instanceof Error ? e.message : 'تعذر تحميل أمر التوريد');

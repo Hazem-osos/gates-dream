@@ -19,6 +19,7 @@ import { queryKeys, staleTimes } from '@/lib/query/query-keys';
 import { dashboardMetrics } from '@/lib/subcontracts/calculate-draft';
 import { formatDateAr, formatEgp } from '@/lib/subcontracts/money';
 import type { SubcontractDetail } from '@/lib/subcontracts/types';
+import { SubcontractContractSummary } from '@/components/subcontracts/SubcontractContractSummary';
 import { lazyNamedModal } from '@/components/ui/lazyModal';
 
 const BulkBoqModal = lazyNamedModal(
@@ -97,26 +98,7 @@ export default function SubcontractDashboardPage() {
         <EmptyState title="تعذر تحميل العقد" description="قد لا يتوفر العقد على هذا الفرع أو الشركة." />
       ) : (
         <>
-          <SubcontractCard>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div>
-                <p className="text-xs text-slate-500">المقاول</p>
-                <p className="text-lg font-bold text-[#094C6B]">{subcontract.subcontractor.nameAr}</p>
-                <p className="text-sm text-slate-500">الرقم الضريبي: {subcontract.subcontractor.taxRegistrationNumber ?? '—'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">المشروع</p>
-                <p className="text-lg font-bold text-[#094C6B]">
-                  {subcontract.project.projectCode} — {subcontract.project.projectName}
-                </p>
-                <p className="text-sm text-slate-500">تاريخ العقد: {formatDateAr(subcontract.contractDate)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">قيمة العقد</p>
-                <p className="text-lg font-bold text-[#0E78AA]">{formatEgp(subcontract.totalContractValue)}</p>
-              </div>
-            </div>
-          </SubcontractCard>
+          <SubcontractContractSummary subcontract={subcontract} />
 
           {metrics ? (
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">

@@ -63,22 +63,27 @@ export type ProcessOutputRow = {
   itemId: string;
   itemName: string;
   quantity: number;
+  /** كمية النموذج × عدد النماذج — لا تتغير لو عُدّلت الكمية الفعلية. */
+  estimatedQuantity?: number;
   unit: string;
   unitPrice: number;
   lineTotal: number;
   costPercent: number;
   warehouseId: string;
+  imageUrl?: string;
 };
 
 export type ProcessRawRow = {
   itemId: string;
   itemName: string;
   quantity: number;
+  estimatedQuantity?: number;
   unit: string;
   unitPrice: number;
   lineTotal: number;
   warehouseId: string;
   manufacturedItemId: string;
+  imageUrl?: string;
 };
 
 export type ProcessAdditionalRow = {
@@ -118,6 +123,7 @@ export function emptyProcessOutputRow(): ProcessOutputRow {
     itemId: '',
     itemName: '',
     quantity: 1,
+    estimatedQuantity: 1,
     unit: '—',
     unitPrice: 0,
     lineTotal: 0,
@@ -131,6 +137,7 @@ export function emptyProcessRawRow(): ProcessRawRow {
     itemId: '',
     itemName: '',
     quantity: 1,
+    estimatedQuantity: 1,
     unit: '—',
     unitPrice: 0,
     lineTotal: 0,
@@ -197,6 +204,8 @@ type OrderProcessMetadataLike = {
     lineTotal?: number;
     costPercent?: number;
     warehouseId?: string;
+    estimatedQuantity?: number;
+    imageUrl?: string;
   }>;
   rawLinesSnapshot?: Array<{
     rawItemId: string;
@@ -206,6 +215,8 @@ type OrderProcessMetadataLike = {
     lineTotal?: number;
     warehouseId?: string;
     manufacturedItemId?: string;
+    estimatedQuantity?: number;
+    imageUrl?: string;
   }>;
   additionalCosts?: Array<{
     accountId?: string;
@@ -238,24 +249,30 @@ export function buildLoadedProcessFromOrderMetadata(
 
   if (Array.isArray(outSnap) && outSnap.length > 0) {
     fromBom.outputs = outSnap.map((o) => {
-      const qty = round4(num(o.quantity));
+          const qty = round4(num(o.quantity));
       const unitPrice = num(o.unitPrice);
+      const fromTemplate = fromBom.outputs.find((row) => row.itemId === o.itemId);
       return {
         itemId: o.itemId,
         itemName: o.itemName ?? nameFor(o.itemId),
         quantity: qty,
+        estimatedQuantity:
+          num(o.estimatedQuantity) > 0
+            ? round4(num(o.estimatedQuantity))
+            : fromTemplate?.estimatedQuantity ?? qty,
         unit: (o.unit && o.unit.trim()) || '—',
         unitPrice,
         lineTotal: round4(num(o.lineTotal) || qty * unitPrice),
         costPercent: num(o.costPercent),
         warehouseId: o.warehouseId ?? fromBom.toWarehouseId,
+        imageUrl: o.imageUrl || fromTemplate?.imageUrl,
       };
     });
   }
 
   if (Array.isArray(rawSnap) && rawSnap.length > 0) {
     fromBom.raws = rawSnap.map((r) => {
-      const qty = round4(num(r.quantity));
+          const qty = round4(num(r.quantity));
       const storedTotal = round4(num(r.lineTotal));
       let unitPrice = num(r.unitPrice);
       let lineTotal =
@@ -263,15 +280,21 @@ export function buildLoadedProcessFromOrderMetadata(
       if (unitPrice <= 0 && qty > 0 && lineTotal > 0) {
         unitPrice = round4(lineTotal / qty);
       }
+      const fromTemplate = fromBom.raws.find((row) => row.itemId === r.rawItemId);
       return {
         itemId: r.rawItemId,
         itemName: r.itemName ?? nameFor(r.rawItemId),
         quantity: qty,
+        estimatedQuantity:
+          num(r.estimatedQuantity) > 0
+            ? round4(num(r.estimatedQuantity))
+            : fromTemplate?.estimatedQuantity ?? qty,
         unit: '—',
         unitPrice,
         lineTotal,
         warehouseId: r.warehouseId ?? fromBom.fromWarehouseId,
         manufacturedItemId: r.manufacturedItemId ?? '',
+        imageUrl: r.imageUrl || fromTemplate?.imageUrl,
       };
     });
   }
@@ -341,6 +364,7 @@ export function buildLoadedProcessFromBom(
             itemId: line.rawItemId,
             itemName: line.rawItem?.arabicName ?? line.rawItemId,
             quantity: qty,
+            estimatedQuantity: qty,
             unit: '—',
             unitPrice,
             lineTotal: round4(qty * unitPrice),
@@ -357,6 +381,7 @@ export function buildLoadedProcessFromBom(
             itemId: snap.rawItemId,
             itemName: snap.rawItemId,
             quantity: qty,
+            estimatedQuantity: qty,
             unit: '—',
             unitPrice,
             lineTotal: round4(qty * unitPrice),
@@ -401,16 +426,20 @@ export function buildLoadedProcessFromBom(
     distributeCostByUnits: Boolean(meta.distributeCostByUnits),
   });
 
-  const outputs: ProcessOutputRow[] = outputMeta.map((o, idx) => ({
-    itemId: o.itemId,
-    itemName: o.itemId === bom.finishedItemId ? (bom.finishedItem?.arabicName ?? o.itemId) : o.itemId,
-    quantity: round4(num(o.quantity) * scale),
-    unit: (o.unit && o.unit.trim()) || '—',
-    unitPrice: distributed[idx]?.unitPrice ?? num(o.unitPrice),
-    lineTotal: distributed[idx]?.lineTotal ?? round4(num(o.unitPrice) * num(o.quantity) * scale),
-    costPercent: distributed[idx]?.costSharePercent ?? num(o.costPercent),
-    warehouseId: o.warehouseId ?? meta.toWarehouseId ?? meta.fromWarehouseId ?? '',
-  }));
+  const outputs: ProcessOutputRow[] = outputMeta.map((o, idx) => {
+    const qty = round4(num(o.quantity) * scale);
+    return {
+      itemId: o.itemId,
+      itemName: o.itemId === bom.finishedItemId ? (bom.finishedItem?.arabicName ?? o.itemId) : o.itemId,
+      quantity: qty,
+      estimatedQuantity: qty,
+      unit: (o.unit && o.unit.trim()) || '—',
+      unitPrice: distributed[idx]?.unitPrice ?? num(o.unitPrice),
+      lineTotal: distributed[idx]?.lineTotal ?? round4(num(o.unitPrice) * num(o.quantity) * scale),
+      costPercent: distributed[idx]?.costSharePercent ?? num(o.costPercent),
+      warehouseId: o.warehouseId ?? meta.toWarehouseId ?? meta.fromWarehouseId ?? '',
+    };
+  });
 
   const additionalCosts: ProcessAdditionalRow[] = (meta.additionalCosts ?? []).map((c) => ({
     accountId: c.accountId ?? '',

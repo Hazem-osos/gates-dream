@@ -31,6 +31,7 @@ type Props = {
   lines: DisassemblyComponentLine[];
   onChange: (lines: DisassemblyComponentLine[]) => void;
   warehouseId?: string;
+  asOfDate?: string;
   disabled?: boolean;
   headerDescription?: string;
 };
@@ -43,6 +44,7 @@ export function DisassemblyLinesTable({
   lines,
   onChange,
   warehouseId,
+  asOfDate,
   disabled,
   headerDescription = '',
 }: Props) {
@@ -55,7 +57,7 @@ export function DisassemblyLinesTable({
   linesRef.current = lines;
 
   useEffect(() => {
-    if (!warehouseId) return;
+    if (!warehouseId || disabled) return;
     const rows = linesRef.current;
     const targets = rows
       .map((line, index) => ({ line, index }))
@@ -66,7 +68,12 @@ export function DisassemblyLinesTable({
       const patches = await Promise.all(
         targets.map(async ({ line, index }) => ({
           index,
-          unitCost: await resolveWarehouseAverageUnitCost(line.itemId, warehouseId),
+          unitCost: await resolveWarehouseAverageUnitCost(
+            line.itemId,
+            warehouseId,
+            null,
+            asOfDate
+          ),
         }))
       );
       if (cancelled) return;
@@ -79,7 +86,7 @@ export function DisassemblyLinesTable({
     return () => {
       cancelled = true;
     };
-  }, [warehouseId, onChange]);
+  }, [warehouseId, asOfDate, disabled, onChange]);
 
   useFollowHeaderDescription({
     headerDescription,
@@ -214,7 +221,7 @@ export function DisassemblyLinesTable({
                     unitCost: 0,
                     availableQuantity: availableFromItemOption(catalog) ?? 0,
                   });
-                  void resolveWarehouseAverageUnitCost(item.id, warehouseId, catalog).then(
+                  void resolveWarehouseAverageUnitCost(item.id, warehouseId, catalog, asOfDate).then(
                     (unitCost) => {
                       if (linesRef.current[index]?.itemId !== item.id) return;
                       updateLine(index, { unitCost });

@@ -28,6 +28,8 @@ type Props = {
   highlightHeader?: ReactNode;
   /** Shown beside the net amount. */
   besideNet?: ReactNode;
+  /** Orders/quotes: show net total only (no breakdown rows). */
+  netOnly?: boolean;
 };
 
 export function FinancialSummaryCard({
@@ -40,9 +42,10 @@ export function FinancialSummaryCard({
   footer,
   highlightHeader,
   besideNet,
+  netOnly = false,
 }: Props) {
   const currencyLabel = currencyDisplayLabel(currencyCode);
-  const visible = rows.filter((r) => r.show !== false);
+  const visible = netOnly ? [] : rows.filter((r) => r.show !== false);
   const debitRow = visible.find((r) => r.label === 'إجمالي المدين' || r.label === 'المدين' || r.label === 'مدين');
   const creditRow = visible.find((r) => r.label === 'إجمالي الدائن' || r.label === 'الدائن' || r.label === 'دائن');
   const otherRows =
@@ -53,7 +56,7 @@ export function FinancialSummaryCard({
   return (
     <Card className="border-slate-200 shadow-md rounded-xl overflow-hidden h-full">
       <CardContent className="p-4">
-        <h3 className="text-sm font-bold text-slate-800 mb-3">{title}</h3>
+        {!netOnly ? <h3 className="text-sm font-bold text-slate-800 mb-3">{title}</h3> : null}
         {debitRow && creditRow ? (
           <DebitCreditTotals
             debit={debitRow.value}
@@ -86,7 +89,7 @@ export function FinancialSummaryCard({
             </div>
             {besideNet}
           </div>
-          {showTafqeet ? (
+          {showTafqeet && !netOnly ? (
             <p
               className="text-xs text-slate-500 font-medium mt-2 leading-relaxed"
               data-tour="tafqeet-indicator"

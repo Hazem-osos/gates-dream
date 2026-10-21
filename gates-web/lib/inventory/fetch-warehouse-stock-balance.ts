@@ -28,11 +28,13 @@ export async function fetchWarehouseAvailableQuantity(
 /** Warehouse-level average cost from item_warehouse_balances (falls back to 0). */
 export async function fetchWarehouseAverageCost(
   itemId: string,
-  warehouseId: string
+  warehouseId: string,
+  asOfDate?: string
 ): Promise<number> {
+  const date = asOfDate?.trim().slice(0, 10);
   const res = await apiClient.get<StockBalancePayload>(
     `/inventory/items/${itemId}/stock-balance`,
-    { warehouseId }
+    { warehouseId, ...(date ? { date } : {}) }
   );
   const avg = Number(res.data?.averageCost ?? 0);
   return Number.isFinite(avg) && avg > 0 ? avg : 0;

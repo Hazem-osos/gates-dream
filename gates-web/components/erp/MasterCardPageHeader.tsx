@@ -2,7 +2,12 @@
 
 import type { ReactNode } from 'react';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
+import type { DocumentActionMenuProps } from '@/components/common/document-shell/DocumentActionMenu';
 import type { ErpHeaderMenuItem } from '@/components/erp/ErpDocumentPageHeader';
+import {
+  masterArchiveTarget,
+  type MasterArchiveEntityType,
+} from '@/lib/attachments/archive-entity';
 
 type Crumb = { href?: string; label: string };
 
@@ -26,6 +31,12 @@ export type MasterCardPageHeaderProps = {
   editDisabled?: boolean;
   onCancel?: () => void;
   cancelLabel?: string;
+  onPrint?: () => void;
+  printLabel?: string;
+  printDocumentReady?: boolean;
+  standardActions?: DocumentActionMenuProps;
+  /** أرشفة بطاقة (صنف، عميل، مورد، …) من قائمة (⋯). */
+  masterArchiveEntityType?: MasterArchiveEntityType;
 };
 
 export function MasterCardPageHeader({
@@ -48,6 +59,11 @@ export function MasterCardPageHeader({
   editDisabled,
   onCancel,
   cancelLabel = 'تراجع',
+  onPrint,
+  printLabel = 'طباعة',
+  printDocumentReady,
+  standardActions: standardActionsProp,
+  masterArchiveEntityType,
 }: MasterCardPageHeaderProps) {
   const items: ErpHeaderMenuItem[] = [
     ...(onNew ? [{ id: 'new', label: 'جديد', onClick: onNew }] : []),
@@ -64,6 +80,26 @@ export function MasterCardPageHeader({
       : []),
     ...(moreMenuItems ?? []),
   ];
+
+  const archiveTarget = masterArchiveEntityType
+    ? masterArchiveTarget(masterArchiveEntityType, currentId)
+    : null;
+
+  const standardActions =
+    standardActionsProp ??
+    (onPrint || onNew || onDelete || masterArchiveEntityType
+      ? {
+          hasDocument: printDocumentReady ?? Boolean(currentId),
+          documentId: currentId ?? undefined,
+          archiveTarget,
+          onPrint,
+          printLabel,
+          onNew,
+          onVoid: onDelete ? () => onDelete() : undefined,
+          voidLabel: 'حذف',
+          extraItems: items.filter((item) => item.id !== 'new' && item.id !== 'del'),
+        }
+      : undefined);
 
   return (
     <ErpDocumentPageHeader
@@ -83,7 +119,8 @@ export function MasterCardPageHeader({
       editDisabled={editDisabled}
       onCancel={onCancel}
       cancelLabel={cancelLabel}
-      moreMenuItems={items}
+      moreMenuItems={standardActions ? undefined : items}
+      standardActions={standardActions}
       extraActions={extraActions}
       onBrowseList={onBrowseList}
       browseListLabel="السابق"

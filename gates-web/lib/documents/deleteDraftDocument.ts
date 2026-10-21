@@ -1,21 +1,30 @@
 import { apiClient } from '@/lib/api/client';
 
-function usesCancelPost(apiPath: string): boolean {
-  return /cash-transaction|securities|invoice|treasury-receipt|receipt|issue|assembl|disassembl|opening-stock|price-quote|purchase-order|adjustment|stocktaking/i.test(
-    apiPath
-  );
+function httpStatusFromApiError(error: unknown): number | null {
+  if (!error || typeof error !== 'object') return null;
+  const code = (error as { code?: string }).code;
+  if (!code) return null;
+  const n = Number.parseInt(code, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Some legacy routes only expose POST cancel; draft delete should prefer hard DELETE. */
+function isMissingDeleteRoute(error: unknown): boolean {
+  const status = httpStatusFromApiError(error);
+  return status === 404 || status === 405 || status === 501;
 }
 
 export async function deleteDraftDocument(apiPath: string, id: string): Promise<void> {
   const base = apiPath.replace(/\/$/, '');
-  if (usesCancelPost(base)) {
-    await apiClient.post(`${base}/${id}/cancel`, {});
-    return;
-  }
   try {
     await apiClient.delete(`${base}/${id}`);
-  } catch {
-    await apiClient.post(`${base}/${id}/cancel`, {});
+    return;
+  } catch (error) {
+    if (isMissingDeleteRoute(error)) {
+      await apiClient.post(`${base}/${id}/cancel`, {});
+      return;
+    }
+    throw error;
   }
 }
 

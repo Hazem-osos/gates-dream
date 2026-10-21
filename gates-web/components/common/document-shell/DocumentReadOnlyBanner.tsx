@@ -7,7 +7,7 @@ export function DocumentReadOnlyBanner() {
   if (!mode?.isReadOnly) return null;
   return (
     <div className="mb-3 rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-2.5 text-sm text-[#0A3D5E]">
-      المستند في وضع العرض فقط. للتعديل، اضغط على <strong>تعديل</strong> من قائمة الإجراءات (...).
+      إن كان المستند مرحّلاً، فك الترحيل أولاً من قائمة (...). غير ذلك اضغط <strong>تعديل</strong>.
     </div>
   );
 }

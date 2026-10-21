@@ -1,9 +1,12 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button, compactControlClass } from '@/components/ui';
+import { ItemSelect } from '@/components/form/ItemSelect';
+import { WarehouseSelect } from '@/components/form/WarehouseSelect';
+import { readImageFileAsDataUrl } from '@/lib/images/read-image-file';
 import { compactNumericControlClass } from '@/components/ui/forms/formTokens';
 import { ItemAlternativesPeek } from '@/components/manufacturing/ItemAlternativesPeek';
 import {
@@ -34,11 +37,14 @@ import {
   type ProcessVarianceRow,
 } from '@/lib/manufacturing/process-from-bom';
 import { computeAdditionalCostsTotal } from '@/lib/manufacturing/bom-cost-distribution';
+import { resolveManufacturingLineUnitPrice } from '@/lib/manufacturing/line-pricing';
 
 type MfgItemOption = {
   id: string;
   arabicName: string;
   averageCost?: string | number | null;
+  lastPurchasePrice?: string | number | null;
+  imageUrl?: string | null;
 };
 
 function round4(n: number): number {
@@ -53,14 +59,64 @@ function fmtPct(value: number): string {
   return `${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 }
 
-function defaultUnitPrice(item?: MfgItemOption): number {
-  if (!item) return 0;
-  const avg = Number(item.averageCost);
-  return Number.isFinite(avg) && avg > 0 ? avg : 0;
-}
-
 function varianceRowId(kind: 'out' | 'raw', itemId: string, index: number): string {
   return `${kind}:${itemId || 'row'}:${index}`;
+}
+
+function ProcessLineImageCell({
+  imageUrl,
+  disabled,
+  onChange,
+}: {
+  imageUrl?: string;
+  disabled?: boolean;
+  onChange: (url: string) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="flex flex-col items-center gap-1 py-1">
+      {imageUrl ? (
+        <img src={imageUrl} alt="" className="h-10 w-10 rounded border object-cover" />
+      ) : null}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (!file) return;
+          setBusy(true);
+          void readImageFileAsDataUrl(file)
+            .then((url) => onChange(url))
+            .catch(() => undefined)
+            .finally(() => setBusy(false));
+        }}
+      />
+      <div className="flex flex-wrap justify-center gap-1">
+        <button
+          type="button"
+          disabled={disabled || busy}
+          className="text-[11px] font-semibold text-[#0E78AA] underline disabled:opacity-50"
+          onClick={() => fileRef.current?.click()}
+        >
+          {busy ? '…' : imageUrl ? 'تغيير' : 'رفع'}
+        </button>
+        {imageUrl ? (
+          <button
+            type="button"
+            disabled={disabled}
+            className="text-[11px] font-semibold text-rose-600 underline disabled:opacity-50"
+            onClick={() => onChange('')}
+          >
+            حذف
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export type WorkOrderOutputProgress = {
@@ -85,6 +141,7 @@ export type ManufacturingProcessLinesEditorProps = {
   workOrderProgress?: WorkOrderOutputProgress;
   /** في أمر التصنيع: الأسعار من النظام ولا تُعدَّل يدوياً */
   unitPricesReadOnly?: boolean;
+  resolveLineUnitPrice?: (item?: MfgItemOption) => number;
 };
 
 export function ManufacturingProcessLinesEditor({
@@ -101,7 +158,9 @@ export function ManufacturingProcessLinesEditor({
   layoutMode = 'operation',
   workOrderProgress,
   unitPricesReadOnly = layoutMode === 'operation',
+  resolveLineUnitPrice = (item) => resolveManufacturingLineUnitPrice('AVERAGE_COST', item),
 }: ManufacturingProcessLinesEditorProps) {
+  const defaultUnitPrice = resolveLineUnitPrice;
   const workOrderMode = layoutMode === 'work-order';
   const showProgress = workOrderMode && Boolean(workOrderProgress);
   const itemById = useMemo(() => {
@@ -123,24 +182,31 @@ export function ManufacturingProcessLinesEditor({
 
   const itemSelect = (
     value: string,
+    warehouseId: string,
     onChange: (id: string, item?: MfgItemOption) => void
   ) => (
-    <select
+    <ItemSelect
       value={value}
+      warehouseId={warehouseId || undefined}
       disabled={disabled}
-      onChange={(e) => {
-        const id = e.target.value;
-        onChange(id, id ? itemById.get(id) : undefined);
-      }}
       className={mfgSelectItem}
-    >
-      <option value="">— اختر الصنف —</option>
-      {items.map((it) => (
-        <option key={it.id} value={it.id}>
-          {it.arabicName}
-        </option>
-      ))}
-    </select>
+      emptyLabel="— اختر الصنف —"
+      enableQuickCreate={false}
+      fallbackLabel={itemById.get(value)?.arabicName}
+      onChange={(id) => {
+        if (!id) onChange('');
+      }}
+      onItemResolved={(picked) => {
+        if (!picked || !('id' in picked)) return;
+        onChange(picked.id, {
+          id: picked.id,
+          arabicName: picked.arabicName,
+          averageCost: 'averageCost' in picked ? picked.averageCost : undefined,
+          lastPurchasePrice: 'lastPurchasePrice' in picked ? picked.lastPurchasePrice : undefined,
+          imageUrl: 'imageUrl' in picked ? (picked.imageUrl as string | null | undefined) : undefined,
+        });
+      }}
+    />
   );
 
   const outputs = process?.outputs ?? [emptyProcessOutputRow()];
@@ -167,24 +233,24 @@ export function ManufacturingProcessLinesEditor({
     process.outputs.forEach((o, index) => {
       if (!o.itemId.trim() && !o.itemName.trim()) return;
       const id = varianceRowId('out', o.itemId, index);
-      const estimated = o.quantity;
+      const estimated = o.estimatedQuantity && o.estimatedQuantity > 0 ? o.estimatedQuantity : o.quantity;
       rows.push({
         id,
         itemName: o.itemName || itemById.get(o.itemId)?.arabicName || o.itemId,
         estimated,
-        actual: overrides[id] ?? estimated,
+        actual: overrides[id] ?? o.quantity,
       });
     });
 
     process.raws.forEach((r, index) => {
       if (!r.itemId.trim() && !r.itemName.trim()) return;
       const id = varianceRowId('raw', r.itemId, index);
-      const estimated = r.quantity;
+      const estimated = r.estimatedQuantity && r.estimatedQuantity > 0 ? r.estimatedQuantity : r.quantity;
       rows.push({
         id,
         itemName: r.itemName || itemById.get(r.itemId)?.arabicName || r.itemId,
         estimated,
-        actual: overrides[id] ?? estimated,
+        actual: overrides[id] ?? r.quantity,
       });
     });
 
@@ -270,6 +336,8 @@ export function ManufacturingProcessLinesEditor({
               <tr>
                 <th className={mfgThIdx}>م</th>
                 <th className={mfgThItem}>إسم الصنف</th>
+                <th className={cn(mfgThClass, 'min-w-[9rem]')}>المخزن</th>
+                <th className={cn(mfgThClass, 'w-28')}>صورة</th>
                 <th className={mfgThAvail}>الكمية المتاحة</th>
                 <th className={mfgThQty}>{showProgress ? 'المطلوب' : 'الكمية'}</th>
                 {showProgress ? (
@@ -297,7 +365,7 @@ export function ManufacturingProcessLinesEditor({
                   <td className={cn(mfgTdClass, 'min-w-0')}>
                     <div className="flex min-w-0 items-center gap-1">
                       <div className="min-w-0 flex-1">
-                        {itemSelect(row.itemId, (itemId, item) => {
+                        {itemSelect(row.itemId, row.warehouseId || finishedWarehouseId, (itemId, item) => {
                           const qty = row.quantity;
                           const unitPrice =
                             row.unitPrice > 0 ? row.unitPrice : defaultUnitPrice(item);
@@ -310,6 +378,7 @@ export function ManufacturingProcessLinesEditor({
                               itemName: item?.arabicName ?? '',
                               unitPrice,
                               lineTotal,
+                              imageUrl: item?.imageUrl || row.imageUrl,
                             };
                             return { ...p, outputs: next };
                           });
@@ -317,6 +386,35 @@ export function ManufacturingProcessLinesEditor({
                       </div>
                       <ItemAlternativesPeek itemId={row.itemId} />
                     </div>
+                  </td>
+                  <td className={mfgTdClass}>
+                    <WarehouseSelect
+                      value={row.warehouseId || finishedWarehouseId}
+                      onChange={(id) =>
+                        ensure((p) => {
+                          const next = [...p.outputs];
+                          next[index] = { ...row, warehouseId: id };
+                          return { ...p, outputs: next };
+                        })
+                      }
+                      disabled={disabled}
+                      className={cn(compactControlClass, 'h-10 min-w-[8rem]')}
+                      leafOnly
+                      emptyLabel="المخزن"
+                    />
+                  </td>
+                  <td className={mfgTdClass}>
+                    <ProcessLineImageCell
+                      imageUrl={row.imageUrl}
+                      disabled={disabled}
+                      onChange={(imageUrl) =>
+                        ensure((p) => {
+                          const next = [...p.outputs];
+                          next[index] = { ...row, imageUrl };
+                          return { ...p, outputs: next };
+                        })
+                      }
+                    />
                   </td>
                   <td className={mfgTdClass}>
                     <ManufacturingStockBalanceCell
@@ -455,6 +553,8 @@ export function ManufacturingProcessLinesEditor({
               <tr>
                 <th className={mfgThIdx}>م</th>
                 <th className={mfgThItem}>إسم الصنف</th>
+                <th className={cn(mfgThClass, 'min-w-[9rem]')}>المخزن</th>
+                <th className={cn(mfgThClass, 'w-28')}>صورة</th>
                 <th className={mfgThAvail}>الكمية المتاحة</th>
                 <th className={mfgThQty}>الكمية</th>
                 <th className={mfgThUnit}>الوحدة</th>
@@ -470,7 +570,7 @@ export function ManufacturingProcessLinesEditor({
                   <td className={cn(mfgTdClass, 'min-w-0')}>
                     <div className="flex min-w-0 items-center gap-1">
                       <div className="min-w-0 flex-1">
-                        {itemSelect(row.itemId, (itemId, item) => {
+                        {itemSelect(row.itemId, row.warehouseId || fromWarehouse, (itemId, item) => {
                           const unitPrice =
                             row.unitPrice > 0 ? row.unitPrice : defaultUnitPrice(item);
                           const lineTotal = round4(row.quantity * unitPrice);
@@ -483,6 +583,7 @@ export function ManufacturingProcessLinesEditor({
                               unitPrice,
                               lineTotal,
                               warehouseId: row.warehouseId || fromWarehouse,
+                              imageUrl: item?.imageUrl || row.imageUrl,
                             };
                             return { ...p, raws: next };
                           });
@@ -490,6 +591,35 @@ export function ManufacturingProcessLinesEditor({
                       </div>
                       <ItemAlternativesPeek itemId={row.itemId} />
                     </div>
+                  </td>
+                  <td className={mfgTdClass}>
+                    <WarehouseSelect
+                      value={row.warehouseId || fromWarehouse}
+                      onChange={(id) =>
+                        ensure((p) => {
+                          const next = [...p.raws];
+                          next[index] = { ...row, warehouseId: id };
+                          return { ...p, raws: next };
+                        })
+                      }
+                      disabled={disabled}
+                      className={cn(compactControlClass, 'h-10 min-w-[8rem]')}
+                      leafOnly
+                      emptyLabel="المخزن"
+                    />
+                  </td>
+                  <td className={mfgTdClass}>
+                    <ProcessLineImageCell
+                      imageUrl={row.imageUrl}
+                      disabled={disabled}
+                      onChange={(imageUrl) =>
+                        ensure((p) => {
+                          const next = [...p.raws];
+                          next[index] = { ...row, imageUrl };
+                          return { ...p, raws: next };
+                        })
+                      }
+                    />
                   </td>
                   <td className={mfgTdClass}>
                     <ManufacturingStockBalanceCell

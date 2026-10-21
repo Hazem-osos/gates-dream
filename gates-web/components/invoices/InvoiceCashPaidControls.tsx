@@ -38,6 +38,7 @@ type Props = {
   onLinkAdvance?: () => void;
   linkHint?: string;
   splitSummary?: string;
+  cashVoucherHint?: string;
 };
 
 export function InvoicePaymentStatusLine({
@@ -65,6 +66,7 @@ export function InvoiceCashPaidControls({
   disabled,
   onOpenSplit,
   splitSummary,
+  cashVoucherHint,
 }: Props) {
   const shown = shownCashPaid(method, paidAmount, netAmount);
   const value = shown.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -89,6 +91,9 @@ export function InvoiceCashPaidControls({
         >
           الدفع
         </button>
+      ) : null}
+      {cashVoucherHint ? (
+        <p className="w-full basis-full text-[11px] font-semibold text-amber-800">{cashVoucherHint}</p>
       ) : null}
       {splitSummary ? <p className="w-full basis-full text-[11px] text-slate-500">{splitSummary}</p> : null}
     </>

@@ -1,6 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -67,6 +69,19 @@ function emptyForm(): InventoryItemOfferFormInput {
 const fieldClass =
   'h-9 w-full rounded-md border border-input bg-background px-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary';
 
+function isItemOfferDraftEmpty(form: InventoryItemOfferFormInput): boolean {
+  return (
+    !form.nameAr.trim() &&
+    !form.description?.trim() &&
+    !form.sourceItemId &&
+    !form.giftItemId &&
+    !form.invoiceThresholdAmount &&
+    !form.discountPercentage &&
+    !(form.targetPartyIds?.length ?? 0) &&
+    !(form.targetPatternIds?.length ?? 0)
+  );
+}
+
 const SALES_MODULE_TYPES = new Set(['SI', 'SR']);
 const PURCHASE_MODULE_TYPES = new Set(['PI', 'PR']);
 const SALES_PROFILE_TYPES = new Set<DocumentBaseType>(['SALES_INVOICE', 'SALES_RETURN']);
@@ -83,6 +98,24 @@ export function ItemOfferForm() {
   const patch = <K extends keyof InventoryItemOfferFormInput>(key: K, value: InventoryItemOfferFormInput[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
+
+  const draftSnapshot = useMemo(() => form, [form]);
+
+  const applyItemOfferDraft = useCallback((payload: InventoryItemOfferFormInput) => {
+    setForm({ ...emptyForm(), ...payload });
+    setFieldErrors({});
+    setError('');
+  }, []);
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'item-offer',
+    mode: 'new',
+    value: draftSnapshot,
+    enabled: true,
+    applyRestore: applyItemOfferDraft,
+    isEmpty: isItemOfferDraftEmpty,
+    restoreMessage: 'يوجد مسودة عرض ترويجي غير محفوظة',
+  });
 
   const { data: customersResponse } = useCustomersQuery(1000);
   const { data: suppliersResponse } = useSuppliersQuery(1000);
@@ -128,6 +161,7 @@ export function ItemOfferForm() {
   const mutation = useApiMutation<unknown, Record<string, unknown>>('/inventory/item-offers', 'POST', {
     showSuccessToast: false,
     onSuccess: () => {
+      clearDraft();
       setSuccess('تم حفظ العرض الترويجي بنجاح');
       invalidateQuery(['item-offers']);
       setForm(emptyForm());
@@ -177,6 +211,7 @@ export function ItemOfferForm() {
   };
 
   const resetForm = () => {
+    clearDraft();
     setForm(emptyForm());
     setFieldErrors({});
     setError('');
@@ -194,6 +229,17 @@ export function ItemOfferForm() {
 
   return (
     <ErpDocumentLayout>
+      <PageDraftRestoreGate<InventoryItemOfferFormInput>
+        restoreOffer={restoreOffer}
+        hide={false}
+        message="يوجد مسودة عرض ترويجي غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyItemOfferDraft(payload);
+          setSuccess('تم استعادة مسودة العرض الترويجي');
+        }}
+      />
       <div className="flex min-h-[calc(100dvh-3rem)] flex-col pb-4">
         <ErpDocumentPageHeader
           compact
@@ -206,7 +252,7 @@ export function ItemOfferForm() {
           title="عروض الأصناف"
           docNumber={form.nameAr || 'OFFER-XXXX'}
           statusTone={form.isActive ? 'success' : 'warning'}
-          statusLabel={form.isActive ? 'نشط' : 'مسودة'}
+          statusLabel={form.isActive ? 'نشط' : 'غير نشط'}
           onSaveDraft={handleSave}
           saveLabel="حفظ العرض"
           savePending={mutation.isPending}
@@ -216,7 +262,13 @@ export function ItemOfferForm() {
           browseListLabel="السابق"
           favoriteHref="/inventory/operations/item-offers"
           favoriteLabel="عروض الأصناف"
-          moreMenuItems={[{ id: 'new', label: 'جديد', onClick: resetForm }]}
+          standardActions={{
+            hasDocument: false,
+            isPosted: false,
+            hidePostActions: true,
+            onNew: resetForm,
+            newLabel: 'جديد',
+          }}
         />
 
         {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
@@ -463,7 +515,6 @@ export function ItemOfferForm() {
             apiPath="/inventory/item-offers"
             listKey="item-offers-browse"
             paging="skip"
-            allowDeleteDraft={false}
             searchPlaceholder="بحث باسم العرض…"
             columns={[
               {

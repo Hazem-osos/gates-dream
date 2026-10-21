@@ -128,9 +128,22 @@ function GuideTreeRow({
         <span className="shrink-0 rounded border border-slate-200/80 bg-white/80 px-2 py-1 font-mono text-xs font-bold tabular-nums text-slate-800">
           {highlightText(node.code || '—', q)}
         </span>
-        <span className={cn('min-w-0 truncate text-sm', isChild ? cn('font-medium', tone.text) : tone.text)}>
-          {highlightText(node.name, q)}
-        </span>
+        {onView && !node.synthetic ? (
+          <button
+            type="button"
+            className={cn(
+              'min-w-0 truncate text-start text-sm',
+              isChild ? cn('font-medium', tone.text) : tone.text
+            )}
+            onClick={() => onView(node)}
+          >
+            {highlightText(node.name, q)}
+          </button>
+        ) : (
+          <span className={cn('min-w-0 truncate text-sm', isChild ? cn('font-medium', tone.text) : tone.text)}>
+            {highlightText(node.name, q)}
+          </span>
+        )}
         {node.subtitle ? (
           <span className="hidden shrink-0 text-[11px] text-slate-500 sm:inline">{node.subtitle}</span>
         ) : null}
@@ -340,6 +353,7 @@ export function MasterGuideTree({
   revealId,
   expandAllToken,
   collapseAllToken,
+  startCollapsed = false,
   childNoun = 'فرعي',
   addChildLabel,
   selectable,
@@ -357,6 +371,8 @@ export function MasterGuideTree({
   revealId?: string | null;
   expandAllToken?: number;
   collapseAllToken?: number;
+  /** Keep every branch closed until the user opens it (no first-level auto-expand). */
+  startCollapsed?: boolean;
   childNoun?: string;
   addChildLabel?: string;
   selectable?: boolean;
@@ -396,10 +412,10 @@ export function MasterGuideTree({
   }, [revealId, nodes]);
 
   useEffect(() => {
-    if (openedOnce || nodes.length === 0) return;
+    if (startCollapsed || openedOnce || nodes.length === 0) return;
     setExpandedIds(firstLevelIds(nodes));
     setOpenedOnce(true);
-  }, [nodes, openedOnce]);
+  }, [nodes, openedOnce, startCollapsed]);
 
   useEffect(() => {
     if (!q) return;

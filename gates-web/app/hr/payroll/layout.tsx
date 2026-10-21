@@ -13,6 +13,7 @@ const NAV = [
   { href: '/hr/payroll/localization', label: 'التوطين' },
   { href: '/hr/payroll/gl-mapping', label: 'ربط GL' },
   { href: '/hr/payroll/reports', label: 'التقارير' },
+  { href: '/hr/payroll/config-audit', label: 'سجل التدقيق' },
 ];
 
 export default function PayrollLayout({ children }: { children: React.ReactNode }) {

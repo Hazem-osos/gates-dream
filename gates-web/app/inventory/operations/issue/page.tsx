@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { pinDocumentTabQuery } from '@/lib/navigation/tab-memory';
 import {
   DocumentFormLock,
   DocumentModeProvider,
@@ -36,6 +37,8 @@ import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/use
 import { apiClient } from '@/lib/api/client';
 import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
+import { maybePrintStockDocumentAfterSave } from '@/lib/inventory/stock-document-print-after-save';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import {
@@ -55,7 +58,6 @@ import {
 } from '@/lib/inventory/use-document-post-mutation';
 import { printStockDocument } from '@/lib/print/printStockDocument';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
-import { TransactionSettingsDrawer } from '@/components/settings/transaction-settings/TransactionSettingsDrawer';
 import {
   ItemReservationDocumentPanel,
   type ApplyReservationPayload,
@@ -67,17 +69,24 @@ import {
 import { useIssueTourPrepare } from '@/lib/onboarding/useIssueTourPrepare';
 import { consumeAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
 import { invoiceDateFromDraft, issueLinesFromAiDraft } from '@/lib/ai/hydrate-ai-draft';
+import { expiryBatchLinesValid } from '@/lib/invoices/validateExpiryBatchLines';
 import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
 import {
   mapSourcePayloadToStockLines,
   stockHeaderFieldsFromSource,
 } from '@/lib/inventory/apply-source-to-stock-document';
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
-import { STOCK_ISSUE_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
+import { useDocumentFollowUpHydrate } from '@/lib/hooks/useDocumentFollowUpHydrate';
 import { toast } from '@/lib/feedback/toast';
 import { useStockMovementPanel } from '@/lib/inventory/use-stock-movement-panel';
+import type { TransactionSettings } from '@/lib/transaction-settings/types';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
 import { Button } from '@/components/ui/button';
 import { formActionButtonClass } from '@/components/ui/forms/formTokens';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { isUnsetOrDefaultWarehouse } from '@/lib/drafts/form-lines-draft';
+import { datetimeLocalToIso, toDatetimeLocalValue } from '@/lib/datetime/local-datetime';
 
 
 interface Item {
@@ -98,6 +107,7 @@ interface IssueDocumentDetail extends Record<string, unknown> {
   record?: string;
   isPosted?: boolean;
   isApproved?: boolean;
+  isCancelled?: boolean;
   useBarcode?: boolean;
   hideExistingQty?: boolean;
   lines?: Record<string, unknown>[];
@@ -108,12 +118,27 @@ const issueHeaderSchema = inventoryWarehouseDocHeaderFormSchema.extend({
 });
 type IssueHeaderForm = z.infer<typeof issueHeaderSchema>;
 
+type IssueDraft = { form: IssueHeaderForm; lines: StockVoucherLine[] };
+
+function isIssueDraftEmpty(draft: IssueDraft, defaultWarehouseId?: string | null): boolean {
+  const hasLine = draft.lines.some(
+    (line) => line.itemId || line.quantity > 0 || (line.unitPrice ?? 0) > 0
+  );
+  const f = draft.form;
+  return (
+    !hasLine &&
+    isUnsetOrDefaultWarehouse(f.warehouseId, defaultWarehouseId) &&
+    !f.customerId?.trim() &&
+    !f.description?.trim() &&
+    !f.record?.trim()
+  );
+}
+
 function emptyIssueFormDefaults(): IssueHeaderForm {
-  const t = new Date().toISOString().split('T')[0];
   return {
     serialNumber: '',
     description: '',
-    date: t,
+    date: toDatetimeLocalValue(),
     hijriDate: '',
     warehouseId: '',
     customerId: '',
@@ -136,7 +161,6 @@ export default function IssuePage() {
 function IssuePageInner() {
   const searchParams = useOwnTabSearchParams();
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
-  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   useIssueTourPrepare();
   const invalidateQuery = useInvalidateQuery();
 
@@ -158,13 +182,17 @@ function IssuePageInner() {
   });
 
   const isPosted = watch('isPosted');
+  const watchedForm = watch();
   const warehouseId = watch('warehouseId');
+  const issueSerial = watch('serialNumber');
   const hideExistingQty = watch('hideExistingQty');
+  const skipServerHydrateRef = useRef(false);
 
   const [issueLines, setIssueLines] = useState<StockVoucherLine[]>(() => seedStockVoucherLines());
   const [sourceBarKey, setSourceBarKey] = useState(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [restorePending, setRestorePending] = useState(false);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(
     () => searchParams.get('id')?.trim() || null
   );
@@ -183,6 +211,21 @@ function IssuePageInner() {
   const fromAiDraft = searchParams.get('fromAiDraft') === '1';
   const aiDraftAppliedRef = useRef(false);
   const postAfterSaveRef = useRef(false);
+
+  const { data: stockIssueSettingsRes } = useApiQuery<TransactionSettings>(
+    ['transaction-settings', 'STOCK_ISSUE'],
+    '/transaction-settings/STOCK_ISSUE'
+  );
+  const stockTxSettings = stockIssueSettingsRes?.data;
+  const autoPostOnSave = stockTxSettings?.autoPostOnSave === true;
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost(
+    autoPostOnSave
+  );
+
+  useEffect(() => {
+    if (selectedIssueId || !stockTxSettings?.defaultWarehouseId || warehouseId) return;
+    setValue('warehouseId', stockTxSettings.defaultWarehouseId, { shouldDirty: false });
+  }, [selectedIssueId, setValue, stockTxSettings?.defaultWarehouseId, warehouseId]);
 
   useEffect(() => {
     if (!selectedIssueId) {
@@ -206,23 +249,27 @@ function IssuePageInner() {
       date: invoiceDateFromDraft(payload),
     });
     setIssueLines(issueLinesFromAiDraft(payload));
-    window.history.replaceState(null, '', window.location.pathname);
+    pinDocumentTabQuery(null);
   }, [fromAiDraft, reset, selectedIssueId]);
 
   const openIssue = (id: string | null) => {
     setSelectedIssueId(id);
-    if (id) window.history.replaceState(null, '', `?id=${id}`);
-    else window.history.replaceState(null, '', window.location.pathname);
+    pinDocumentTabQuery(id);
   };
+
+  useEffect(() => {
+    const id = searchParams.get('id')?.trim() || null;
+    setSelectedIssueId((prev) => (prev === id ? prev : id));
+  }, [searchParams]);
   const [showList, setShowList] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Fetch items
-  const { isLoading: itemsLoading } = useApiQuery<Item[]>(
+  const { isLoading: itemsLoading, data: itemsCatalogResponse } = useApiQuery<Item[]>(
     ['items'],
     '/inventory/items',
     { limit: 1000, isActive: true }
   );
+  const catalogItems = itemsCatalogResponse?.data ?? [];
   // Fetch single issue for editing
   const { data: issueResponse } = useApiQuery<IssueDocumentDetail>(
     ['issue', selectedIssueId],
@@ -231,21 +278,60 @@ function IssuePageInner() {
     { enabled: !!selectedIssueId }
   );
   const selectedIssue = issueResponse?.data;
+
+  const draftSnapshot = useMemo<IssueDraft>(
+    () => ({ form: watchedForm, lines: issueLines }),
+    [watchedForm, issueLines]
+  );
+
+  const applyIssueDraft = useCallback(
+    (payload: IssueDraft) => {
+      skipServerHydrateRef.current = true;
+      reset({ ...emptyIssueFormDefaults(), ...payload.form });
+      setIssueLines(
+        Array.isArray(payload.lines) && payload.lines.length
+          ? payload.lines
+          : seedStockVoucherLines()
+      );
+    },
+    [reset]
+  );
+
+  const {
+    restoreOffer,
+    acceptRestore,
+    dismissRestore,
+    clearDraft,
+  } = useDraftAutosave({
+    documentType: 'stock-issue',
+    mode: selectedIssueId ? 'edit' : 'new',
+    documentId: selectedIssueId,
+    value: draftSnapshot,
+    enabled: !isPosted,
+    applyRestore: applyIssueDraft,
+    isEmpty: (draft) => isIssueDraftEmpty(draft, stockTxSettings?.defaultWarehouseId),
+    restoreMessage: 'تم استعادة مسودة إذن الصرف',
+  });
+
   const stockPanel = useStockMovementPanel(
     selectedIssueId,
     isPosted,
     (selectedIssue as { journalEntryId?: string | null })?.journalEntryId
   );
 
-  // Load receipt data when selected
+  // Load issue data when selected
   useEffect(() => {
+    if (skipServerHydrateRef.current) {
+      skipServerHydrateRef.current = false;
+      return;
+    }
     if (selectedIssue) {
       reset({
         serialNumber: selectedIssue.serialNumber || selectedIssue.serial || '',
         description: selectedIssue.description || '',
         date: selectedIssue.date
-          ? new Date(selectedIssue.date).toISOString().split('T')[0]
-          : new Date().toISOString().split('T')[0],
+          ? toDatetimeLocalValue(selectedIssue.date)
+          : toDatetimeLocalValue(),
         hijriDate: selectedIssue.hijriDate || '',
         warehouseId: selectedIssue.warehouseId || '',
         customerId: String(selectedIssue.customerId || ''),
@@ -274,6 +360,7 @@ function IssuePageInner() {
   }, [selectedIssue, reset]);
 
   const clearIssueForNext = () => {
+    clearDraft();
     openIssue(null);
     stockPanel.resetPanel();
     setIssueLines(seedStockVoucherLines());
@@ -294,6 +381,16 @@ function IssuePageInner() {
         const shouldPost = postAfterSaveRef.current;
         postAfterSaveRef.current = false;
         const finish = (posted: boolean) => {
+          maybePrintStockDocumentAfterSave(Boolean(stockTxSettings?.autoPrintOnSave), {
+            title: 'إذن صرف مخزني',
+            number,
+            date: watch('date'),
+            rows: issueLines.map((line) => ({
+              item: line.itemId,
+              quantity: line.quantity,
+              price: line.unitPrice,
+            })),
+          });
           finishDocumentSave({
             label: 'إذن صرف مخزني',
             number,
@@ -343,6 +440,16 @@ function IssuePageInner() {
         const shouldPost = postAfterSaveRef.current;
         postAfterSaveRef.current = false;
         const finishSaved = (posted: boolean) => {
+          maybePrintStockDocumentAfterSave(Boolean(stockTxSettings?.autoPrintOnSave), {
+            title: 'إذن صرف مخزني',
+            number,
+            date: watch('date'),
+            rows: issueLines.map((line) => ({
+              item: line.itemId,
+              quantity: line.quantity,
+              price: line.unitPrice,
+            })),
+          });
           finishDocumentSave({
             label: 'إذن صرف مخزني',
             number,
@@ -391,18 +498,20 @@ function IssuePageInner() {
     }
   );
 
-  const issueDeleteMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedIssueId ? `/inventory/issues/${selectedIssueId}` : '/inventory/issues',
-    'DELETE',
+  const issueCancelMutation = useApiMutation<unknown, Record<string, unknown>>(
+    selectedIssueId ? `/inventory/issues/${selectedIssueId}/cancel` : '/inventory/issues',
+    'POST',
     {
       showSuccessToast: false,
       onSuccess: () => {
-        setSuccess('تم حذف الصرف بنجاح');
+        setSuccess('تم إلغاء الإذن');
         invalidateStockViews(invalidateQuery);
-        clearIssueForNext();
+        invalidateNextSerial();
+        if (selectedIssueId) invalidateQuery(['issue', selectedIssueId]);
+        setValue('isPosted', false);
       },
       onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الحذف');
+        setError(error.message || 'تعذر الإلغاء');
       },
     }
   );
@@ -412,13 +521,13 @@ function IssuePageInner() {
   const loading =
     issueMutation.isPending ||
     issueUpdateMutation.isPending ||
-    issueDeleteMutation.isPending ||
+    issueCancelMutation.isPending ||
     itemsLoading;
 
   // Handle post/unpost
   const handlePostUnpost = async (post: boolean) => {
     if (post) {
-      requestPostAfterSave();
+      requestExplicitPostAfterSave();
       return;
     }
     if (!selectedIssueId) {
@@ -433,6 +542,12 @@ function IssuePageInner() {
             setValue('isPosted', false);
             markUnpostedForEdit();
             invalidateStockViews(invalidateQuery);
+            if (selectedIssueId) {
+              invalidateQuery(['issue', selectedIssueId]);
+              invalidateQuery(['inventory-movements-by-doc', selectedIssueId]);
+              const jeId = (selectedIssue as { journalEntryId?: string | null })?.journalEntryId;
+              if (jeId) invalidateQuery(['journal-entry', jeId]);
+            }
           },
           onError: (error: ApiError) => {
             setError(error.message || 'حدث خطأ أثناء فك الترحيل');
@@ -441,21 +556,44 @@ function IssuePageInner() {
       );
   };
 
-  // Handle delete
-  const handleDelete = async () => {
+  const handleVoid = async () => {
     if (!selectedIssueId) {
       setError('يرجى اختيار صرف أولاً');
       return;
     }
+    if (await confirmAction('إلغاء المستند؟ يمكن استعادته من قائمة (...).')) {
+      issueCancelMutation.mutate({});
+    }
+  };
 
-    if (await confirmAction('هل أنت متأكد من حذف هذا الصرف؟')) {
-      issueDeleteMutation.mutate({});
+  const handleRestore = async () => {
+    if (!selectedIssueId || restorePending) return;
+    setRestorePending(true);
+    try {
+      await restoreCancelledDocument({
+        restorePath: `/inventory/issues/${selectedIssueId}/restore`,
+        postPath: `/inventory/issues/${selectedIssueId}/post`,
+        kind: 'named',
+        autoPostOnSave: stockIssueSettingsRes?.data?.autoPostOnSave,
+      });
+      invalidateQuery(['issue', selectedIssueId]);
+      invalidateStockViews(invalidateQuery);
+      setSuccess(
+        stockIssueSettingsRes?.data?.autoPostOnSave
+          ? 'تمت الاستعادة والترحيل'
+          : 'تمت الاستعادة — المستند غير مرحّل'
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'تعذر الاستعادة');
+    } finally {
+      setRestorePending(false);
     }
   };
 
   // Handle new receipt
   const handleNew = () => {
     resetKeepPosted();
+    clearDraft();
     openIssue(null);
     setIssueLines(seedStockVoucherLines());
     setError('');
@@ -473,6 +611,12 @@ function IssuePageInner() {
     toast.success(`تم تحميل الإذن من ${payload.sourceNumber}`);
   };
 
+  useDocumentFollowUpHydrate({
+    enabled: true,
+    isNewDocument: !selectedIssueId,
+    onHydrate: handleSourceHydrate,
+  });
+
   const onSaveValid: SubmitHandler<IssueHeaderForm> = (values) => {
     setError('');
     setSuccess('');
@@ -489,10 +633,16 @@ function IssuePageInner() {
       setError(msg || 'تحقق من بنود الأصناف');
       return;
     }
+    const expiryErr = expiryBatchLinesValid(filledLines, catalogItems);
+    if (expiryErr) {
+      postAfterSaveRef.current = false;
+      setError(expiryErr);
+      return;
+    }
     const requestBody = {
       serial: values.serialNumber || undefined,
       description: values.description || undefined,
-      date: new Date(values.date).toISOString(),
+      date: datetimeLocalToIso(values.date),
       hijriDate: values.hijriDate || undefined,
       warehouseId: values.warehouseId,
       customerId: values.customerId?.trim() ? values.customerId.trim() : null,
@@ -519,11 +669,15 @@ function IssuePageInner() {
     }
   };
 
-  const requestPostAfterSave = () => {
+  const submitIssue = (postAfterSave: boolean) => {
     if (isPosted || isReadOnly) return;
-    postAfterSaveRef.current = true;
+    postAfterSaveRef.current = postAfterSave;
     void handleSubmit(onSaveValid, onFieldErrors(setError))();
   };
+
+  const requestSaveDraft = () => submitIssue(autoPostOnSave);
+
+  const requestExplicitPostAfterSave = () => submitIssue(true);
 
   // Add receipt line
   const addIssueLine = () => {
@@ -533,6 +687,14 @@ function IssuePageInner() {
   const removeIssueLine = (index: number) => {
     const next = issueLines.filter((_, i) => i !== index);
     setIssueLines(next.length ? next : [blankStockVoucherLine()]);
+  };
+
+  const patchIssueLine = (index: number, patch: Partial<StockVoucherLine>) => {
+    setIssueLines((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], ...patch };
+      return updated;
+    });
   };
 
   const updateIssueLine = (index: number, field: keyof StockVoucherLine, value: string | number) => {
@@ -581,6 +743,17 @@ function IssuePageInner() {
     <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+      <PageDraftRestoreGate<IssueDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedIssueId)}
+        message="يوجد مسودة إذن صرف غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyIssueDraft(payload);
+          setSuccess('تم استعادة مسودة إذن الصرف');
+        }}
+      />
 
       <ErpDocumentPageHeader
         breadcrumbs={[
@@ -590,10 +763,15 @@ function IssuePageInner() {
         ]}
         title="إذن صرف مخزني"
         docNumber={watch('serialNumber') || ''}
-        statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحّل' : STORE_DOCUMENT_UNPOSTED_LABEL}
-        saveLabel={STORE_SAVE_AND_POST_LABEL}
-        onSaveDraft={requestPostAfterSave}
+        lifecycle={{
+          documentId: selectedIssueId,
+          isPosted,
+          isCancelled: Boolean(
+            (selectedIssue as { isCancelled?: boolean } | undefined)?.isCancelled
+          ),
+        }}
+        saveLabel={autoPostOnSave ? STORE_SAVE_AND_POST_LABEL : 'حفظ'}
+        onSaveDraft={requestSaveDraft}
         onCancel={handleNew}
         cancelLabel="تراجع"
         onPost={() => handlePostUnpost(true)}
@@ -608,8 +786,12 @@ function IssuePageInner() {
         onBrowseList={() => setShowList(true)}
         browseListLabel="السابق"
         standardActions={{
-          hasDocument: Boolean(selectedIssueId) || issueLines.some((l) => l.itemId),
+          hasDocument: Boolean(selectedIssueId),
           isPosted,
+          isCancelled: Boolean(selectedIssue?.isCancelled),
+          onRestore: selectedIssueId ? () => void handleRestore() : undefined,
+          restoreLabel: 'استعادة',
+          restorePending,
           onEdit: () => {
             if (isPosted) {
               setError('يجب إلغاء الترحيل أولاً للتعديل');
@@ -619,12 +801,15 @@ function IssuePageInner() {
           },
           onPost: () => handlePostUnpost(true),
           onUnpost: () => handlePostUnpost(false),
-          onVoid: handleDelete,
+          onVoid: handleVoid,
+          voidPending: issueCancelMutation.isPending,
           onNew: handleNew,
           newLabel: 'جديد',
-          extraItems: [
-            { id: 'settings', label: 'إعدادات المستند', onClick: () => setSettingsOpen(true) },
-          ],
+          transactionSettingsDocumentType: 'STOCK_ISSUE',
+          onTransactionSettingsSaved: () => {
+            invalidateAfterTransactionSettingsSave(invalidateQuery, 'STOCK_ISSUE');
+            invalidateNextSerial();
+          },
         }}
         printTrigger={
           <Button
@@ -648,21 +833,6 @@ function IssuePageInner() {
             طباعة
           </Button>
         }
-        extraActions={
-          <DocumentSourceLoadBar
-            key={sourceBarKey}
-            hasExistingLines={issueLines.some((l) => Boolean(l.itemId))}
-            disabled={isPosted || isReadOnly}
-            allowedTypes={STOCK_ISSUE_SOURCE_TYPES}
-            onHydrate={handleSourceHydrate}
-          />
-        }
-      />
-
-      <TransactionSettingsDrawer
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        documentType="STOCK_ISSUE"
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أذون الصرف المخزنية السابقة">
@@ -681,7 +851,19 @@ function IssuePageInner() {
 
       <DocumentReadOnlyBanner />
       <DocumentFormLock>
-      <FormSectionCard title="بيانات الإذن" subtitle="المخزن والعميل والتاريخ">
+      <FormSectionCard
+        title="بيانات الإذن"
+        subtitle="المخزن والعميل والتاريخ"
+        sourceActions={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={issueLines.some((l) => Boolean(l.itemId))}
+            disabled={isPosted || isReadOnly}
+            currentAffectsStock
+            onHydrate={handleSourceHydrate}
+          />
+        }
+      >
 
           <CompactFormField
             label="المسلسل"
@@ -691,7 +873,8 @@ function IssuePageInner() {
           />
           <CompactFormField
             label="التاريخ"
-            type="date"
+            type="datetime-local"
+            step="1"
             error={errors.date?.message}
             {...register('date')}
           />
@@ -781,6 +964,7 @@ function IssuePageInner() {
             onAdd={addIssueLine}
             onRemove={removeIssueLine}
             onChange={updateIssueLine}
+            onPatchLine={patchIssueLine}
           />
       </FormSectionCard>
       </DocumentFormLock>
@@ -794,6 +978,10 @@ function IssuePageInner() {
       <StockMovementBottomSplit
         totalAmount={totalAmount}
         lineCount={issueLines.length}
+        stockMovementsTabLabel="التأثير المخزني"
+        movementSourceFallback={
+          issueSerial?.trim() ? { sourceType: 'GI', sourceNumber: issueSerial.trim() } : null
+        }
         {...stockPanel.bottomSplitProps}
       />
     </ErpDocumentLayout>

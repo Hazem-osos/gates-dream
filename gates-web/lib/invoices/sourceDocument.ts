@@ -35,6 +35,55 @@ export const SOURCE_TYPE_LABELS: Record<SelectableSourceType, string> = {
   SALES_INVOICE: 'فاتورة مبيعات',
 };
 
+export type SourceLoadRole = 'general' | 'sales-return' | 'purchase-return';
+
+export type SourceTypeStockPolicies = {
+  salesInvoiceAffectsStock: boolean;
+  purchaseInvoiceAffectsStock: boolean;
+};
+
+/** هل نوع القسم نفسه بيأثر على المخزن (حسب إعداد فاتورة البيع/الشراء). */
+export function sourceTypeAffectsStock(
+  type: SelectableSourceType,
+  policies: SourceTypeStockPolicies
+): boolean {
+  switch (type) {
+    case 'QUOTATION':
+    case 'SALES_ORDER':
+    case 'PURCHASE_ORDER':
+      return false;
+    case 'DELIVERY_NOTE':
+    case 'GOODS_RECEIPT':
+      return true;
+    case 'SALES_INVOICE':
+      return policies.salesInvoiceAffectsStock;
+    case 'PURCHASE_INVOICE':
+      return policies.purchaseInvoiceAffectsStock;
+  }
+}
+
+/**
+ * مستند بيأثر على المخزن → أقسام لا تؤثر على المخزن فقط.
+ * مستند لا يؤثر → كل الأقسام (اللي بتأثر واللي مش بتأثر).
+ */
+export function complementarySourceTypes(
+  currentAffectsStock: boolean,
+  policies: SourceTypeStockPolicies
+): SelectableSourceType[] {
+  if (!currentAffectsStock) return [...SELECTABLE_SOURCE_TYPES];
+  return SELECTABLE_SOURCE_TYPES.filter((type) => !sourceTypeAffectsStock(type, policies));
+}
+
+export function sourceTypesForLoadBar(opts: {
+  role?: SourceLoadRole;
+  currentAffectsStock: boolean;
+  policies: SourceTypeStockPolicies;
+}): readonly SelectableSourceType[] {
+  if (opts.role === 'sales-return') return SALES_RETURN_SOURCE_TYPES;
+  if (opts.role === 'purchase-return') return PURCHASE_RETURN_SOURCE_TYPES;
+  return complementarySourceTypes(opts.currentAffectsStock, opts.policies);
+}
+
 /** أقسام التحميل في فواتير المبيعات */
 export const SALES_INVOICE_SOURCE_TYPES = [
   'QUOTATION',
@@ -108,6 +157,8 @@ export type SourceHydrateLine = {
   withholdingTaxRate: number;
   discount: number;
   costCenterId?: string | null;
+  /** بند إذن إضافة — لربط الاستهلاك بالفاتورة */
+  sourceLineId?: string;
 };
 
 export type SourceHydratePayload = {
@@ -124,6 +175,7 @@ export type SourceHydratePayload = {
   partyName: string;
   lines: SourceHydrateLine[];
   notes: string;
+  adjustments?: import('./invoice-adjustments').InvoiceAdjustmentApiRow[];
 };
 
 export function mergeSourceNote(existing: string | undefined, note: string): string {
@@ -183,5 +235,8 @@ export function sourceLineToPurchaseRow(line: SourceHydrateLine, warehouseId: st
     withholdingTaxRate: line.withholdingTaxRate || 0,
     withholdingTaxAmount: 0,
     costCenterId: line.costCenterId ?? '',
+    ...(line.sourceLineId
+      ? { sourceKind: 'GOODS_RECEIPT' as const, sourceLineId: line.sourceLineId }
+      : {}),
   };
 }

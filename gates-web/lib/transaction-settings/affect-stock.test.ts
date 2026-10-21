@@ -12,8 +12,11 @@ describe('salesInvoiceSourceTypes', () => {
     expect(types).toContain('SALES_ORDER');
   });
 
-  it('includes delivery note when invoice does not affect stock', () => {
-    expect(salesInvoiceSourceTypes(false)).toContain('DELIVERY_NOTE');
+  it('includes stock and non-stock sources when invoice does not affect stock', () => {
+    const types = salesInvoiceSourceTypes(false);
+    expect(types).toContain('DELIVERY_NOTE');
+    expect(types).toContain('QUOTATION');
+    expect(types).toContain('SALES_ORDER');
   });
 });
 
@@ -24,7 +27,10 @@ describe('purchaseInvoiceSourceTypes', () => {
     expect(types).toContain('PURCHASE_ORDER');
   });
 
-  it('includes goods receipt when invoice does not affect stock', () => {
-    expect(purchaseInvoiceSourceTypes(false)).toContain('GOODS_RECEIPT');
+  it('includes stock and non-stock sources when invoice does not affect stock', () => {
+    const types = purchaseInvoiceSourceTypes(false);
+    expect(types).toContain('GOODS_RECEIPT');
+    expect(types).toContain('PURCHASE_ORDER');
+    expect(types).toContain('QUOTATION');
   });
 });

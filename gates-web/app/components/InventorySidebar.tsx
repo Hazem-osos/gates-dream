@@ -113,7 +113,6 @@ export const inventoryModules: ModuleWithChildren[] = [
         children: [
           { key: 'price-quote', icon: '', label: 'عرض سعر', color: C, href: '/inventory/operations/price-quote' },
           { key: 'sales-order', icon: '', label: 'أمر بيع', color: C, href: '/inventory/operations/sales-order' },
-          { key: 'supply-order', icon: '', label: 'أمر توريد', color: C, href: '/inventory/operations/supply-order' },
           { key: 'sales-invoice', icon: '', label: 'فاتورة مبيعات', color: C, href: '/inventory/operations/sales-invoice', badge: { text: 'يومي', tone: 'info' } },
           { key: 'sales-returns', icon: '', label: 'مردودات مبيعات', color: C, href: '/inventory/operations/sales-returns' },
           {
@@ -151,6 +150,54 @@ export const inventoryModules: ModuleWithChildren[] = [
     ],
   },
   {
+    key: 'settings',
+    icon: '',
+    label: 'الإعدادات',
+    color: C,
+    children: [
+      { key: 'inventory-settings-hub', icon: '', label: 'إعدادات المخازن', color: C, href: '/inventory/settings' },
+      {
+        key: 'warehouse-doc-settings',
+        icon: '',
+        label: 'إعدادات شاشات المخازن',
+        color: C,
+        children: [
+          { key: 'settings-stock-receipt', icon: '', label: 'إعدادات إذن الإضافة', color: C, href: '/inventory/settings/transactions/stock-receipt' },
+          { key: 'settings-stock-issue', icon: '', label: 'إعدادات إذن الصرف', color: C, href: '/inventory/settings/transactions/stock-issue' },
+          { key: 'settings-stock-transfer', icon: '', label: 'إعدادات تحويل مخزني', color: C, href: '/inventory/settings/transactions/stock-transfer' },
+          { key: 'settings-stock-assembly', icon: '', label: 'إعدادات تجميع أصناف', color: C, href: '/inventory/settings/transactions/stock-assembly' },
+          { key: 'settings-stock-disassembly', icon: '', label: 'إعدادات تفكيك أصناف', color: C, href: '/inventory/settings/transactions/stock-disassembly' },
+          { key: 'settings-stocktaking', icon: '', label: 'إعدادات الجرد', color: C, href: '/inventory/settings/transactions/stock-stocktaking' },
+          { key: 'settings-opening-stock', icon: '', label: 'إعدادات بضاعة أول المدة', color: C, href: '/inventory/settings/transactions/opening-stock' },
+          { key: 'settings-other-adjustment', icon: '', label: 'إعدادات تسوية أخرى', color: C, href: '/inventory/settings/transactions/stock-other-adjustment' },
+        ],
+      },
+      {
+        key: 'sales-doc-settings',
+        icon: '',
+        label: 'إعدادات شاشات المبيعات',
+        color: C,
+        children: [
+          { key: 'settings-price-quote', icon: '', label: 'إعدادات عرض السعر', color: C, href: '/inventory/settings/transactions/price-quote' },
+          { key: 'settings-sales-order', icon: '', label: 'إعدادات أمر البيع', color: C, href: '/inventory/settings/transactions/sales-order' },
+          { key: 'settings-sales-invoice', icon: '', label: 'إعدادات فاتورة المبيعات', color: C, href: '/inventory/settings/transactions/sales-invoice' },
+          { key: 'settings-sales-return', icon: '', label: 'إعدادات مردودات المبيعات', color: C, href: '/inventory/settings/transactions/sales-return' },
+        ],
+      },
+      {
+        key: 'purchase-doc-settings',
+        icon: '',
+        label: 'إعدادات شاشات المشتريات',
+        color: C,
+        children: [
+          { key: 'settings-purchase-order', icon: '', label: 'إعدادات أمر الشراء', color: C, href: '/inventory/settings/transactions/purchase-order' },
+          { key: 'settings-purchase-invoice', icon: '', label: 'إعدادات فاتورة المشتريات', color: C, href: '/inventory/settings/transactions/purchase-invoice' },
+          { key: 'settings-purchase-return', icon: '', label: 'إعدادات مردودات المشتريات', color: C, href: '/inventory/settings/transactions/purchase-return' },
+        ],
+      },
+    ],
+  },
+  {
     key: 'reports',
     icon: '',
     label: 'تقارير المخازن',
@@ -180,13 +227,6 @@ export const inventoryModules: ModuleWithChildren[] = [
         color: C,
         children: [
           { key: 'sales-reports', icon: '', label: 'تقارير المبيعات', color: C, href: '/inventory/reports/sales-reports' },
-          {
-            key: 'supply-order-follow-up',
-            icon: '',
-            label: 'متابعة أوامر التوريد',
-            color: C,
-            href: '/inventory/reports/supply-order-follow-up',
-          },
           { key: 'sales-returns-reports', icon: '', label: 'مردودات المبيعات', color: C, href: '/inventory/reports/sales-returns-reports' },
           { key: 'sales-and-returns-reports', icon: '', label: 'المبيعات والمردودات', color: C, href: '/inventory/reports/sales-and-returns-reports' },
           { key: 'monthly-sales-for-items', icon: '', label: 'المبيعات الشهرية للأصناف', color: C, href: '/inventory/reports/monthly-sales-for-items' },
@@ -220,6 +260,13 @@ export const inventoryModules: ModuleWithChildren[] = [
           { key: 'receivables-aging', icon: '', label: 'أعمار الديون', color: C, href: '/inventory/reports/receivables-aging' },
           { key: 'overdue-payments', icon: '', label: 'الدفعات المتأخرة', color: C, href: '/inventory/reports/overdue-payments' },
           { key: 'customer-balances', icon: '', label: 'أرصدة العملاء', color: C, href: '/inventory/reports/customer-balances' },
+          {
+            key: 'party-analytical-position',
+            icon: '',
+            label: 'موقف الحسابات التحليلي',
+            color: C,
+            href: '/inventory/reports/party-analytical-position',
+          },
         ],
       },
       {

@@ -1,6 +1,7 @@
 export * from './erpUiTokens';
 export { ErpDocumentLayout } from './ErpDocumentLayout';
 export { PageDraftRestoreBanner } from './PageDraftRestoreBanner';
+export { PageDraftRestoreGate } from './PageDraftRestoreGate';
 export { ErpDocumentPageHeader, type ErpHeaderMenuItem } from './ErpDocumentPageHeader';
 export { MasterCardPageHeader, MasterCardShell } from './MasterCardPageHeader';
 export { ReportPageHeader, ReportPageShell } from './ReportPageHeader';
@@ -12,6 +13,7 @@ export { DocumentBrowseDrawer } from './DocumentBrowseDrawer';
 export { GenericRecordsList } from './GenericRecordsList';
 export { BrowseDateRangeFilters, BrowseStatusFilter } from './BrowseListFilters';
 export { ErpFormHeaderCard, ErpFieldError } from './ErpFormHeaderCard';
+export { DocumentSourceActionsRow } from './DocumentSourceActionsRow';
 export { FinancialSummaryCard, type FinancialSummaryRow } from './FinancialSummaryCard';
 export { ErpDocumentBottomSplit, type ErpBottomTab } from './ErpDocumentBottomSplit';
 export { GeneratedJournalTab } from './GeneratedJournalTab';

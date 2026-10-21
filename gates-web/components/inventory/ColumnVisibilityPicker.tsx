@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  CUSTOMIZABLE_INVOICE_COLUMNS,
+  customizableInvoiceColumns,
   loadVisibleColumnIds,
   saveVisibleColumnIds,
   toggleColumn,
@@ -58,9 +58,12 @@ export function ColumnVisibilityPicker({ storageKey, visibleIds, onChange, compa
           className="absolute left-0 top-full z-50 mt-2 w-80 rounded-xl border border-slate-200 bg-white p-3 text-right shadow-lg"
           dir="rtl"
         >
-          <p className="mb-2 text-xs text-slate-500">كل أعمدة جدول الأصناف — الثابتة تبقى ظاهرة دائمًا</p>
+          <p className="mb-2 text-xs text-slate-500">
+            اختر الأعمدة الظاهرة. «م» والصنف وزر الحذف ثابتة؛ إخفاء عمود مطلوب للحفظ قد يسبب خطأ عند
+            الترحيل.
+          </p>
           <ul className="max-h-80 space-y-1.5 overflow-y-auto">
-            {CUSTOMIZABLE_INVOICE_COLUMNS.map((col) => (
+            {customizableInvoiceColumns(storageKey).map((col) => (
               <li key={col.id}>
                 <label
                   className={`flex items-center gap-2 text-sm text-[#0A3D5E] ${

@@ -1065,6 +1065,28 @@ const GENERATED: ReportCatalogEntry[] = [
     "filterPath": "/inventory/reports/customer-accounts-reports"
   },
   {
+    "urlPath": "/inventory/reports/party-analytical-position",
+    "registryPath": "inventory/reports/party-analytical-position",
+    "reportKey": "party-analytical-position",
+    "titleAr": "تقرير موقف الحسابات التحليلي",
+    "module": "inventory",
+    "kind": "filter",
+    "status": "active",
+    "previewPath": "/inventory/reports/party-analytical-position/preview",
+    "filterPath": "/inventory/reports/party-analytical-position"
+  },
+  {
+    "urlPath": "/inventory/reports/party-analytical-position/preview",
+    "registryPath": "inventory/reports/party-analytical-position",
+    "reportKey": "party-analytical-position",
+    "titleAr": "تقرير موقف الحسابات التحليلي",
+    "module": "inventory",
+    "kind": "preview",
+    "status": "active",
+    "previewPath": "/inventory/reports/party-analytical-position/preview",
+    "filterPath": "/inventory/reports/party-analytical-position"
+  },
+  {
     "urlPath": "/inventory/reports/customer-balances",
     "registryPath": "inventory/reports/customer-balances",
     "reportKey": "customer-balances",
@@ -3640,6 +3662,28 @@ export const REPORT_CATALOG_BY_URL: Record<string, ReportCatalogEntry> = {
     "status": "active",
     "previewPath": "/inventory/reports/customer-accounts-reports/preview",
     "filterPath": "/inventory/reports/customer-accounts-reports"
+  },
+  "/inventory/reports/party-analytical-position": {
+    "urlPath": "/inventory/reports/party-analytical-position",
+    "registryPath": "inventory/reports/party-analytical-position",
+    "reportKey": "party-analytical-position",
+    "titleAr": "تقرير موقف الحسابات التحليلي",
+    "module": "inventory",
+    "kind": "filter",
+    "status": "active",
+    "previewPath": "/inventory/reports/party-analytical-position/preview",
+    "filterPath": "/inventory/reports/party-analytical-position"
+  },
+  "/inventory/reports/party-analytical-position/preview": {
+    "urlPath": "/inventory/reports/party-analytical-position/preview",
+    "registryPath": "inventory/reports/party-analytical-position",
+    "reportKey": "party-analytical-position",
+    "titleAr": "تقرير موقف الحسابات التحليلي",
+    "module": "inventory",
+    "kind": "preview",
+    "status": "active",
+    "previewPath": "/inventory/reports/party-analytical-position/preview",
+    "filterPath": "/inventory/reports/party-analytical-position"
   },
   "/inventory/reports/customer-balances": {
     "urlPath": "/inventory/reports/customer-balances",

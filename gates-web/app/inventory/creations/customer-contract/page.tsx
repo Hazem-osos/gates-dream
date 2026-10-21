@@ -1,6 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { FileText, Plus, Trash2 } from 'lucide-react';
 import {
   Button,
@@ -117,6 +119,23 @@ export default function CustomerContractPage() {
   const [saving, setSaving] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
+  type CustomerContractDraft = { form: FormState; groups: GroupLine[] };
+  const draftSnapshot = useMemo<CustomerContractDraft>(() => ({ form, groups }), [form, groups]);
+  const applyCustomerContractDraft = useCallback((payload: CustomerContractDraft) => {
+    setForm(payload.form);
+    setGroups(payload.groups);
+    setSelectedId(null);
+    setError('');
+  }, []);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'customer-contract',
+    editingId: selectedId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.form.customerId && !d.form.code.trim() && !d.groups.some((g) => g.categoryId || g.days.trim()),
+    applyRestore: applyCustomerContractDraft,
+    restoreMessage: 'يوجد مسودة تعاقد عميل غير محفوظة',
+  });
+
   const { data: groupsResponse } = useApiQuery<ItemGroup[]>(
     queryKeys.itemCategories({ limit: 300 }),
     '/inventory/item-categories',
@@ -159,6 +178,7 @@ export default function CustomerContractPage() {
   };
 
   const handleNew = () => {
+    clearDraft();
     setSelectedId(null);
     setForm(emptyForm());
     setGroups([emptyGroup(), emptyGroup()]);
@@ -230,6 +250,7 @@ export default function CustomerContractPage() {
       }
       invalidateStockViews(invalidateQuery);
       invalidateQuery(['customer-contracts']);
+      clearDraft();
       if (wasUpdate) {
         finishDocumentSave({
           label: 'تعاقد عميل',
@@ -287,6 +308,14 @@ export default function CustomerContractPage() {
       favoriteHref="/inventory/creations/customer-contract"
       moreMenuItems={[{ id: 'add-group', label: 'إضافة مجموعة', onClick: addGroup }]}
     >
+      <MasterCardDraftRestoreGate<CustomerContractDraft>
+        editingId={selectedId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyCustomerContractDraft}
+        message="يوجد مسودة تعاقد عميل غير محفوظة."
+      />
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 

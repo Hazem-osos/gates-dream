@@ -31,9 +31,12 @@ type Props = {
   currencyCode?: string;
   disabled?: boolean;
   confirmPending?: boolean;
+  cancelPendingId?: string | null;
+  canCancelLines?: boolean;
   existingLines?: MultiCollectionHistoryRow[];
   onClose: () => void;
   onConfirm: (payload: MultiCollectionPayload) => Promise<void> | void;
+  onCancelLine?: (lineId: string) => Promise<void> | void;
 };
 
 function todayIso() {
@@ -66,9 +69,12 @@ export function MultiCollectionModal({
   currencyCode = 'EGP',
   disabled,
   confirmPending,
+  cancelPendingId,
+  canCancelLines,
   existingLines = [],
   onClose,
   onConfirm,
+  onCancelLine,
 }: Props) {
   const [accountId, setAccountId] = useState('');
   const [amount, setAmount] = useState('');
@@ -181,12 +187,13 @@ export function MultiCollectionModal({
                 <th className="px-3 py-2 font-bold">التاريخ</th>
                 <th className="px-3 py-2 font-bold">الحساب</th>
                 <th className="px-3 py-2 font-bold">القيمة</th>
+                {canCancelLines ? <th className="px-3 py-2 font-bold">إلغاء</th> : null}
               </tr>
             </thead>
             <tbody>
               {history.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-3 py-6 text-slate-500">
+                  <td colSpan={canCancelLines ? 4 : 3} className="px-3 py-6 text-slate-500">
                     لا توجد تحصيلات جزئية بعد
                   </td>
                 </tr>
@@ -198,6 +205,23 @@ export function MultiCollectionModal({
                     <td className="border-t border-[#D6EAF3] px-3 py-2 font-mono">
                       {money(row.amountNum, currencyCode)}
                     </td>
+                    {canCancelLines ? (
+                      <td className="border-t border-[#D6EAF3] px-3 py-2">
+                        <Button
+                          type="button"
+                          variant="danger"
+                          size="sm"
+                          disabled={!row.id || disabled || Boolean(cancelPendingId) || confirmPending}
+                          onClick={() => {
+                            if (!row.id || !onCancelLine) return;
+                            if (!window.confirm('سيتم إلغاء هذا التحصيل وقيده فقط. هل تريد المتابعة؟')) return;
+                            void onCancelLine(row.id);
+                          }}
+                        >
+                          {cancelPendingId && cancelPendingId === row.id ? 'جاري الإلغاء…' : 'إلغاء التحصيل'}
+                        </Button>
+                      </td>
+                    ) : null}
                   </tr>
                 ))
               )}

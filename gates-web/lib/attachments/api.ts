@@ -77,10 +77,11 @@ export async function uploadAttachmentFile(input: {
   file: File;
   fileCategory?: DocumentCategory;
   description?: string;
+  displayFileName?: string;
   links: AttachmentLinkFilters;
 }): Promise<DocumentAttachment> {
   const presign = await apiClient.post<PresignUploadResponse>('/attachments/presign', {
-    originalFileName: input.file.name,
+    originalFileName: (input.displayFileName?.trim() || input.file.name).slice(0, 255),
     mimeType: input.file.type || 'application/octet-stream',
     fileSize: input.file.size,
     fileCategory: input.fileCategory ?? 'GENERAL',

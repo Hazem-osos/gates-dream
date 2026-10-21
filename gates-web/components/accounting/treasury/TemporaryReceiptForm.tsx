@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useForm, useWatch, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button, CompactFormField, compactControlClass } from '@/components/ui';
 import { toast } from '@/lib/feedback/toast';
 import { confirmAction } from '@/lib/feedback/confirm';
-import { deleteDraftDocument, isDraftDocumentRow } from '@/lib/documents/deleteDraftDocument';
 import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpFormHeaderCard } from '@/components/erp/ErpFormHeaderCard';
@@ -31,6 +30,15 @@ import { TemporaryReceiptStickyFooter } from './TemporaryReceiptStickyFooter';
 import { pickCurrencyByCode, rateForCurrency } from '@/lib/accounting/fx-base';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
+import { maybeAutoPrintAfterSave } from '@/lib/printer/print-prefs';
+import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
+import {
+  documentSerialPlaceholder,
+  isTransactionSerialAutomatic,
+} from '@/lib/transaction-settings/serial-mode';
+import type { TransactionSettings } from '@/lib/transaction-settings/types';
 
 type Currency = {
   id: string;
@@ -64,6 +72,18 @@ function defaultCurrencyId(currencies: Currency[], companyBase = 'EGP') {
   return pickCurrencyByCode(currencies, companyBase)?.id || currencies[0].id;
 }
 
+type TemporaryReceiptDraft = TreasuryTempReceiptFormInput;
+
+function isTemporaryReceiptDraftEmpty(draft: TemporaryReceiptDraft) {
+  const amount = parseFloat(String(draft.amount || '').replace(/,/g, '')) || 0;
+  return (
+    !String(draft.serial ?? '').trim() &&
+    !String(draft.description ?? '').trim() &&
+    !String(draft.recipient ?? '').trim() &&
+    amount <= 0
+  );
+}
+
 function emptyForm(currencies: Currency[], defaultSafeId = ''): TreasuryTempReceiptFormInput {
   return {
     date: todayIso(),
@@ -78,6 +98,8 @@ function emptyForm(currencies: Currency[], defaultSafeId = ''): TreasuryTempRece
   };
 }
 
+const TEMP_RECEIPT_NEXT_NUMBER_KEY = ['temp-receipt-next-number'] as const;
+
 function TemporaryReceiptFormInner() {
   const invalidateQuery = useInvalidateQuery();
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
@@ -87,9 +109,22 @@ function TemporaryReceiptFormInner() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  const { data: txSettingsRes } = useApiQuery<TransactionSettings>(
+    ['transaction-settings', 'TEMPORARY_RECEIPT'],
+    '/transaction-settings/TEMPORARY_RECEIPT'
+  );
+  const txSettings = txSettingsRes?.data;
+  const autoNumbering = isTransactionSerialAutomatic(txSettings?.numberingMode);
+  const autoPostOnSave = txSettings?.autoPostOnSave === true;
+  const autoPrintOnSave = txSettings?.autoPrintOnSave === true;
+
   const { data: safesResponse } = useSafesQuery();
   const safes = safesResponse?.data || [];
-  const defaultSafeId = pickDefaultSafeId(safes);
+  const settingsSafeId =
+    txSettings?.defaultSafeId && safes.some((safe) => safe.id === txSettings.defaultSafeId)
+      ? txSettings.defaultSafeId
+      : '';
+  const defaultSafeId = settingsSafeId || pickDefaultSafeId(safes);
   const { data: currenciesResponse } = useApiQuery<Currency[]>(
     ['currencies'],
     '/accounting/currencies',
@@ -101,7 +136,7 @@ function TemporaryReceiptFormInner() {
   const { data: browseResponse } = useApiQuery<TempReceiptRecord[]>(
     ['treasury-receipts', 'temp-browse'],
     '/accounting/treasury-receipts',
-    { limit: 200, page: 1, receiptType: 'cash' },
+    { limit: 200, page: 1, voucherFamily: 'TEMP' },
     { enabled: browseOpen, staleTime: 20_000 }
   );
   const previousReceipts = useMemo(() => browseResponse?.data ?? [], [browseResponse?.data]);
@@ -132,10 +167,35 @@ function TemporaryReceiptFormInner() {
   const isSettled = watch('isSettled');
   const recipient = watch('recipient');
 
+  const { data: nextNumberRes } = useApiQuery<{ automatic: boolean; number: string }>(
+    TEMP_RECEIPT_NEXT_NUMBER_KEY,
+    '/accounting/treasury-receipts/next-number',
+    undefined,
+    { enabled: !selectedId, staleTime: 0 }
+  );
+
   useEffect(() => {
-    if (selectedId || loaded || safeId || !defaultSafeId) return;
-    setValue('safeId', defaultSafeId, { shouldValidate: false });
-  }, [defaultSafeId, loaded, safeId, selectedId, setValue]);
+    if (selectedId || loaded) return;
+    if (!safes.length || !defaultSafeId) return;
+    if (!safeId) {
+      setValue('safeId', defaultSafeId, { shouldValidate: false });
+      return;
+    }
+    if (settingsSafeId && safeId !== settingsSafeId) {
+      const companyDefault = pickDefaultSafeId(safes);
+      if (safeId === companyDefault) {
+        setValue('safeId', settingsSafeId, { shouldValidate: false });
+      }
+    }
+  }, [defaultSafeId, loaded, safeId, safes, selectedId, setValue, settingsSafeId]);
+
+  useEffect(() => {
+    if (selectedId || loaded || !autoNumbering) return;
+    const preview = nextNumberRes?.data?.number?.trim();
+    if (preview && preview !== serial) {
+      setValue('serial', preview, { shouldDirty: false, shouldValidate: false });
+    }
+  }, [autoNumbering, loaded, nextNumberRes?.data?.number, selectedId, serial, setValue]);
 
   useEffect(() => {
     if (currencies.length > 0 && !currencyId) {
@@ -155,6 +215,33 @@ function TemporaryReceiptFormInner() {
   const isConfirmed = Boolean(loaded?.isPosted || loaded?.isApproved || isSettled);
   const receiptNumber = serial || loaded?.voucherNumber || loaded?.serial || '';
   const hasDocument = Boolean(selectedId || loaded?.id);
+  const formSnapshot = useWatch({ control }) as TreasuryTempReceiptFormInput;
+  const draftSnapshot = useMemo<TemporaryReceiptDraft>(
+    () => ({
+      ...emptyForm(currencies, defaultSafeId),
+      ...formSnapshot,
+    }),
+    [currencies, defaultSafeId, formSnapshot]
+  );
+  const applyTemporaryReceiptDraft = useCallback(
+    (payload: TemporaryReceiptDraft) => {
+      reset({
+        ...emptyForm(currencies, defaultSafeId),
+        ...payload,
+      });
+    },
+    [currencies, defaultSafeId, reset]
+  );
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'temporary-receipt',
+    mode: selectedId ? 'edit' : 'new',
+    documentId: selectedId,
+    value: draftSnapshot,
+    enabled: !Boolean(loaded?.isPosted || loaded?.isApproved || loaded?.isCancelled),
+    applyRestore: applyTemporaryReceiptDraft,
+    isEmpty: isTemporaryReceiptDraftEmpty,
+    restoreMessage: 'يوجد مسودة إيصال مؤقت غير محفوظة',
+  });
 
   const applyRecord = (row: TempReceiptRecord) => {
     const currency = currencies.find((c) => c.code === row.currencyCode);
@@ -175,7 +262,17 @@ function TemporaryReceiptFormInner() {
     });
     setSelectedId(row.id);
     setLoaded(row);
-    lockToView();
+    if (row.isPosted || row.isApproved || row.isCancelled) lockToView();
+    else unlockForEdit();
+  };
+
+  const finishSave = (row: TempReceiptRecord | undefined, message: string) => {
+    invalidateQuery(['treasury-receipts']);
+    invalidateQuery(TEMP_RECEIPT_NEXT_NUMBER_KEY);
+    clearDraft();
+    if (row?.id) applyRecord(row);
+    maybeAutoPrintAfterSave(autoPrintOnSave, () => printReceipt(row));
+    setSuccess(message);
   };
 
   const createMutation = useApiMutation<TempReceiptRecord, Record<string, unknown>>(
@@ -184,10 +281,7 @@ function TemporaryReceiptFormInner() {
     {
       showSuccessToast: false,
       onSuccess: (res) => {
-        invalidateQuery(['treasury-receipts']);
-        if (res.data?.id) applyRecord(res.data);
-        else resetNew();
-        setSuccess('تم حفظ الإيصال المؤقت بنجاح');
+        finishSave(res.data, autoPostOnSave ? 'تم حفظ وتأكيد الإيصال المؤقت' : 'تم حفظ الإيصال المؤقت بنجاح');
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
     }
@@ -198,9 +292,8 @@ function TemporaryReceiptFormInner() {
     'PUT',
     {
       showSuccessToast: false,
-      onSuccess: () => {
-        invalidateQuery(['treasury-receipts']);
-        setSuccess('تم تحديث الإيصال المؤقت بنجاح');
+      onSuccess: (res) => {
+        finishSave(res.data ?? loaded ?? undefined, 'تم تحديث الإيصال المؤقت بنجاح');
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء التحديث'),
     }
@@ -216,8 +309,8 @@ function TemporaryReceiptFormInner() {
       Number(values.exchangeRate) > 0
         ? Number(values.exchangeRate)
         : rateForCurrency(selectedCurrency?.code, companyBaseCurrency, selectedCurrency?.exchangeRate),
-    voucherNumber: values.serial || undefined,
-    serial: values.serial || undefined,
+    voucherNumber: autoNumbering ? undefined : values.serial?.trim() || undefined,
+    serial: autoNumbering ? undefined : values.serial?.trim() || undefined,
     description: values.description || undefined,
     safeId: values.safeId,
     recipient: values.recipient,
@@ -227,6 +320,10 @@ function TemporaryReceiptFormInner() {
   const onValid: SubmitHandler<TreasuryTempReceiptFormInput> = (values) => {
     setError('');
     setSuccess('');
+    if (!autoNumbering && !values.serial?.trim()) {
+      setError('رقم الإيصال مطلوب — الترقيم يدوي في إعدادات المستند');
+      return;
+    }
     if (selectedId && !isReadOnly) {
       updateMutation.mutate(buildPayload(values));
       return;
@@ -235,19 +332,21 @@ function TemporaryReceiptFormInner() {
   };
 
   const resetNew = () => {
+    clearDraft();
     reset(emptyForm(currencies, defaultSafeId));
     setSelectedId(null);
     setLoaded(null);
     setError('');
     setSuccess('');
     setMode('create');
+    invalidateQuery(TEMP_RECEIPT_NEXT_NUMBER_KEY);
   };
 
-  const handlePrint = () => {
+  const printReceipt = (row?: TempReceiptRecord | null) => {
     void printOperationalDocument({
       title: 'إيصال استلام مؤقت',
-      documentNo: receiptNumber || 'مسودة',
-      documentDate: date || new Date().toISOString().slice(0, 10),
+      documentNo: row?.voucherNumber || row?.serial || receiptNumber || 'جديد',
+      documentDate: (row?.date ? String(row.date).slice(0, 10) : date) || new Date().toISOString().slice(0, 10),
       buyerName: recipient || undefined,
       currency: selectedCurrency?.code,
       lines: [
@@ -261,13 +360,7 @@ function TemporaryReceiptFormInner() {
     });
   };
 
-  const handleDuplicate = () => {
-    setSelectedId(null);
-    setLoaded(null);
-    setValue('serial', '');
-    setMode('create');
-    setSuccess('تم تجهيز نسخة جديدة من الإيصال');
-  };
+  const handlePrint = () => printReceipt(loaded);
 
   const handleCancelReceipt = async () => {
     if (!selectedId) return;
@@ -287,32 +380,48 @@ function TemporaryReceiptFormInner() {
 
   return (
     <ErpDocumentLayout>
+      <PageDraftRestoreGate<TemporaryReceiptDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedId)}
+        message="يوجد مسودة إيصال مؤقت غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyTemporaryReceiptDraft(payload);
+          setSuccess('تم استعادة مسودة الإيصال المؤقت');
+        }}
+      />
       <div className="flex min-h-[calc(100dvh-3rem)] flex-col pb-20">
       <TemporaryReceiptHeader
         receiptNumber={receiptNumber}
+        documentId={selectedId || loaded?.id || null}
         isConfirmed={isConfirmed}
         hasDocument={hasDocument}
-        isReadOnly={isReadOnly}
         isCancelled={loaded?.isCancelled}
         receiptDate={date}
         onReceiptDateChange={(v) => setValue('date', v, { shouldValidate: true })}
         dateError={Boolean(errors.date)}
         savePending={saving}
         canSave={!isReadOnly}
+        saveLabel={autoPostOnSave ? STORE_SAVE_AND_POST_LABEL : 'حفظ الإيصال'}
         onSave={() => void handleSubmit(onValid, onFieldErrors(setError))()}
+        onNew={resetNew}
         onBrowseList={() => setBrowseOpen(true)}
         onEdit={unlockForEdit}
         onPrint={handlePrint}
-        onDuplicate={handleDuplicate}
         onCancelReceipt={handleCancelReceipt}
+        onTransactionSettingsSaved={() => {
+          invalidateQuery(['transaction-settings', 'TEMPORARY_RECEIPT']);
+          invalidateQuery(TEMP_RECEIPT_NEXT_NUMBER_KEY);
+        }}
         extraFields={
           <ErpFormHeaderCard
             row1={
               <>
                 <CompactFormField
                   label="المسلسل"
-                  placeholder="رقم الإيصال"
-                  disabled={isReadOnly}
+                  placeholder={documentSerialPlaceholder(autoNumbering)}
+                  disabled={isReadOnly || autoNumbering}
                   {...register('serial')}
                 />
                 <CompactFormField
@@ -436,25 +545,6 @@ function TemporaryReceiptFormInner() {
                     {Number(row.amount || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2 })}
                   </span>
                 </button>
-                {isDraftDocumentRow(row) ? (
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={async () => {
-                      if (!(await confirmAction('حذف هذه المسودة؟'))) return;
-                      try {
-                        await deleteDraftDocument('/accounting/treasury-receipts', row.id);
-                        toast.success('تم حذف المسودة');
-                        invalidateQuery(['treasury-receipts']);
-                        if (selectedId === row.id) resetNew();
-                      } catch (error) {
-                        toast.error(error instanceof Error ? error.message : 'تعذر حذف المسودة');
-                      }
-                    }}
-                  >
-                    حذف المسودة
-                  </Button>
-                ) : null}
               </li>
             ))}
           </ul>

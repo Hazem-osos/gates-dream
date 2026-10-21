@@ -9,6 +9,9 @@ function money(n: number) {
 type SummaryReport = {
   totals: { gross: number; net: number; employerContributions: number };
   employeeCount: number;
+  reportingEligible?: boolean;
+  reportingNotice?: string | null;
+  status?: string;
 };
 
 type RegisterReport = {
@@ -17,6 +20,8 @@ type RegisterReport = {
   page?: number;
   pageSize?: number;
   total?: number;
+  totalPages?: number;
+  filteredTotals?: { gross: number; net: number };
 };
 
 type ComponentSummary = {
@@ -63,11 +68,16 @@ type ReconciliationReport = {
 
 export function PayrollReportSummaryView({ data }: { data: SummaryReport }) {
   return (
+    <div className="space-y-3">
+      {data.reportingNotice ? (
+        <p className="text-sm text-amber-800 border border-amber-200 bg-amber-50 rounded p-2">{data.reportingNotice}</p>
+      ) : null}
     <div className="grid md:grid-cols-4 gap-3 text-sm">
       <div className="border rounded p-3">الإجمالي: {money(data.totals.gross)}</div>
       <div className="border rounded p-3">الصافي: {money(data.totals.net)}</div>
       <div className="border rounded p-3">مساهمات صاحب العمل: {money(data.totals.employerContributions)}</div>
       <div className="border rounded p-3">عدد الموظفين: {data.employeeCount}</div>
+    </div>
     </div>
   );
 }
@@ -83,12 +93,17 @@ export function PayrollReportRegisterView({
   page: number;
   onPageChange: (p: number) => void;
 }) {
-  const totalPages = data.total && data.pageSize ? Math.ceil(data.total / data.pageSize) : 1;
+  const totalPages = data.totalPages ?? (data.total && data.pageSize ? Math.ceil(data.total / data.pageSize) : 1);
   return (
     <>
       <div className="text-sm text-muted-foreground mb-2">
-        إجماليات المسيرة (من الخادم): إجمالي {money(data.totals?.gross ?? 0)} · صافي{' '}
+        إجماليات التقرير (مجموعة الفلتر كاملة): إجمالي {money(data.totals?.gross ?? 0)} · صافي{' '}
         {money(data.totals?.net ?? 0)}
+        {data.filteredTotals &&
+        (data.filteredTotals.gross !== data.totals?.gross || data.filteredTotals.net !== data.totals?.net) ? (
+          <span className="block text-xs">(مطابقة للفلتر الحالي)</span>
+        ) : null}
+        {data.total != null ? <span className="block text-xs">سجلات: {data.total}</span> : null}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm border min-w-[640px]">
@@ -178,8 +193,57 @@ function SimpleRowsTable({
   );
 }
 
-export function PayrollReportDetailView({ reportKey, data }: { reportKey: string; data: unknown }) {
+type ReportPagination = {
+  page: number;
+  totalPages: number;
+  total: number;
+  onPageChange: (p: number) => void;
+};
+
+function ReportPaginationBar({ pagination }: { pagination: ReportPagination }) {
+  return (
+    <div className="flex gap-2 text-sm mt-3 items-center">
+      <button
+        type="button"
+        className="border rounded px-2 py-1 disabled:opacity-50"
+        disabled={pagination.page <= 1}
+        onClick={() => pagination.onPageChange(pagination.page - 1)}
+      >
+        السابق
+      </button>
+      <span>
+        صفحة {pagination.page} من {pagination.totalPages || 1} ({pagination.total} سجل)
+      </span>
+      <button
+        type="button"
+        className="border rounded px-2 py-1 disabled:opacity-50"
+        disabled={pagination.page >= (pagination.totalPages || 1)}
+        onClick={() => pagination.onPageChange(pagination.page + 1)}
+      >
+        التالي
+      </button>
+    </div>
+  );
+}
+
+export function PayrollReportDetailView({
+  reportKey,
+  data,
+  pagination,
+}: {
+  reportKey: string;
+  data: unknown;
+  pagination?: ReportPagination;
+}) {
   if (!data) return null;
+
+  const rowReport = data as RowReport & { totals?: { amount?: number }; total?: number; totalPages?: number };
+  const totalsBanner =
+    rowReport.totals?.amount != null ? (
+      <p className="text-sm text-muted-foreground mb-2">
+        إجمالي المبلغ (كل الصفحات بعد الفلتر): {money(rowReport.totals.amount)}
+      </p>
+    ) : null;
 
   if (reportKey === 'component-summary') {
     const d = data as ComponentSummary;
@@ -211,6 +275,8 @@ export function PayrollReportDetailView({ reportKey, data }: { reportKey: string
   if (reportKey === 'overtime') {
     const d = data as RowReport;
     return (
+      <>
+      {totalsBanner}
       <SimpleRowsTable
         columns={[
           { key: 'employeeName', header: 'الموظف' },
@@ -219,12 +285,16 @@ export function PayrollReportDetailView({ reportKey, data }: { reportKey: string
         ]}
         rows={d.rows}
       />
+      {pagination ? <ReportPaginationBar pagination={pagination} /> : null}
+      </>
     );
   }
 
   if (reportKey === 'absence-leave') {
     const d = data as RowReport;
     return (
+      <>
+      {totalsBanner}
       <SimpleRowsTable
         columns={[
           { key: 'employeeName', header: 'الموظف' },
@@ -234,12 +304,16 @@ export function PayrollReportDetailView({ reportKey, data }: { reportKey: string
         ]}
         rows={d.rows}
       />
+      {pagination ? <ReportPaginationBar pagination={pagination} /> : null}
+      </>
     );
   }
 
   if (reportKey === 'advance-recovery') {
     const d = data as RowReport;
     return (
+      <>
+      {totalsBanner}
       <SimpleRowsTable
         columns={[
           { key: 'employeeName', header: 'الموظف' },
@@ -248,12 +322,16 @@ export function PayrollReportDetailView({ reportKey, data }: { reportKey: string
         ]}
         rows={d.rows}
       />
+      {pagination ? <ReportPaginationBar pagination={pagination} /> : null}
+      </>
     );
   }
 
   if (reportKey === 'employer-contributions') {
     const d = data as RowReport;
     return (
+      <>
+      {totalsBanner}
       <SimpleRowsTable
         columns={[
           { key: 'employeeName', header: 'الموظف' },
@@ -262,6 +340,8 @@ export function PayrollReportDetailView({ reportKey, data }: { reportKey: string
         ]}
         rows={d.rows}
       />
+      {pagination ? <ReportPaginationBar pagination={pagination} /> : null}
+      </>
     );
   }
 

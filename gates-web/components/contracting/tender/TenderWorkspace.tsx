@@ -1,27 +1,50 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { StatusBadge } from '@/components/ui/StatusBadge';
+import { ChevronDown, ChevronLeft, Plus } from 'lucide-react';
+import { ExtractsPageChrome } from '@/components/extracts/ExtractsPageChrome';
+import { ErpFormHeaderCard, erpInputClass, erpLabelClass, type ErpHeaderMenuItem } from '@/components/erp';
+import type { GenericRecordRow } from '@/components/erp/GenericRecordsList';
+import { Button } from '@/components/ui/button';
+import { dateControlClass } from '@/app/components/ui/forms/formTokens';
+import {
+  dataEntryGridBodyCellClass,
+  dataEntryGridHeadCellClass,
+  dataEntryGridHeadRowClass,
+  dataEntryGridInputClass,
+  dataEntryGridNumericInputClass,
+  dataEntryGridWrapClass,
+} from '@/components/ui/data-entry-grid/tokens';
 import { apiClient } from '@/lib/api/client';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
-import { withItemCodeHierarchy } from '@/lib/contracting/boq-hierarchy';
+import {
+  boqHeaderRoleLabel,
+  canEnterBoqLineQuantity,
+  isHierarchicalRowVisible,
+  withItemCodeHierarchy,
+} from '@/lib/contracting/boq-hierarchy';
 import { commitTenderBoqRows, previewTenderBoqExcel, type TenderExcelPreview } from '@/lib/contracting/tender-excel-transfer';
 import { formatEgp, formatQty } from '@/lib/subcontracts/money';
+import { confirmAction } from '@/lib/feedback/confirm';
+import { toast } from '@/lib/feedback/toast';
 import { cn } from '@/lib/utils';
 import {
-  analysisElementCost,
   BOQ_UNITS,
   CATALOG_KIND_AR,
   CATALOG_KINDS,
   COST_ELEMENT_AR,
+  isQuotationHeaderItem,
   isTenderHeaderKind,
   QUOTATION_STATUS_AR,
   TENDER_STATUS_AR,
   tenderIsLocked,
 } from './tender-labels';
+import { TenderWorkItemCatalogPicker } from './TenderWorkItemCatalogPicker';
+import { TenderRateAnalysisPanel } from './TenderRateAnalysisPanel';
+import { TenderSalesStudyPanel } from './TenderSalesStudyPanel';
 
 type TabId =
   | 'header'
@@ -62,16 +85,6 @@ type TenderBoqItem = {
   }>;
 };
 
-type CatalogRow = {
-  id: string;
-  itemCode: string;
-  descriptionAr: string;
-  unit: string;
-  kind: string;
-  groupName: string | null;
-  notes: string | null;
-};
-
 type TenderDetail = {
   id: string;
   tenderNumber: string;
@@ -79,6 +92,7 @@ type TenderDetail = {
   description: string | null;
   status: string;
   currencyCode: string;
+  issueDate: string | null;
   submissionDeadline: string | null;
   expectedStart: string | null;
   expectedEnd: string | null;
@@ -123,6 +137,7 @@ type QuotationRow = {
   submittedAt: string | null;
   acceptedAt: string | null;
   createdAt: string;
+  quoteDate: string | null;
   paymentTerms: string | null;
   deliveryTerms: string | null;
   notes: string | null;
@@ -185,10 +200,15 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 export function TenderWorkspace({ tenderId }: { tenderId: string }) {
+  const router = useRouter();
+  const excelInputRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<TabId>('header');
   const [selectedBoqId, setSelectedBoqId] = useState<string | null>(null);
   const [selectedQtnId, setSelectedQtnId] = useState<string | null>(null);
   const [excelPreview, setExcelPreview] = useState<TenderExcelPreview | null>(null);
+  const [catalogPickerOpen, setCatalogPickerOpen] = useState(false);
+  const [quoteDateInput, setQuoteDateInput] = useState(() => new Date().toISOString().slice(0, 10));
+  const [expandedBoqCodes, setExpandedBoqCodes] = useState<Set<string>>(() => new Set());
   const [awardOpen, setAwardOpen] = useState(false);
   const [awardResult, setAwardResult] = useState<{
     projectId: string;
@@ -215,8 +235,6 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
     ['tender-integrity', tenderId],
     `/contracting/tenders/${tenderId}/integrity`
   );
-  const catalogQ = useApiQuery<CatalogRow[]>(['contracting-item-catalog'], '/contracting/item-catalog');
-
   const t = tenderQ.data?.data;
   const sum = summaryQ.data?.data;
   const locked = t ? tenderIsLocked(t.status) : true;
@@ -233,33 +251,36 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
   const addFromCatalog = useApiMutation<unknown, { catalogIds: string[] }>(
     `/contracting/tenders/${tenderId}/boq/from-catalog`,
     'POST',
-    { onSuccess: refreshAll }
+    {
+      onSuccess: () => {
+        setCatalogPickerOpen(false);
+        refreshAll();
+      },
+    }
+  );
+  const pushBoqToCatalog = useApiMutation<{ created: number; skipped: number }, Record<string, never>>(
+    `/contracting/tenders/${tenderId}/boq/to-catalog`,
+    'POST',
+    {
+      showSuccessToast: false,
+      onSuccess: (res) => {
+        const created = res.data?.created ?? 0;
+        const skipped = res.data?.skipped ?? 0;
+        if (created && skipped) {
+          toast.success(`تم حفظ ${created} بند جديد في الدليل — وتخطي ${skipped} موجود مسبقاً`);
+        } else if (created) {
+          toast.success(`تم حفظ ${created} بند في دليل بنود الأعمال`);
+        } else {
+          toast.success('كل البنود موجودة بالفعل في دليل بنود الأعمال');
+        }
+        invalidate(['contracting-item-catalog']);
+      },
+    }
   );
   const removeBoqLine = useMutation({
     mutationFn: (lineId: string) => apiClient.delete(`/contracting/tenders/boq/${lineId}`),
     onSuccess: () => refreshAll(),
   });
-  const boqLineIdForMutations = selectedBoqId ?? t?.boqItems[0]?.id ?? 'x';
-  const saveRate = useApiMutation<unknown, { items: unknown[] }>(
-    `/contracting/tenders/boq/${boqLineIdForMutations}/rate-analysis`,
-    'POST',
-    { onSuccess: refreshAll }
-  );
-  const savePricing = useApiMutation<unknown, Record<string, unknown>>(
-    `/contracting/tenders/boq/${boqLineIdForMutations}/pricing`,
-    'POST',
-    { onSuccess: refreshAll }
-  );
-  const applyMarkup = useApiMutation<unknown, { markupRate: number }>(
-    `/contracting/tenders/${tenderId}/pricing/markup`,
-    'POST',
-    { onSuccess: refreshAll }
-  );
-  const applyStudy = useApiMutation<unknown, Record<string, unknown>>(
-    `/contracting/tenders/${tenderId}/pricing/stacked-study`,
-    'POST',
-    { onSuccess: refreshAll }
-  );
   const createQtn = useApiMutation<{ id: string }, Record<string, unknown>>(
     `/contracting/tenders/${tenderId}/quotations`,
     'POST',
@@ -324,16 +345,49 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
     () => t?.boqItems.find((b) => b.id === selectedBoqId) ?? t?.boqItems[0],
     [t, selectedBoqId]
   );
+  const boqTree = useMemo(
+    () => withItemCodeHierarchy(t?.boqItems ?? [], (b) => b.itemCode),
+    [t?.boqItems]
+  );
+  const visibleBoqRows = useMemo(
+    () => boqTree.filter((row) => isHierarchicalRowVisible(row.itemCode, expandedBoqCodes)),
+    [boqTree, expandedBoqCodes]
+  );
+  const boqChildCodes = useMemo(() => {
+    const codes = boqTree.map((row) => row.itemCode);
+    return (code: string) => codes.some((other) => other.startsWith(`${code}.`));
+  }, [boqTree]);
+  const toggleBoqExpand = (code: string) => {
+    setExpandedBoqCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
   const selectedQtn = useMemo(
     () => t?.quotations.find((q) => q.id === selectedQtnId) ?? null,
     [t, selectedQtnId]
   );
+  const selectedQtnHeaderRows = useMemo(() => {
+    if (!t) return [];
+    const byId = new Map(t.boqItems.map((item) => [item.id, item]));
+    if (selectedQtn?.lines.length) {
+      return selectedQtn.lines
+        .map((line) => ({ line, boq: byId.get(line.tenderBoqItemId) ?? null }))
+        .filter((row) => isQuotationHeaderItem(row.boq?.kind, row.boq?.isExecutable));
+    }
+    if (!selectedQtn) return [];
+    return t.boqItems
+      .filter((item) => isQuotationHeaderItem(item.kind, item.isExecutable))
+      .map((boq) => ({ line: null as QuotationRow['lines'][number] | null, boq }));
+  }, [selectedQtn, t]);
 
   const [headerForm, setHeaderForm] = useState({
     nameAr: '',
     description: '',
     currencyCode: 'EGP',
-    submissionDeadline: '',
+    issueDate: '',
     expectedStart: '',
     expectedEnd: '',
     location: '',
@@ -349,7 +403,7 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
       nameAr: t.nameAr,
       description: t.description ?? '',
       currencyCode: t.currencyCode,
-      submissionDeadline: t.submissionDeadline?.slice(0, 10) ?? '',
+      issueDate: t.issueDate?.slice(0, 10) ?? t.createdAt.slice(0, 10),
       expectedStart: t.expectedStart?.slice(0, 10) ?? '',
       expectedEnd: t.expectedEnd?.slice(0, 10) ?? '',
       location: t.location ?? '',
@@ -364,7 +418,8 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
     t?.nameAr,
     t?.description,
     t?.currencyCode,
-    t?.submissionDeadline,
+    t?.issueDate,
+    t?.createdAt,
     t?.expectedStart,
     t?.expectedEnd,
     t?.location,
@@ -384,38 +439,6 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
     kind: 'EXECUTABLE',
     notes: '',
   });
-  const [pickedCatalogIds, setPickedCatalogIds] = useState<string[]>([]);
-
-  const [rateForm, setRateForm] = useState({
-    costElementType: 'MATERIAL',
-    resourceCode: '',
-    descriptionAr: 'مواد',
-    unit: 'M3',
-    consumptionQuotaPerUnit: '1',
-    wasteFactorRate: '0',
-    unitCost: '',
-  });
-  const [itemSearch, setItemSearch] = useState('');
-  const costCatalogQ = useApiQuery<
-    Array<{ id: string; resourceCode: string; descriptionAr: string; unit: string; unitCost: string | number }>
-  >(
-    ['contracting-cost-element-catalog', rateForm.costElementType],
-    '/contracting/cost-element-catalog',
-    { type: rateForm.costElementType }
-  );
-  const inventoryItemsQ = useApiQuery<Array<{ id: string; code?: string | null; arabicName: string; unit?: { arabicName?: string } | string | null }>>(
-    ['tender-inventory-items', itemSearch],
-    '/inventory/items',
-    { search: itemSearch.trim() || undefined, limit: 20, isActive: true },
-    { enabled: rateForm.costElementType === 'MATERIAL' }
-  );
-
-  const [priceForm, setPriceForm] = useState({
-    pricingMethod: 'COST_PLUS_MARKUP',
-    markupRate: '0.2',
-    targetMarginRate: '0.166667',
-    sellingUnitRate: '',
-  });
 
   const readiness = useMemo(() => {
     const blockers = integrityQ.data?.data?.rows.filter((r) => r.status !== 'MATCH') ?? [];
@@ -428,10 +451,72 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
     };
   }, [acceptedQtn, t, integrityQ.data]);
 
+  const moreMenuItems: ErpHeaderMenuItem[] = [
+    ...(!locked && t && t.status !== 'LOST'
+      ? [
+          {
+            id: 'lost',
+            label: 'اعتبار غير فائز',
+            destructive: true,
+            onClick: () => {
+              const lostReason = window.prompt('سبب الخسارة') ?? '';
+              markLost.mutate({ lostReason, competitorName: window.prompt('المنافس') ?? undefined });
+            },
+          },
+        ]
+      : []),
+    { id: 'print', label: 'طباعة', onClick: () => window.print() },
+    ...(!locked
+      ? [
+          {
+            id: 'excel',
+            label: 'استيراد Excel',
+            onClick: () => excelInputRef.current?.click(),
+          },
+        ]
+      : []),
+  ];
+
+  const chrome = {
+    title: t?.nameAr ?? 'العطاء',
+    docNumber: t?.tenderNumber,
+    statusLabel: t ? (TENDER_STATUS_AR[t.status] ?? t.status) : undefined,
+    breadcrumbs: [
+      { href: '/extracts', label: 'المستخلصات' },
+      { href: '/contracting', label: 'المقاولات' },
+      { href: '/contracting/tenders', label: 'العطاءات' },
+      { label: t?.tenderNumber ?? '…' },
+    ],
+    favoriteHref: `/contracting/tenders/${tenderId}`,
+    currentId: tenderId,
+    onNew: () => router.push('/contracting/tenders/new'),
+    hideSave: locked,
+    onSave: locked ? undefined : () => patchTender.mutate(headerForm),
+    savePending: patchTender.isPending,
+    canSave: !locked && Boolean(headerForm.nameAr.trim()),
+    moreMenuItems,
+    browseList: {
+      title: 'العطاءات',
+      apiPath: '/contracting/tenders',
+      listKey: 'contracting-tenders-browse',
+      columns: [
+        { id: 'num', header: 'الرقم', getValue: (row: GenericRecordRow) => String(row.tenderNumber ?? '') },
+        { id: 'name', header: 'الاسم', getValue: (row: GenericRecordRow) => String(row.nameAr ?? '') },
+        {
+          id: 'status',
+          header: 'الحالة',
+          getValue: (row: GenericRecordRow) => TENDER_STATUS_AR[String(row.status ?? '')] ?? String(row.status ?? ''),
+        },
+      ],
+      selectedId: tenderId,
+      onSelect: (id: string) => router.push(`/contracting/tenders/${id}`),
+    },
+  };
+
   if (awardResult) {
     return (
-      <div className="mx-auto max-w-3xl space-y-6 p-4" dir="rtl">
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 space-y-4">
+      <ExtractsPageChrome {...chrome} hideSave statusLabel="مرسّى">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6 space-y-4">
           <h2 className="text-xl font-bold text-emerald-900">تمت الترسية بنجاح</h2>
           <p className="text-sm">تم إنشاء العقد والمشروع وجدول كميات من العرض المعتمد.</p>
           <div className="flex flex-wrap gap-3">
@@ -452,26 +537,31 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
             </Link>
           </div>
         </div>
-      </div>
+      </ExtractsPageChrome>
     );
   }
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-4 p-4" dir="rtl">
-      <PageHeader
-        title={t ? `${t.tenderNumber} — ${t.nameAr}` : 'العطاء'}
-        breadcrumbs={[{ label: 'العطاءات', href: '/contracting/tenders' }, { label: t?.tenderNumber ?? '…' }]}
+    <ExtractsPageChrome {...chrome}>
+      <input
+        ref={excelInputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) {
+            excelMut.mutate(f);
+            setTab('boq');
+          }
+          e.target.value = '';
+        }}
       />
 
       {t && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-4">
-          <StatusBadge label={TENDER_STATUS_AR[t.status] ?? t.status} tone={t.status === 'AWARDED' ? 'success' : t.status === 'LOST' ? 'danger' : 'info'} />
-          <span className="text-sm text-muted-foreground">رقم العطاء: {t.tenderNumber}</span>
-          <span className="text-sm text-muted-foreground">المالك: {t.customer.arabicName}</span>
-          <span className="text-sm text-muted-foreground">الاستشاري: {t.consultantName || '—'}</span>
-          <span className="text-sm text-muted-foreground">العملة: {t.currencyCode}</span>
-          <span className="text-sm text-muted-foreground">تاريخ الإنشاء: {t.createdAt.slice(0, 10)}</span>
-        </div>
+        <p className="mb-2 text-sm text-muted-foreground">
+          المالك: {t.customer.arabicName} — الاستشاري: {t.consultantName || '—'} — العملة: {t.currencyCode} — الإنشاء: {t.createdAt.slice(0, 10)}
+        </p>
       )}
 
       {t?.award && (
@@ -517,15 +607,15 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
         </div>
       )}
 
-      <nav className="flex flex-wrap gap-2 rounded-xl border bg-white p-2">
+      <nav className="mb-3 flex flex-wrap items-center gap-1.5 border-b border-[#E8F1F6] bg-white p-2 rounded-xl">
         {TABS.map((x) => (
           <button
             key={x.id}
             type="button"
             onClick={() => setTab(x.id)}
             className={cn(
-              'rounded-lg px-3 py-1.5 text-sm font-bold',
-              tab === x.id ? 'bg-brand text-white' : 'text-[#094C6B] hover:bg-[#F6FBFD]'
+              'rounded-full px-3 py-1.5 text-xs sm:text-sm transition-colors',
+              tab === x.id ? 'bg-[#0E78AA] text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-[#F6FBFD] hover:text-slate-900'
             )}
           >
             {x.label}
@@ -534,163 +624,112 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
       </nav>
 
       {tab === 'header' && t && (
-        <section className="rounded-xl border bg-white p-4 space-y-4">
-          <div className="grid gap-3 text-sm sm:grid-cols-3">
-            <div>
-              <div className="text-xs text-slate-500">رقم العطاء</div>
-              <div className="font-mono font-bold">{t.tenderNumber}</div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500">المالك / العميل</div>
-              <div className="font-bold">{t.customer.arabicName}</div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500">حالة الاعتماد</div>
-              <StatusBadge label={TENDER_STATUS_AR[t.status] ?? t.status} tone={t.status === 'AWARDED' ? 'success' : t.status === 'LOST' ? 'danger' : 'info'} />
-            </div>
-          </div>
-          {!locked ? (
+        <ErpFormHeaderCard
+          fieldsDisabled={locked}
+          row1={
             <>
-              <label className="block text-xs">
-                اسم العطاء
-                <input className="mt-1 w-full rounded border px-3 py-2 text-sm" value={headerForm.nameAr} onChange={(e) => setHeaderForm({ ...headerForm, nameAr: e.target.value })} />
-              </label>
-              <textarea className="w-full rounded border px-3 py-2 text-sm" rows={3} value={headerForm.description} onChange={(e) => setHeaderForm({ ...headerForm, description: e.target.value })} placeholder="وصف / ملاحظات العطاء" />
-              <div className="grid gap-2 sm:grid-cols-3">
-                <label className="text-xs">الاستشاري<input className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.consultantName} onChange={(e) => setHeaderForm({ ...headerForm, consultantName: e.target.value })} /></label>
-                <label className="text-xs">مدير المشروع<input className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.projectManagerName} onChange={(e) => setHeaderForm({ ...headerForm, projectManagerName: e.target.value })} /></label>
-                <label className="text-xs">مصدر التمويل<input className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.fundingSource} onChange={(e) => setHeaderForm({ ...headerForm, fundingSource: e.target.value })} /></label>
-                <label className="text-xs">العملة<input className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.currencyCode} onChange={(e) => setHeaderForm({ ...headerForm, currencyCode: e.target.value })} /></label>
-                <label className="text-xs">تاريخ / موعد التقديم<input type="date" className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.submissionDeadline} onChange={(e) => setHeaderForm({ ...headerForm, submissionDeadline: e.target.value })} /></label>
-                <label className="text-xs">موقع المشروع<input className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.location} onChange={(e) => setHeaderForm({ ...headerForm, location: e.target.value })} /></label>
-                <label className="text-xs">بداية المشروع<input type="date" className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.expectedStart} onChange={(e) => setHeaderForm({ ...headerForm, expectedStart: e.target.value })} /></label>
-                <label className="text-xs">نهاية المشروع<input type="date" className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.expectedEnd} onChange={(e) => setHeaderForm({ ...headerForm, expectedEnd: e.target.value })} /></label>
-                <label className="text-xs">مدة العقد (يوم)<input type="number" className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.contractDurationDays} onChange={(e) => setHeaderForm({ ...headerForm, contractDurationDays: e.target.value })} /></label>
-                <label className="text-xs">غرامة التأخير (نسبة، مثال 0.01 = 1%)<input type="number" step="0.0001" className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.delayPenaltyRate} onChange={(e) => setHeaderForm({ ...headerForm, delayPenaltyRate: e.target.value })} /></label>
+              <div>
+                <label className={erpLabelClass}>رقم العطاء</label>
+                <input className={erpInputClass} value={t.tenderNumber} readOnly />
               </div>
-              <button type="button" className="rounded-lg bg-brand px-4 py-2 text-sm text-white" onClick={() => patchTender.mutate(headerForm)}>
-                حفظ بيانات العطاء
-              </button>
+              <div>
+                <label className={erpLabelClass}>تاريخ التحرير</label>
+                <input type="date" className={cn(erpInputClass, dateControlClass)} value={headerForm.issueDate} onChange={(e) => setHeaderForm({ ...headerForm, issueDate: e.target.value })} readOnly={locked} />
+              </div>
+              <div>
+                <label className={erpLabelClass}>المالك / العميل</label>
+                <input className={erpInputClass} value={t.customer.arabicName} readOnly />
+              </div>
+              <div>
+                <label className={erpLabelClass}>اسم العطاء</label>
+                <input className={erpInputClass} value={headerForm.nameAr} onChange={(e) => setHeaderForm({ ...headerForm, nameAr: e.target.value })} readOnly={locked} />
+              </div>
             </>
-          ) : (
-            <div className="grid gap-3 text-sm sm:grid-cols-3">
-              <p><span className="text-slate-500">الاستشاري: </span>{t.consultantName || '—'}</p>
-              <p><span className="text-slate-500">مدير المشروع: </span>{t.projectManagerName || '—'}</p>
-              <p><span className="text-slate-500">مصدر التمويل: </span>{t.fundingSource || '—'}</p>
-              <p><span className="text-slate-500">الموقع: </span>{t.location || '—'}</p>
-              <p><span className="text-slate-500">موعد التقديم: </span>{t.submissionDeadline?.slice(0, 10) || '—'}</p>
-              <p><span className="text-slate-500">البداية: </span>{t.expectedStart?.slice(0, 10) || '—'}</p>
-              <p><span className="text-slate-500">النهاية: </span>{t.expectedEnd?.slice(0, 10) || '—'}</p>
-              <p><span className="text-slate-500">المدة (يوم): </span>{t.contractDurationDays ?? '—'}</p>
-              <p><span className="text-slate-500">غرامة التأخير: </span>{t.delayPenaltyRate != null ? `${(Number(t.delayPenaltyRate) * 100).toFixed(2)}%` : '—'}</p>
-              <p><span className="text-slate-500">تاريخ الترسية: </span>{t.award?.awardedAt?.slice(0, 10) || '—'}</p>
-              <p className="sm:col-span-3 whitespace-pre-wrap">{t.description || '—'}</p>
+          }
+          row2={
+            <>
+              <div>
+                <label className={erpLabelClass}>الاستشاري</label>
+                <input className={erpInputClass} value={headerForm.consultantName} onChange={(e) => setHeaderForm({ ...headerForm, consultantName: e.target.value })} readOnly={locked} />
+              </div>
+              <div>
+                <label className={erpLabelClass}>مدير المشروع</label>
+                <input className={erpInputClass} value={headerForm.projectManagerName} onChange={(e) => setHeaderForm({ ...headerForm, projectManagerName: e.target.value })} readOnly={locked} />
+              </div>
+              <div>
+                <label className={erpLabelClass}>مصدر التمويل</label>
+                <input className={erpInputClass} value={headerForm.fundingSource} onChange={(e) => setHeaderForm({ ...headerForm, fundingSource: e.target.value })} readOnly={locked} />
+              </div>
+              <div>
+                <label className={erpLabelClass}>موقع المشروع</label>
+                <input className={erpInputClass} value={headerForm.location} onChange={(e) => setHeaderForm({ ...headerForm, location: e.target.value })} readOnly={locked} />
+              </div>
+            </>
+          }
+          extras={
+            <div className="grid gap-3 sm:grid-cols-4">
+              <div>
+                <label className={erpLabelClass}>العملة</label>
+                <input className={erpInputClass} value={headerForm.currencyCode} onChange={(e) => setHeaderForm({ ...headerForm, currencyCode: e.target.value })} readOnly={locked} />
+              </div>
+              <div>
+                <label className={erpLabelClass}>بداية المشروع</label>
+                <input type="date" className={cn(erpInputClass, dateControlClass)} value={headerForm.expectedStart} onChange={(e) => setHeaderForm({ ...headerForm, expectedStart: e.target.value })} readOnly={locked} />
+              </div>
+              <div>
+                <label className={erpLabelClass}>نهاية المشروع</label>
+                <input type="date" className={cn(erpInputClass, dateControlClass)} value={headerForm.expectedEnd} onChange={(e) => setHeaderForm({ ...headerForm, expectedEnd: e.target.value })} readOnly={locked} />
+              </div>
+              <div>
+                <label className={erpLabelClass}>مدة العقد (يوم)</label>
+                <input type="number" className={erpInputClass} value={headerForm.contractDurationDays} onChange={(e) => setHeaderForm({ ...headerForm, contractDurationDays: e.target.value })} readOnly={locked} />
+              </div>
+              <div>
+                <label className={erpLabelClass}>غرامة التأخير (0.01 = 1%)</label>
+                <input type="number" step="0.0001" className={erpInputClass} value={headerForm.delayPenaltyRate} onChange={(e) => setHeaderForm({ ...headerForm, delayPenaltyRate: e.target.value })} readOnly={locked} />
+              </div>
+              <div className="sm:col-span-4">
+                <label className={erpLabelClass}>ملاحظات / وصف</label>
+                <textarea className={cn(erpInputClass, 'h-auto min-h-[72px] py-2')} rows={3} value={headerForm.description} onChange={(e) => setHeaderForm({ ...headerForm, description: e.target.value })} readOnly={locked} />
+              </div>
             </div>
-          )}
-          {!locked && t.status !== 'LOST' && (
-            <div className="border-t pt-3">
-              <button
-                type="button"
-                className="rounded-lg border border-red-300 px-3 py-1 text-sm text-red-700"
-                onClick={() => {
-                  const lostReason = window.prompt('سبب الخسارة') ?? '';
-                  markLost.mutate({ lostReason, competitorName: window.prompt('المنافس') ?? undefined });
-                }}
-              >
-                اعتبار العطاء غير فائز
-              </button>
-            </div>
-          )}
-        </section>
+          }
+          extrasLabel="تواريخ العقد والملاحظات"
+        />
       )}
 
       {tab === 'boq' && t && (
-        <section className="space-y-4">
-          {!locked && (
-            <div className="rounded-xl border bg-white p-4 space-y-3">
-              <div className="font-bold">إضافة بند لجدول الكميات</div>
-              <div className="grid gap-2 sm:grid-cols-6">
-                <input placeholder="الكود (1 / 1.1 / 1.1.1)" className="rounded border px-2 py-1 text-sm" value={boqForm.itemCode} onChange={(e) => setBoqForm({ ...boqForm, itemCode: e.target.value })} />
-                <input placeholder="البند / البيان" className="rounded border px-2 py-1 text-sm sm:col-span-2" value={boqForm.descriptionAr} onChange={(e) => setBoqForm({ ...boqForm, descriptionAr: e.target.value })} />
-                <select className="rounded border px-2 py-1 text-sm" value={boqForm.unit} onChange={(e) => setBoqForm({ ...boqForm, unit: e.target.value })}>
-                  {BOQ_UNITS.map((u) => (
-                    <option key={u} value={u}>{u}</option>
-                  ))}
-                </select>
-                <input placeholder="الكمية" type="number" className="rounded border px-2 py-1 text-sm" value={boqForm.quantity} onChange={(e) => setBoqForm({ ...boqForm, quantity: e.target.value })} />
-                <select className="rounded border px-2 py-1 text-sm" value={boqForm.kind} onChange={(e) => setBoqForm({ ...boqForm, kind: e.target.value })}>
-                  {CATALOG_KINDS.map((k) => (
-                    <option key={k} value={k}>{CATALOG_KIND_AR[k]}</option>
-                  ))}
-                </select>
-                <input placeholder="الموسم / الفصل" className="rounded border px-2 py-1 text-sm" value={boqForm.sectionName} onChange={(e) => setBoqForm({ ...boqForm, sectionName: e.target.value })} />
-                <input placeholder="ملاحظات" className="rounded border px-2 py-1 text-sm sm:col-span-2" value={boqForm.notes} onChange={(e) => setBoqForm({ ...boqForm, notes: e.target.value })} />
-              </div>
-              <button
+        <section className="space-y-3">
+          {!locked ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" onClick={() => setCatalogPickerOpen(true)}>
+                بنود الأعمال
+              </Button>
+              <Button
                 type="button"
-                className="rounded-lg bg-brand px-3 py-1 text-sm text-white"
-                onClick={() =>
-                  addBoq.mutate({
-                    ...boqForm,
-                    quantity: Number(boqForm.quantity),
-                  })
-                }
+                variant="secondary"
+                disabled={!t.boqItems.length || pushBoqToCatalog.isPending}
+                onClick={() => {
+                  void (async () => {
+                    if (
+                      !(await confirmAction({
+                        title: 'ترحيل لدليل بنود الأعمال',
+                        message:
+                          'هيتضاف للدليل البنود اللي مش موجودة هناك بنفس الاسم. اللي موجود مسبقاً هيتتخطى.',
+                        confirmLabel: 'ترحيل',
+                        tone: 'info',
+                      }))
+                    ) {
+                      return;
+                    }
+                    pushBoqToCatalog.mutate({});
+                  })();
+                }}
               >
-                إضافة بند
-              </button>
-              <div className="border-t pt-3 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-bold text-sm">من دليل بنود الأعمال</div>
-                  <Link className="text-xs text-brand underline" href="/contracting/catalog/work-items">فتح الدليل</Link>
-                </div>
-                <div className="max-h-40 overflow-auto rounded border text-xs">
-                  {(catalogQ.data?.data ?? []).map((c) => (
-                    <label key={c.id} className="flex items-center gap-2 border-b px-2 py-1">
-                      <input
-                        type="checkbox"
-                        checked={pickedCatalogIds.includes(c.id)}
-                        onChange={(e) =>
-                          setPickedCatalogIds((prev) =>
-                            e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)
-                          )
-                        }
-                      />
-                      <span className="font-mono">{c.itemCode}</span>
-                      <span>{c.descriptionAr}</span>
-                      <span className="text-slate-500">{CATALOG_KIND_AR[c.kind] ?? c.kind}</span>
-                      <span>{c.unit}</span>
-                    </label>
-                  ))}
-                  {!catalogQ.data?.data?.length ? (
-                    <p className="p-2 text-slate-500">الدليل فارغ — أضف بنوداً من شاشة دليل بنود الأعمال.</p>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  disabled={!pickedCatalogIds.length || addFromCatalog.isPending}
-                  className="rounded-lg border px-3 py-1 text-sm disabled:opacity-50"
-                  onClick={() => {
-                    addFromCatalog.mutate({ catalogIds: pickedCatalogIds });
-                    setPickedCatalogIds([]);
-                  }}
-                >
-                  إضافة المحدد إلى الجدول
-                </button>
-              </div>
-              <div className="border-t pt-3">
-                <label className="text-sm font-bold">استيراد جدول الكميات من Excel</label>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls"
-                  className="mt-1 block text-sm"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) excelMut.mutate(f);
-                  }}
-                />
-              </div>
+                {pushBoqToCatalog.isPending ? 'جاري الترحيل…' : 'ترحيل لدليل بنود الأعمال'}
+              </Button>
             </div>
-          )}
+          ) : null}
           {excelPreview && (
             <div className="rounded-xl border bg-white p-4 space-y-2">
               <div className="font-bold">معاينة الاستيراد</div>
@@ -702,40 +741,43 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
                   </div>
                 ))}
               </div>
-              <button type="button" className="rounded-lg bg-emerald-600 px-3 py-1 text-sm text-white disabled:opacity-50" disabled={excelPreview.validRowsCount === 0} onClick={() => excelCommit.mutate()}>
+              <Button type="button" size="sm" disabled={excelPreview.validRowsCount === 0} onClick={() => excelCommit.mutate()}>
                 تأكيد الاستيراد
-              </button>
+              </Button>
             </div>
           )}
-          <div className="overflow-x-auto rounded-xl border bg-white">
-            <table className="min-w-full text-xs">
-              <thead className="bg-[#F6FBFD]">
+          <div className={dataEntryGridWrapClass}>
+            <table className="min-w-full text-sm">
+              <thead className={dataEntryGridHeadRowClass}>
                 <tr>
-                  <th className="px-2 py-2">الكود</th>
-                  <th className="px-2 py-2">النوع</th>
-                  <th className="px-2 py-2">البند</th>
-                  <th className="px-2 py-2">الوحدة</th>
-                  <th className="px-2 py-2">كمية التحليل</th>
-                  <th className="px-2 py-2">سعر التحليل</th>
-                  <th className="px-2 py-2">إجمالي التحليل</th>
-                  <th className="px-2 py-2">سعر البيع</th>
-                  <th className="px-2 py-2">إجمالي البيع</th>
-                  <th className="px-2 py-2">ملاحظات</th>
-                  {!locked && <th className="px-2 py-2" />}
+                  <th className={dataEntryGridHeadCellClass}>الكود</th>
+                  <th className={dataEntryGridHeadCellClass}>النوع</th>
+                  <th className={dataEntryGridHeadCellClass}>البند</th>
+                  <th className={dataEntryGridHeadCellClass}>الوحدة</th>
+                  <th className={dataEntryGridHeadCellClass}>الكمية</th>
+                  <th className={dataEntryGridHeadCellClass}>ملاحظات</th>
+                  {!locked && <th className={dataEntryGridHeadCellClass} />}
                 </tr>
               </thead>
               <tbody>
-                {withItemCodeHierarchy(t.boqItems, (b) => b.itemCode).map((b) => {
+                <tr className="bg-[#0E78AA] text-white">
+                  <td className={cn(dataEntryGridBodyCellClass, 'font-semibold')} colSpan={locked ? 6 : 7}>
+                    {t.nameAr}
+                  </td>
+                </tr>
+                {visibleBoqRows.map((b) => {
                   const qty = Number(b.quantity);
-                  const analysisUnit = Number(b.directUnitCost);
-                  const sellingUnit = Number(b.sellingUnitRate);
-                  const header = b.__isParent || b.isExecutable === false || isTenderHeaderKind(b.kind);
-                  const saveLine = (patch: Partial<TenderBoqItem> & { quantity?: string }) =>
+                  const header =
+                    b.__isParent || b.isExecutable === false || isTenderHeaderKind(b.kind);
+                  const headerLabel = boqHeaderRoleLabel(header, b.__depth);
+                  const hasKids = b.__isParent || boqChildCodes(b.itemCode);
+                  const expanded = expandedBoqCodes.has(b.itemCode);
+                  const saveLine = (patch: Partial<TenderBoqItem> & { quantity?: string; unit?: string }) =>
                     addBoq.mutate({
                       lineId: b.id,
-                      itemCode: b.itemCode,
+                      itemCode: patch.itemCode ?? b.itemCode,
                       descriptionAr: patch.descriptionAr ?? b.descriptionAr,
-                      unit: b.unit,
+                      unit: patch.unit ?? b.unit,
                       quantity: Number(patch.quantity ?? b.quantity),
                       kind: patch.kind ?? b.kind,
                       notes: patch.notes ?? b.notes,
@@ -745,31 +787,54 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
                   return (
                     <tr
                       key={b.id}
-                      className={`border-t cursor-pointer ${header ? 'bg-[#EEF6FA]' : ''} ${selectedBoqId === b.id ? 'outline outline-1 outline-brand' : ''}`}
+                      className={`cursor-pointer ${header ? 'bg-[#EEF6FA]' : ''} ${selectedBoqId === b.id ? 'outline outline-1 outline-brand' : ''}`}
                       onClick={() => setSelectedBoqId(b.id)}
                     >
-                      <td className="px-2 py-2 font-mono" style={{ paddingInlineStart: 8 + b.__depth * 14 }}>
-                        {locked ? (
-                          b.itemCode
-                        ) : (
-                          <input
-                            className="w-24 rounded border px-1 font-mono"
-                            defaultValue={b.itemCode}
-                            onClick={(e) => e.stopPropagation()}
-                            onBlur={(e) => {
-                              const v = e.target.value.trim();
-                              if (v && v !== b.itemCode) addBoq.mutate({ lineId: b.id, itemCode: v, descriptionAr: b.descriptionAr, unit: b.unit, quantity: Number(b.quantity), kind: b.kind, notes: b.notes, sectionName: b.sectionName });
-                            }}
-                          />
-                        )}
-                        {header ? <span className="mr-1 text-[10px] text-[#0E78AA]"> رئيسي</span> : null}
+                      <td className={dataEntryGridBodyCellClass} style={{ paddingInlineStart: 8 + b.__depth * 14 }}>
+                        <div className="flex items-center gap-1">
+                          {hasKids ? (
+                            <button
+                              type="button"
+                              className="shrink-0 rounded p-0.5 text-[#0E78AA] hover:bg-white"
+                              aria-label={expanded ? 'طي' : 'توسيع'}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleBoqExpand(b.itemCode);
+                              }}
+                            >
+                              {expanded ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronLeft className="h-4 w-4" />
+                              )}
+                            </button>
+                          ) : (
+                            <span className="inline-block w-5" aria-hidden />
+                          )}
+                          {locked ? (
+                            <span className="font-mono">{b.itemCode}</span>
+                          ) : (
+                            <input
+                              className={cn(dataEntryGridInputClass, 'font-mono')}
+                              defaultValue={b.itemCode}
+                              onClick={(e) => e.stopPropagation()}
+                              onBlur={(e) => {
+                                const v = e.target.value.trim();
+                                if (v && v !== b.itemCode) saveLine({ itemCode: v });
+                              }}
+                            />
+                          )}
+                          {headerLabel ? (
+                            <span className="mr-1 text-[10px] text-[#0E78AA]"> {headerLabel}</span>
+                          ) : null}
+                        </div>
                       </td>
-                      <td className="px-2 py-2">
+                      <td className={dataEntryGridBodyCellClass}>
                         {locked ? (
                           CATALOG_KIND_AR[b.kind ?? ''] ?? (header ? 'رئيسي' : 'تنفيذي')
                         ) : (
                           <select
-                            className="rounded border text-xs"
+                            className={dataEntryGridInputClass}
                             defaultValue={b.kind ?? (header ? 'OFFICIAL' : 'EXECUTABLE')}
                             onClick={(e) => e.stopPropagation()}
                             onChange={(e) => saveLine({ kind: e.target.value })}
@@ -780,12 +845,12 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
                           </select>
                         )}
                       </td>
-                      <td className="px-2 py-2">
+                      <td className={dataEntryGridBodyCellClass}>
                         {locked ? (
                           b.descriptionAr
                         ) : (
                           <input
-                            className="w-40 rounded border px-1"
+                            className={dataEntryGridInputClass}
                             defaultValue={b.descriptionAr}
                             onClick={(e) => e.stopPropagation()}
                             onBlur={(e) => {
@@ -795,16 +860,33 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
                           />
                         )}
                       </td>
-                      <td className="px-2 py-2">{b.unit}</td>
-                      <td className="px-2 py-2">
-                        {header ? (
+                      <td className={dataEntryGridBodyCellClass}>
+                        {locked ? (
+                          b.unit
+                        ) : (
+                          <select
+                            className={dataEntryGridInputClass}
+                            defaultValue={b.unit}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              if (e.target.value !== b.unit) saveLine({ unit: e.target.value });
+                            }}
+                          >
+                            {BOQ_UNITS.map((u) => (
+                              <option key={u} value={u}>{u}</option>
+                            ))}
+                          </select>
+                        )}
+                      </td>
+                      <td className={dataEntryGridBodyCellClass}>
+                        {!canEnterBoqLineQuantity(header) ? (
                           '—'
                         ) : locked ? (
                           formatQty(qty)
                         ) : (
                           <input
                             type="number"
-                            className="w-20 rounded border px-1"
+                            className={dataEntryGridNumericInputClass}
                             defaultValue={qty}
                             onClick={(e) => e.stopPropagation()}
                             onBlur={(e) => {
@@ -814,16 +896,12 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
                           />
                         )}
                       </td>
-                      <td className="px-2 py-2">{header ? '—' : formatEgp(analysisUnit)}</td>
-                      <td className="px-2 py-2">{header ? '—' : formatEgp(qty * analysisUnit)}</td>
-                      <td className="px-2 py-2">{header ? '—' : formatEgp(sellingUnit)}</td>
-                      <td className="px-2 py-2">{header ? '—' : formatEgp(qty * sellingUnit)}</td>
-                      <td className="px-2 py-2">
+                      <td className={dataEntryGridBodyCellClass}>
                         {locked ? (
-                          b.notes || b.sectionName || '—'
+                          b.notes || '—'
                         ) : (
                           <input
-                            className="w-28 rounded border px-1"
+                            className={dataEntryGridInputClass}
                             defaultValue={b.notes ?? ''}
                             placeholder="ملاحظات"
                             onClick={(e) => e.stopPropagation()}
@@ -834,7 +912,7 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
                         )}
                       </td>
                       {!locked && (
-                        <td className="px-2 py-2">
+                        <td className={dataEntryGridBodyCellClass}>
                           <button
                             type="button"
                             className="text-red-600 text-xs disabled:opacity-40"
@@ -851,270 +929,80 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
                     </tr>
                   );
                 })}
+                {!locked ? (
+                  <tr className="bg-[#F6FBFD]">
+                    <td className={dataEntryGridBodyCellClass}>
+                      <input className={cn(dataEntryGridInputClass, 'font-mono')} placeholder="1 / 1.1" value={boqForm.itemCode} onChange={(e) => setBoqForm({ ...boqForm, itemCode: e.target.value })} />
+                    </td>
+                    <td className={dataEntryGridBodyCellClass}>
+                      <select className={dataEntryGridInputClass} value={boqForm.kind} onChange={(e) => setBoqForm({ ...boqForm, kind: e.target.value })}>
+                        {CATALOG_KINDS.map((k) => (
+                          <option key={k} value={k}>{CATALOG_KIND_AR[k]}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className={dataEntryGridBodyCellClass}>
+                      <input className={dataEntryGridInputClass} placeholder="البيان" value={boqForm.descriptionAr} onChange={(e) => setBoqForm({ ...boqForm, descriptionAr: e.target.value })} />
+                    </td>
+                    <td className={dataEntryGridBodyCellClass}>
+                      <select className={dataEntryGridInputClass} value={boqForm.unit} onChange={(e) => setBoqForm({ ...boqForm, unit: e.target.value })}>
+                        {BOQ_UNITS.map((u) => (
+                          <option key={u} value={u}>{u}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className={dataEntryGridBodyCellClass}>
+                      <input type="number" className={dataEntryGridNumericInputClass} placeholder="كمية" value={boqForm.quantity} onChange={(e) => setBoqForm({ ...boqForm, quantity: e.target.value })} />
+                    </td>
+                    <td className={dataEntryGridBodyCellClass}>
+                      <input className={dataEntryGridInputClass} placeholder="ملاحظات" value={boqForm.notes} onChange={(e) => setBoqForm({ ...boqForm, notes: e.target.value })} />
+                    </td>
+                    <td className={dataEntryGridBodyCellClass}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 gap-1 text-xs font-semibold"
+                        disabled={!boqForm.itemCode.trim() || !boqForm.descriptionAr.trim() || addBoq.isPending}
+                        onClick={() => {
+                          addBoq.mutate({ ...boqForm, quantity: Number(boqForm.quantity) });
+                          setBoqForm({ itemCode: '', descriptionAr: '', unit: 'M3', quantity: '', sectionName: '', kind: 'EXECUTABLE', notes: '' });
+                        }}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        إضافة
+                      </Button>
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
+          <TenderWorkItemCatalogPicker
+            open={catalogPickerOpen}
+            saving={addFromCatalog.isPending}
+            onClose={() => setCatalogPickerOpen(false)}
+            onConfirm={(catalogIds) => addFromCatalog.mutate({ catalogIds })}
+          />
         </section>
       )}
 
       {tab === 'analysis' && t && (
-        <section className="grid gap-4 lg:grid-cols-[220px_1fr]">
-          <div className="rounded-xl border bg-white p-3 max-h-[32rem] overflow-auto">
-            {t.boqItems.map((b) => (
-              <button key={b.id} type="button" className={cn('block w-full text-right px-2 py-2 text-sm border-b', selectedBoq?.id === b.id && 'bg-[#F6FBFD]')} onClick={() => setSelectedBoqId(b.id)}>
-                {b.itemCode} — {b.descriptionAr}
-              </button>
-            ))}
-          </div>
-          {selectedBoq && (selectedBoq.isExecutable === false || isTenderHeaderKind(selectedBoq.kind)) ? (
-            <div className="rounded-xl border bg-white p-4 text-sm text-slate-600">
-              البنود الرئيسية (موسم / فصل / بند رسمي) لا تُحلَّل. اختر بنداً تنفيذياً.
-            </div>
-          ) : selectedBoq && (
-            <div className="rounded-xl border bg-white p-4 space-y-3 overflow-x-auto">
-              <div className="font-bold">تحليل سعر البند — {selectedBoq.itemCode} {selectedBoq.descriptionAr}</div>
-              <p className="text-xs text-slate-500">
-                تكلفة العنصر = الحصة × (1 + الهالك) × سعر الوحدة. مثال: 0.15 × 13,500 = 2,025
-              </p>
-              <table className="min-w-full text-xs">
-                <thead className="bg-[#F6FBFD]">
-                  <tr>
-                    <th className="px-2 py-1">العنصر</th>
-                    <th className="px-2 py-1">البيان</th>
-                    <th className="px-2 py-1">الوحدة</th>
-                    <th className="px-2 py-1">الحصة</th>
-                    <th className="px-2 py-1">الهالك</th>
-                    <th className="px-2 py-1">سعر الوحدة</th>
-                    <th className="px-2 py-1">المعادلة</th>
-                    <th className="px-2 py-1">تكلفة العنصر</th>
-                    {!locked && <th className="px-2 py-1" />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedBoq.rateAnalysisItems.map((r) => {
-                    const quota = Number(r.consumptionQuotaPerUnit);
-                    const waste = Number(r.wasteFactorRate ?? 0);
-                    const unitCost = Number(r.unitCost);
-                    const cost = analysisElementCost(quota, waste, unitCost);
-                    return (
-                      <tr key={r.id} className="border-t">
-                        <td className="px-2 py-1">{COST_ELEMENT_AR[r.costElementType] ?? r.costElementType}</td>
-                        <td className="px-2 py-1">{r.descriptionAr}</td>
-                        <td className="px-2 py-1">{r.unit}</td>
-                        <td className="px-2 py-1">{formatQty(quota)}</td>
-                        <td className="px-2 py-1">{(waste * 100).toFixed(1)}%</td>
-                        <td className="px-2 py-1">{formatEgp(unitCost)}</td>
-                        <td className="px-2 py-1 font-mono" dir="ltr">
-                          {quota} × {waste > 0 ? `(1+${waste}) × ` : ''}{unitCost}
-                        </td>
-                        <td className="px-2 py-1 font-bold">{formatEgp(Number(r.totalCostPerUnit) || cost)}</td>
-                        {!locked && (
-                          <td className="px-2 py-1">
-                            <button
-                              type="button"
-                              className="text-red-600"
-                              onClick={() =>
-                                saveRate.mutate({
-                                  items: selectedBoq.rateAnalysisItems
-                                    .filter((x) => x.id !== r.id)
-                                    .map((x) => ({
-                                      costElementType: x.costElementType,
-                                      resourceCode: x.resourceCode ?? undefined,
-                                      descriptionAr: x.descriptionAr,
-                                      unit: x.unit,
-                                      consumptionQuotaPerUnit: Number(x.consumptionQuotaPerUnit),
-                                      unitCost: Number(x.unitCost),
-                                      wasteFactorRate: Number(x.wasteFactorRate ?? 0),
-                                    })),
-                                })
-                              }
-                            >
-                              حذف
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {!locked && (
-                <div className="space-y-2 text-sm">
-                  <div className="grid gap-2 sm:grid-cols-6">
-                    <select value={rateForm.costElementType} onChange={(e) => setRateForm({ ...rateForm, costElementType: e.target.value, descriptionAr: COST_ELEMENT_AR[e.target.value] ?? e.target.value, resourceCode: '' })}>
-                      {Object.entries(COST_ELEMENT_AR).map(([k, v]) => (
-                        <option key={k} value={k}>{v}</option>
-                      ))}
-                    </select>
-                    <input placeholder="البيان" value={rateForm.descriptionAr} onChange={(e) => setRateForm({ ...rateForm, descriptionAr: e.target.value })} className="rounded border px-2 py-1" />
-                    <input placeholder="الوحدة" value={rateForm.unit} onChange={(e) => setRateForm({ ...rateForm, unit: e.target.value })} className="rounded border px-2 py-1" />
-                    <input placeholder="الحصة" type="number" step="0.0001" value={rateForm.consumptionQuotaPerUnit} onChange={(e) => setRateForm({ ...rateForm, consumptionQuotaPerUnit: e.target.value })} className="rounded border px-2 py-1" />
-                    <input placeholder="هالك 0.1=10%" type="number" step="0.0001" value={rateForm.wasteFactorRate} onChange={(e) => setRateForm({ ...rateForm, wasteFactorRate: e.target.value })} className="rounded border px-2 py-1" />
-                    <input placeholder="سعر الوحدة" value={rateForm.unitCost} onChange={(e) => setRateForm({ ...rateForm, unitCost: e.target.value })} className="rounded border px-2 py-1" />
-                  </div>
-                  <div className="rounded border p-2 max-h-36 overflow-auto text-xs">
-                    <div className="font-bold mb-1">من دليل {COST_ELEMENT_AR[rateForm.costElementType]}</div>
-                    {(costCatalogQ.data?.data ?? []).map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className="block w-full text-right border-b py-1 hover:bg-[#F6FBFD]"
-                        onClick={() =>
-                          setRateForm({
-                            ...rateForm,
-                            resourceCode: c.resourceCode,
-                            descriptionAr: c.descriptionAr,
-                            unit: c.unit,
-                            unitCost: String(c.unitCost),
-                          })
-                        }
-                      >
-                        {c.resourceCode} — {c.descriptionAr} — {c.unit} — {formatEgp(c.unitCost)}
-                      </button>
-                    ))}
-                    {!costCatalogQ.data?.data?.length ? <p className="text-slate-500">الدليل فارغ لهذا النوع.</p> : null}
-                    {rateForm.costElementType === 'MATERIAL' ? (
-                      <div className="mt-2 border-t pt-2">
-                        <div className="font-bold mb-1">من دليل الأصناف</div>
-                        <input className="mb-1 w-full rounded border px-2 py-1" placeholder="بحث صنف…" value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} />
-                        {(inventoryItemsQ.data?.data ?? []).map((it) => (
-                          <button
-                            key={it.id}
-                            type="button"
-                            className="block w-full text-right border-b py-1 hover:bg-[#F6FBFD]"
-                            onClick={() =>
-                              setRateForm({
-                                ...rateForm,
-                                resourceCode: it.code ?? '',
-                                descriptionAr: it.arabicName,
-                                unit: typeof it.unit === 'string' ? it.unit : it.unit?.arabicName ?? rateForm.unit,
-                              })
-                            }
-                          >
-                            {it.code} — {it.arabicName}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    className="rounded-lg bg-brand px-3 py-1 text-sm text-white"
-                    onClick={() =>
-                      saveRate.mutate({
-                        items: [
-                          ...selectedBoq.rateAnalysisItems.map((x) => ({
-                            costElementType: x.costElementType,
-                            resourceCode: x.resourceCode ?? undefined,
-                            descriptionAr: x.descriptionAr,
-                            unit: x.unit,
-                            consumptionQuotaPerUnit: Number(x.consumptionQuotaPerUnit),
-                            unitCost: Number(x.unitCost),
-                            wasteFactorRate: Number(x.wasteFactorRate ?? 0),
-                          })),
-                          {
-                            costElementType: rateForm.costElementType,
-                            resourceCode: rateForm.resourceCode || undefined,
-                            descriptionAr: rateForm.descriptionAr,
-                            unit: rateForm.unit,
-                            consumptionQuotaPerUnit: Number(rateForm.consumptionQuotaPerUnit),
-                            unitCost: Number(rateForm.unitCost),
-                            wasteFactorRate: Number(rateForm.wasteFactorRate || 0),
-                          },
-                        ],
-                      })
-                    }
-                  >
-                    إضافة عنصر تحليل
-                  </button>
-                </div>
-              )}
-              <div className="grid gap-1 text-sm sm:grid-cols-3 border-t pt-2">
-                <div>تكلفة الوحدة المباشرة: {formatEgp(Number(selectedBoq.directUnitCost))}</div>
-                <div>كمية البند: {formatQty(Number(selectedBoq.quantity))}</div>
-                <div>إجمالي التحليل: {formatEgp(Number(selectedBoq.quantity) * Number(selectedBoq.directUnitCost))}</div>
-              </div>
-            </div>
-          )}
-        </section>
+        <TenderRateAnalysisPanel
+          tenderNumber={t.tenderNumber}
+          issueDate={t.issueDate}
+          quotations={t.quotations}
+          boqItems={t.boqItems}
+          visibleBoqRows={visibleBoqRows}
+          expandedBoqCodes={expandedBoqCodes}
+          toggleBoqExpand={toggleBoqExpand}
+          boqChildCodes={boqChildCodes}
+          locked={locked}
+          onRefresh={refreshAll}
+        />
       )}
 
       {tab === 'pricing' && t && (
-        <section className="rounded-xl border bg-white p-4 space-y-4">
-          <div className="rounded-lg bg-[#F6FBFD] p-3 text-xs space-y-2">
-            <div>دراسة البيع = التكلفة × (1 + عامة {((Number(t.generalOverheadRate) || 0) * 100).toFixed(0)}% + موقع {((Number(t.siteOverheadRate) || 0) * 100).toFixed(0)}% + مخاطر {((Number(t.contingencyRiskRate) || 0) * 100).toFixed(0)}%) × (1 + ربح {((Number(t.profitMarginRate) || 0) * 100).toFixed(0)}%) × (1 + ضريبة {((Number(t.contractTaxesRate) || 0) * 100).toFixed(0)}%)</div>
-            {sum?.studySellingValue != null ? (
-              <div>قيمة الدراسة المتوقعة: {formatEgp(sum.studySellingValue)} — ربح الدراسة بعد المصاريف: {formatEgp(sum.studyProfit ?? 0)}</div>
-            ) : null}
-            {!locked && (
-              <div className="grid gap-2 sm:grid-cols-5 text-sm">
-                <label>عامة<input type="number" step="0.01" className="mt-1 w-full rounded border px-1" defaultValue={t.generalOverheadRate} onBlur={(e) => patchTender.mutate({ generalOverheadRate: Number(e.target.value) })} /></label>
-                <label>موقع<input type="number" step="0.01" className="mt-1 w-full rounded border px-1" defaultValue={t.siteOverheadRate} onBlur={(e) => patchTender.mutate({ siteOverheadRate: Number(e.target.value) })} /></label>
-                <label>مخاطر<input type="number" step="0.01" className="mt-1 w-full rounded border px-1" defaultValue={t.contingencyRiskRate} onBlur={(e) => patchTender.mutate({ contingencyRiskRate: Number(e.target.value) })} /></label>
-                <label>ربح<input type="number" step="0.01" className="mt-1 w-full rounded border px-1" defaultValue={t.profitMarginRate ?? '0.12'} onBlur={(e) => patchTender.mutate({ profitMarginRate: Number(e.target.value) })} /></label>
-                <label>ضريبة<input type="number" step="0.01" className="mt-1 w-full rounded border px-1" defaultValue={t.contractTaxesRate ?? '0'} onBlur={(e) => patchTender.mutate({ contractTaxesRate: Number(e.target.value) })} /></label>
-              </div>
-            )}
-            {!locked && (
-              <button type="button" className="rounded-lg bg-emerald-700 px-3 py-1 text-sm text-white" onClick={() => applyStudy.mutate({})}>
-                تطبيق دراسة البيع على البنود التنفيذية
-              </button>
-            )}
-            <div>بديل markup بسيط: تكلفة × (1 + markup). هامش البيع = (البيع − التكلفة) / البيع × 100</div>
-          </div>
-          {!t.boqItems.length ? (
-            <p className="text-sm text-muted-foreground">أضف بنود جدول الكميات أولاً.</p>
-          ) : selectedBoq ? (
-            <>
-          <select className="rounded border px-2 py-1 text-sm" value={selectedBoqId ?? selectedBoq.id} onChange={(e) => setSelectedBoqId(e.target.value)}>
-            {t.boqItems.map((b) => (
-              <option key={b.id} value={b.id}>{b.itemCode} — {b.descriptionAr}</option>
-            ))}
-          </select>
-          {!locked && (
-            <>
-              <select value={priceForm.pricingMethod} onChange={(e) => setPriceForm({ ...priceForm, pricingMethod: e.target.value })} className="rounded border px-2 py-1 text-sm">
-                <option value="COST_PLUS_MARKUP">تكلفة + Markup</option>
-                <option value="MANUAL_SELLING">سعر بيع يدوي</option>
-                <option value="TARGET_MARGIN">هامش مستهدف</option>
-              </select>
-              {priceForm.pricingMethod === 'COST_PLUS_MARKUP' && (
-                <input type="number" step="0.01" placeholder="Markup (0.2 = 20%)" className="rounded border px-2 py-1 text-sm" value={priceForm.markupRate} onChange={(e) => setPriceForm({ ...priceForm, markupRate: e.target.value })} />
-              )}
-              {priceForm.pricingMethod === 'TARGET_MARGIN' && (
-                <input type="number" step="0.0001" placeholder="هامش (0.166667)" className="rounded border px-2 py-1 text-sm" value={priceForm.targetMarginRate} onChange={(e) => setPriceForm({ ...priceForm, targetMarginRate: e.target.value })} />
-              )}
-              {priceForm.pricingMethod === 'MANUAL_SELLING' && (
-                <input type="number" placeholder="سعر البيع" className="rounded border px-2 py-1 text-sm" value={priceForm.sellingUnitRate} onChange={(e) => setPriceForm({ ...priceForm, sellingUnitRate: e.target.value })} />
-              )}
-              <button
-                type="button"
-                className="rounded-lg bg-brand px-3 py-1 text-sm text-white"
-                onClick={() =>
-                  savePricing.mutate({
-                    pricingMethod: priceForm.pricingMethod,
-                    markupRate: Number(priceForm.markupRate),
-                    targetMarginRate: Number(priceForm.targetMarginRate),
-                    sellingUnitRate: priceForm.sellingUnitRate ? Number(priceForm.sellingUnitRate) : undefined,
-                  })
-                }
-              >
-                تطبيق تسعير البند
-              </button>
-              <button type="button" className="rounded-lg border px-3 py-1 text-sm mr-2" onClick={() => applyMarkup.mutate({ markupRate: Number(t.defaultMarkupRate) || 0.2 })}>
-                تسعير كل البنود بـ markup العطاء ({(Number(t.defaultMarkupRate) * 100).toFixed(0)}%)
-              </button>
-            </>
-          )}
-          <div className="text-sm grid gap-1 sm:grid-cols-2">
-            <div>تكلفة الوحدة: {formatEgp(Number(selectedBoq.directUnitCost))}</div>
-            <div>سعر البيع: {formatEgp(Number(selectedBoq.sellingUnitRate))}</div>
-            <div>Markup: {(Number(selectedBoq.markupRate) * 100).toFixed(2)}%</div>
-            <div>إجمالي البيع: {formatEgp(Number(selectedBoq.quantity) * Number(selectedBoq.sellingUnitRate))}</div>
-          </div>
-            </>
-          ) : null}
-        </section>
+        <TenderSalesStudyPanel tenderId={tenderId} locked={locked} />
       )}
 
       {tab === 'summary' && sum && (
@@ -1135,29 +1023,29 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
             <div className="font-bold">الربح المتوقع بعد المصاريف والمخاطر: {formatEgp(sum.fullyLoadedExpectedProfit)} ({sum.fullyLoadedExpectedMarginPercent?.toFixed(2) ?? '—'}%)</div>
             <p className="text-xs text-muted-foreground">الضريبة: {formatEgp(0)} — حسب المحرك الحالي بدون محرك ضريبة منفصل</p>
           </div>
-          <div className="overflow-x-auto rounded-xl border bg-white">
-            <table className="min-w-full text-xs">
-              <thead className="bg-[#F6FBFD]">
+          <div className={dataEntryGridWrapClass}>
+            <table className="min-w-full text-sm">
+              <thead className={dataEntryGridHeadRowClass}>
                 <tr>
-                  <th className="px-2 py-2">الكود</th>
-                  <th className="px-2 py-2">الكمية</th>
-                  <th className="px-2 py-2">تكلفة الوحدة</th>
-                  <th className="px-2 py-2">إجمالي التحليل</th>
-                  <th className="px-2 py-2">سعر البيع</th>
-                  <th className="px-2 py-2">إجمالي البيع</th>
-                  <th className="px-2 py-2">الربح</th>
+                  <th className={dataEntryGridHeadCellClass}>الكود</th>
+                  <th className={dataEntryGridHeadCellClass}>الكمية</th>
+                  <th className={dataEntryGridHeadCellClass}>تكلفة الوحدة</th>
+                  <th className={dataEntryGridHeadCellClass}>إجمالي التحليل</th>
+                  <th className={dataEntryGridHeadCellClass}>سعر البيع</th>
+                  <th className={dataEntryGridHeadCellClass}>إجمالي البيع</th>
+                  <th className={dataEntryGridHeadCellClass}>الربح</th>
                 </tr>
               </thead>
               <tbody>
                 {sum.lines.map((l) => (
-                  <tr key={l.tenderBoqItemId} className="border-t">
-                    <td className="px-2 py-2 font-mono">{l.itemCode}</td>
-                    <td className="px-2 py-2">{formatQty(l.quantity ?? 0)}</td>
-                    <td className="px-2 py-2">{formatEgp(l.directUnitCost)}</td>
-                    <td className="px-2 py-2">{formatEgp(l.directTotal ?? 0)}</td>
-                    <td className="px-2 py-2">{formatEgp(l.sellingUnitRate)}</td>
-                    <td className="px-2 py-2">{formatEgp(l.sellingTotal ?? 0)}</td>
-                    <td className="px-2 py-2">{formatEgp(l.profit ?? 0)}</td>
+                  <tr key={l.tenderBoqItemId}>
+                    <td className={cn(dataEntryGridBodyCellClass, 'font-mono')}>{l.itemCode}</td>
+                    <td className={dataEntryGridBodyCellClass}>{formatQty(l.quantity ?? 0)}</td>
+                    <td className={dataEntryGridBodyCellClass}>{formatEgp(l.directUnitCost)}</td>
+                    <td className={dataEntryGridBodyCellClass}>{formatEgp(l.directTotal ?? 0)}</td>
+                    <td className={dataEntryGridBodyCellClass}>{formatEgp(l.sellingUnitRate)}</td>
+                    <td className={dataEntryGridBodyCellClass}>{formatEgp(l.sellingTotal ?? 0)}</td>
+                    <td className={dataEntryGridBodyCellClass}>{formatEgp(l.profit ?? 0)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1169,49 +1057,71 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
       {tab === 'quotations' && t && (
         <section className="space-y-4">
           {!locked && (
-            <button
-              type="button"
-              className="rounded-lg bg-brand px-4 py-2 text-sm text-white"
-              onClick={() => {
-                const preview = [
-                  `العميل: ${t.customer.arabicName}`,
-                  `العملة: ${t.currencyCode}`,
-                  `بنود BOQ: ${t.boqItems.length}`,
-                  sum ? `قيمة البيع (ملخص): ${formatEgp(sum.sellingValue)}` : '',
-                  sum ? `التكلفة المباشرة: ${formatEgp(sum.directCost)}` : '',
-                ]
-                  .filter(Boolean)
-                  .join('\n');
-                if (window.confirm(`معاينة قبل إنشاء عرض السعر:\n\n${preview}\n\nمتابعة؟`)) {
-                  createQtn.mutate({});
-                }
-              }}
-            >
-              إنشاء عرض / مراجعة جديدة
-            </button>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className={erpLabelClass}>تاريخ العرض</label>
+                <input
+                  type="date"
+                  className={cn(erpInputClass, dateControlClass)}
+                  value={quoteDateInput}
+                  onChange={(e) => setQuoteDateInput(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                className="rounded-lg bg-brand px-4 py-2 text-sm text-white"
+                onClick={() => {
+                  const preview = [
+                    `العميل: ${t.customer.arabicName}`,
+                    `العملة: ${t.currencyCode}`,
+                    `تاريخ العرض: ${quoteDateInput || '—'}`,
+                    `بنود BOQ: ${t.boqItems.length}`,
+                    sum ? `قيمة البيع (ملخص): ${formatEgp(sum.sellingValue)}` : '',
+                    sum ? `التكلفة المباشرة: ${formatEgp(sum.directCost)}` : '',
+                  ]
+                    .filter(Boolean)
+                    .join('\n');
+                  if (window.confirm(`معاينة قبل إنشاء عرض السعر:\n\n${preview}\n\nمتابعة؟`)) {
+                    createQtn.mutate({ quoteDate: quoteDateInput || null });
+                  }
+                }}
+              >
+                إنشاء عرض سعر
+              </button>
+            </div>
           )}
-          <div className="overflow-x-auto rounded-xl border bg-white">
+          <div className={dataEntryGridWrapClass}>
             <table className="min-w-full text-sm">
-              <thead className="bg-[#F6FBFD]">
+              <thead className={dataEntryGridHeadRowClass}>
                 <tr>
-                  <th className="px-2 py-2">العرض</th>
-                  <th className="px-2 py-2">Rev</th>
-                  <th className="px-2 py-2">الحالة</th>
-                  <th className="px-2 py-2">الإجمالي</th>
-                  <th className="px-2 py-2">إجراءات</th>
+                  <th className={dataEntryGridHeadCellClass}>العرض</th>
+                  <th className={dataEntryGridHeadCellClass}>Rev</th>
+                  <th className={dataEntryGridHeadCellClass}>تاريخ العرض</th>
+                  <th className={dataEntryGridHeadCellClass}>الحالة</th>
+                  <th className={dataEntryGridHeadCellClass}>الإجمالي</th>
+                  <th className={dataEntryGridHeadCellClass}>إجراءات</th>
                 </tr>
               </thead>
               <tbody>
                 {t.quotations.map((q) => (
-                  <tr key={q.id} className="border-t">
-                    <td className="px-2 py-2">{q.quotationNumber}</td>
-                    <td className="px-2 py-2">{q.revisionNumber}</td>
-                    <td className="px-2 py-2">{QUOTATION_STATUS_AR[q.status] ?? q.status}</td>
-                    <td className="px-2 py-2">{formatEgp(Number(q.grandTotal))}</td>
-                    <td className="px-2 py-2 space-x-1 space-x-reverse">
+                  <tr key={q.id}>
+                    <td className={dataEntryGridBodyCellClass}>{q.quotationNumber}</td>
+                    <td className={dataEntryGridBodyCellClass}>{q.revisionNumber}</td>
+                    <td className={dataEntryGridBodyCellClass}>
+                      {q.quoteDate?.slice(0, 10) || q.createdAt.slice(0, 10)}
+                    </td>
+                    <td className={dataEntryGridBodyCellClass}>{QUOTATION_STATUS_AR[q.status] ?? q.status}</td>
+                    <td className={dataEntryGridBodyCellClass}>{formatEgp(Number(q.grandTotal))}</td>
+                    <td className={cn(dataEntryGridBodyCellClass, 'space-x-1 space-x-reverse')}>
                       <button type="button" className="text-brand underline text-xs" onClick={() => setSelectedQtnId(q.id)}>
                         فتح
                       </button>
+                      <Link
+                        href={`/extracts/operations/tender-price-quote?id=${q.id}`}
+                        className="text-brand underline text-xs"
+                      >
+                        مستند
+                      </Link>
                       {q.status === 'DRAFT' && !locked && (
                         <button
                           type="button"
@@ -1256,68 +1166,149 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
           {selectedQtn && (
             <div className="rounded-xl border bg-white p-4 space-y-2 text-sm">
               <div className="font-bold">{selectedQtn.quotationNumber} Rev {selectedQtn.revisionNumber}</div>
+              {selectedQtn.status === 'DRAFT' && !locked ? (
+                <div>
+                  <label className={erpLabelClass}>تاريخ العرض</label>
+                  <input
+                    type="date"
+                    className={cn(erpInputClass, dateControlClass)}
+                    defaultValue={selectedQtn.quoteDate?.slice(0, 10) || selectedQtn.createdAt.slice(0, 10)}
+                    key={`${selectedQtn.id}-${selectedQtn.quoteDate ?? ''}`}
+                    onBlur={(e) => {
+                      const next = e.target.value || null;
+                      const prev = selectedQtn.quoteDate?.slice(0, 10) || selectedQtn.createdAt.slice(0, 10);
+                      if (next !== prev) {
+                        qtnAction.mutate({
+                          quotationId: selectedQtn.id,
+                          action: 'patch',
+                          body: { quoteDate: next },
+                        });
+                      }
+                    }}
+                  />
+                </div>
+              ) : (
+                <div>تاريخ العرض: {selectedQtn.quoteDate?.slice(0, 10) || selectedQtn.createdAt.slice(0, 10)}</div>
+              )}
               <div>الحالة: {QUOTATION_STATUS_AR[selectedQtn.status] ?? selectedQtn.status}</div>
               <div>Subtotal: {formatEgp(Number(selectedQtn.subtotalSelling))} — Tax: {formatEgp(Number(selectedQtn.taxAmount))} — Grand: {formatEgp(Number(selectedQtn.grandTotal))}</div>
               {selectedQtn.status === 'DRAFT' && !locked && (
-                <div className="flex flex-wrap gap-2 items-center">
-                  <input
-                    type="number"
-                    placeholder="خصم"
-                    defaultValue={Number(selectedQtn.discountAmount)}
-                    onBlur={(e) =>
-                      qtnAction.mutate({
-                        quotationId: selectedQtn.id,
-                        action: 'patch',
-                        body: { discountAmount: Number(e.target.value) },
-                      })
-                    }
-                    className="rounded border px-2 py-1 w-32"
-                  />
-                  <input
-                    type="date"
-                    defaultValue={selectedQtn.validUntil?.slice(0, 10) ?? ''}
-                    onBlur={(e) =>
-                      qtnAction.mutate({
-                        quotationId: selectedQtn.id,
-                        action: 'patch',
-                        body: { validUntil: e.target.value || null },
-                      })
-                    }
-                    className="rounded border px-2 py-1 text-xs"
-                    title="صالح حتى"
-                  />
+                <div className="grid gap-2 sm:grid-cols-4">
+                  <div>
+                    <label className={erpLabelClass}>خصم</label>
+                    <input
+                      type="number"
+                      defaultValue={Number(selectedQtn.discountAmount)}
+                      onBlur={(e) =>
+                        qtnAction.mutate({
+                          quotationId: selectedQtn.id,
+                          action: 'patch',
+                          body: { discountAmount: Number(e.target.value) },
+                        })
+                      }
+                      className={erpInputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className={erpLabelClass}>صالح حتى</label>
+                    <input
+                      type="date"
+                      defaultValue={selectedQtn.validUntil?.slice(0, 10) ?? ''}
+                      onBlur={(e) =>
+                        qtnAction.mutate({
+                          quotationId: selectedQtn.id,
+                          action: 'patch',
+                          body: { validUntil: e.target.value || null },
+                        })
+                      }
+                      className={cn(erpInputClass, dateControlClass)}
+                    />
+                  </div>
+                  <div>
+                    <label className={erpLabelClass}>شروط الدفع</label>
+                    <input
+                      className={erpInputClass}
+                      defaultValue={selectedQtn.paymentTerms ?? ''}
+                      onBlur={(e) => {
+                        if (e.target.value !== (selectedQtn.paymentTerms ?? '')) {
+                          qtnAction.mutate({
+                            quotationId: selectedQtn.id,
+                            action: 'patch',
+                            body: { paymentTerms: e.target.value || null },
+                          });
+                        }
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className={erpLabelClass}>شروط التوريد</label>
+                    <input
+                      className={erpInputClass}
+                      defaultValue={selectedQtn.deliveryTerms ?? ''}
+                      onBlur={(e) => {
+                        if (e.target.value !== (selectedQtn.deliveryTerms ?? '')) {
+                          qtnAction.mutate({
+                            quotationId: selectedQtn.id,
+                            action: 'patch',
+                            body: { deliveryTerms: e.target.value || null },
+                          });
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
               )}
-              <table className="w-full text-xs mt-2">
+              <div className={dataEntryGridWrapClass}>
+              <table className="min-w-full text-sm">
+                <thead className={dataEntryGridHeadRowClass}>
+                  <tr>
+                    <th className={dataEntryGridHeadCellClass}>الكود</th>
+                    <th className={dataEntryGridHeadCellClass}>البيان</th>
+                    <th className={dataEntryGridHeadCellClass}>الكمية</th>
+                    <th className={dataEntryGridHeadCellClass}>سعر البيع</th>
+                    <th className={dataEntryGridHeadCellClass}>الإجمالي</th>
+                    <th className={dataEntryGridHeadCellClass}>ملاحظات</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {selectedQtn.lines.map((l) => (
-                    <tr key={l.id} className="border-t">
-                      <td>{l.itemCodeSnapshot}</td>
-                      <td>{l.descriptionArSnapshot}</td>
-                      <td>{formatQty(Number(l.quantitySnapshot))}</td>
-                      <td>
-                        {selectedQtn.status === 'DRAFT' && !locked ? (
+                  {selectedQtnHeaderRows.map((row) => {
+                    const code = row.line?.itemCodeSnapshot ?? row.boq?.itemCode ?? '';
+                    const name = row.line?.descriptionArSnapshot ?? row.boq?.descriptionAr ?? '';
+                    const qty = Number(row.line?.quantitySnapshot ?? row.boq?.quantity ?? 0);
+                    const rate = Number(row.line?.sellingUnitRateSnapshot ?? row.boq?.sellingUnitRate ?? 0);
+                    const amount = Number(row.line?.lineAmountSnapshot ?? qty * rate);
+                    const boqId = row.line?.tenderBoqItemId ?? row.boq?.id;
+                    return (
+                    <tr key={row.line?.id ?? row.boq?.id}>
+                      <td className={dataEntryGridBodyCellClass}>{code}</td>
+                      <td className={dataEntryGridBodyCellClass}>{name}</td>
+                      <td className={dataEntryGridBodyCellClass}>{formatQty(qty)}</td>
+                      <td className={dataEntryGridBodyCellClass}>
+                        {selectedQtn.status === 'DRAFT' && !locked && boqId ? (
                           <input
                             type="number"
-                            className="w-24 rounded border px-1"
-                            defaultValue={Number(l.sellingUnitRateSnapshot)}
+                            className={dataEntryGridNumericInputClass}
+                            defaultValue={rate}
                             onBlur={(e) =>
                               patchQtnLineRate.mutate({
                                 quotationId: selectedQtn.id,
-                                tenderBoqItemId: l.tenderBoqItemId,
+                                tenderBoqItemId: boqId,
                                 sellingUnitRate: Number(e.target.value),
                               })
                             }
                           />
                         ) : (
-                          formatEgp(Number(l.sellingUnitRateSnapshot))
+                          formatEgp(rate)
                         )}
                       </td>
-                      <td>{formatEgp(Number(l.lineAmountSnapshot))}</td>
+                      <td className={dataEntryGridBodyCellClass}>{formatEgp(amount)}</td>
+                      <td className={dataEntryGridBodyCellClass}>{row.boq?.notes || '—'}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
+              </div>
               {selectedQtn.status === 'DRAFT' && sum && sum.sellingValue < sum.directCost && (
                 <p className="text-amber-700 text-xs">تحذير: قيمة البيع أقل من التكلفة المباشرة</p>
               )}
@@ -1350,6 +1341,12 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
               <p>تمت الترسية في {t.award.awardedAt.slice(0, 10)}</p>
               <p>العقد {t.award.clientContract.contractNumber} — المشروع {t.award.project.projectCode}</p>
               <p className="text-xs text-slate-600">أسعار البيع تُنسخ إلى جدول كميات المشروع عند الترسية.</p>
+              <Link
+                href={`/extracts/operations/client-contract?id=${t.award.clientContract.id}`}
+                className="inline-block text-sm text-brand underline"
+              >
+                فتح التعاقد
+              </Link>
             </div>
           ) : !locked && acceptedQtn ? (
             <button
@@ -1414,6 +1411,6 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
           </div>
         </div>
       )}
-    </div>
+    </ExtractsPageChrome>
   );
 }

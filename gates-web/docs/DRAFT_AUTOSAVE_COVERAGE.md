@@ -2,66 +2,62 @@
 
 Persisted **client state** only. Next.js App Router `children` must never be cached or remounted.
 
-CREATE drafts use:
+CREATE drafts use (per **user** + company + screen):
 
-`gates:draft:${documentType}:${companyId}:new`
+`gates:draft:${documentType}:${companyId}:${userId}:new`
 
 or with variant:
 
-`gates:draft:${documentType}:${variantId}:${companyId}:new`
+`gates:draft:${documentType}:${variantId}:${companyId}:${userId}:new`
 
-Same browser session: auto-restore on return. Other session: Restore / Discard banner. Company IDs never share keys.
+One draft per user per screen; new edits overwrite the stored payload. **تجاهل** records that snapshot so the banner does not reappear until a newer draft is saved. Legacy keys without `userId` migrate on first read.
 
-## FULLY PROTECTED (CREATE)
+Standard wiring: `useDraftAutosave` + `PageDraftRestoreGate`. Master cards: `useMasterCardCreateDraft` + `MasterCardDraftRestoreGate`.
 
-| Screen | `documentType` / variant | Snapshot includes |
-|---|---|---|
-| Sales invoice | `sales-invoice` | Header form (customer, dates, warehouse, currency, FX, cost center, delegate/seller, payment, safe/advance, description, source, development fee) + lines (qty, units, prices, discounts, taxes, notes) + extras + payment splits + installments + internal notes + tax flag + conditions + customerSeed |
-| Purchase invoice | `purchase-invoice` | Supplier header + lines + freight + supplier discount + payment splits + installments + internal notes + tax flag |
-| Journal entry | `journal-entry` | Header + lines + cyclic + header FX override + source |
-| Sales order | `sales-order` | Header + commercial lines |
-| Price quote | `price-quote` | Header + commercial lines |
-| Treasury voucher | `voucher` + `CASH_DISBURSEMENT` / `CASH_RECEIPT` / `BANK_DEBIT_ADVICE` / `BANK_CREDIT_ADVICE` | Header + lines + credit lines + default cost center + invoice allocations |
-| Treasury order | `treasury-order` + variant | Header + lines + invoice allocations |
+## Operational documents
 
-## PARTIALLY PROTECTED
-
-| Screen | Gap |
+| Area | `documentType` (examples) |
 |---|---|
-| Opening stock | Separate hook `gates_opening_stock_draft_${companyId}_${fiscalYearId}`. Lines only. Not `useDraftAutosave`. |
-| All FULLY PROTECTED screens in **EDIT** | Draft disabled once a document id is in the URL. Unsaved edits are lost on tab switch. |
+| Sales / purchase invoice | `sales-invoice`, `purchase-invoice` |
+| Returns | `sales-return`, `purchase-return` |
+| Purchase order | `purchase-order` |
+| Stock | `stock-receipt`, `stock-issue`, `stock-transfer`, `stock-assembly`, `stock-disassembly`, `stocktaking`, `stock-other-adjustment` |
+| Opening stock | `opening-stock` (+ fiscal year `variantId`) |
+| Item reservation | `item-reservation` |
+| Journal / opening balance | `journal-entry`, `opening-balance` |
+| Treasury | `voucher` + variant, `treasury-order` + variant |
+| Securities | `securities-receipt`, `securities-payment`, batch types in `BatchReceiptCreateForm` |
+| Cheques | `cheque-inward`, `cheque-outward` |
+| Movements | `account-movement-transfer`, `cost-center-movement-transfer` |
+| Manufacturing | `manufacturing-operation`, `manufacturing-bom-model`, `manufacturing-work-order` (CREATE via production-planning) |
+| Commercial | `sales-order`, `price-quote`, `item-offer` |
+| Other additions/discounts type | `other-additions-discount-type` |
+| Invoice installments tracker | `invoice-installments-tracker` (filters) |
+| Real estate | `real-estate-reservation`, `real-estate-closure` |
 
-### EDIT mode — future design (not enabled)
+## Master cards
 
-Key: `gates:draft:${documentType}:${companyId}:edit:${documentId}`
+| Area | `documentType` |
+|---|---|
+| Accounting cards | `customer-card`, `supplier-card`, `account-card`, `bank-account-card`, `safe-card`, `cost-center-card`, `delegate-card`, `delegate-group-card`, `driver-card`, `distributor-card`, `customer-group-card`, `supplier-group-card` |
+| Inventory creations | `item-card`, `warehouse-card`, `item-group-card`, `color-size-matrix`, `price-list-card`, `order-limit-items`, `customer-contract`, `representatives-commission-*` |
 
-Do **not** auto-apply over server data. Required later:
+Shared components: `DelegateKindCardPage`, `PartyGroupCardPage`.
 
-- Compare draft `savedAt` / document `version` with the loaded record
-- If another user posted or saved a newer version, show a conflict banner — never silent overwrite
-- Clear the edit draft on successful save, post, cancel, or discard
-- Ignore drafts whose companyId does not match
+## EDIT mode gap (all screens)
 
-Current risk: open saved document → type → switch GATES tab → return → server record only.
+When a saved document id is in the URL, CREATE draft is disabled. Unsaved edits on an opened document are not persisted until EDIT-mode drafts are designed (`:edit:${documentId}` + version conflict rules).
 
-## NOT PROTECTED
+## Skipped (no CREATE form on route)
 
-- Sales returns
-- Purchase returns
-- Purchase orders
-- Inventory receipt / issue
-- Warehouse transfers
-- Assembly / disassembly
-- Stocktaking
-- Inventory adjustments / other additions-discounts
-- Accounting opening balance
-- Cheques / cheque portfolio
-- Commercial papers (securities receipt & payment, bulk)
-- Cost-center / account movement
-- Contracting extracts & related ops
-- Real-estate reservation / closure
-- Manufacturing operation
-- Invoice installments standalone page
-- Master cards (customer, supplier, item, warehouse, …)
+| Route | Reason |
+|---|---|
+| `manufacturing/operations/work-order` | Redirect to production planning |
+| `inventory/creations/customers`, `suppliers`, `items`, `categories`, `pricing-policies` | Redirect aliases |
+| `accounting/operations/account-movement` | Redirect to transfer tools |
+| `accounting/cards/staff` | Launcher dialog only |
+| List-only / report pages | No unsaved editor state |
 
-Coverage for those screens is a later pass after this infrastructure stays stable.
+## Removed legacy
+
+- `useOpeningStockDraft` / `OpeningStockDraftBanner` → `useDraftAutosave` (`opening-stock`).

@@ -137,6 +137,7 @@ export function buildCashTenderSplits(input: {
   direction?: 'RECEIPT' | 'PAYMENT';
   mode?: 'full' | 'advance';
   paidAmount?: number;
+  cashVoucherNumber?: string;
 }): { splits?: PaymentSplitLine[]; error?: string } {
   const net = Number(input.netAmount) || 0;
   const mode = input.mode ?? 'full';
@@ -180,7 +181,13 @@ export function buildCashTenderSplits(input: {
     }
     const safeId = String(input.treasuryId ?? '').trim();
     if (!safeId) return { error: 'حدد الخزينة عند دفع مبلغ في الأول' };
-    return { splits: withOnAccountRemainder([{ type: 'CASH', safeId, amount: paid }], net) };
+    const voucherNumber = String(input.cashVoucherNumber ?? '').trim() || undefined;
+    return {
+      splits: withOnAccountRemainder(
+        [{ type: 'CASH', safeId, amount: paid, ...(voucherNumber ? { voucherNumber } : {}) }],
+        net
+      ),
+    };
   }
 
   if (net <= 0) return { splits: undefined };
@@ -188,7 +195,10 @@ export function buildCashTenderSplits(input: {
   if (input.kind === 'treasury') {
     const safeId = String(input.treasuryId ?? '').trim();
     if (!safeId) return { error: 'يجب تحديد الخزينة في الفاتورة النقدية' };
-    return { splits: [{ type: 'CASH', safeId, amount: net }] };
+    const voucherNumber = String(input.cashVoucherNumber ?? '').trim() || undefined;
+    return {
+      splits: [{ type: 'CASH', safeId, amount: net, ...(voucherNumber ? { voucherNumber } : {}) }],
+    };
   }
 
   const cheques = chequeLinesFromDrafts(input.cheques, issuing, direction);

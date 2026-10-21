@@ -20,6 +20,7 @@ type Props = {
   error?: boolean;
   errorMessage?: string;
   executionStatus: OrderExecutionStatus;
+  isPosted?: boolean;
   baseCurrency?: string;
   displayBalance?: number;
 };
@@ -32,6 +33,7 @@ export function PaymentOrderHeader({
   error,
   errorMessage,
   executionStatus,
+  isPosted = false,
   baseCurrency = 'EGP',
   displayBalance,
 }: Props) {
@@ -53,7 +55,7 @@ export function PaymentOrderHeader({
         />
         {error && errorMessage ? <p className="text-xs text-rose-600">{errorMessage}</p> : null}
       </div>
-      <OrderStatusBadge orderType="PAYMENT_ORDER" status={executionStatus} />
+      <OrderStatusBadge orderType="PAYMENT_ORDER" status={executionStatus} isPosted={isPosted} />
       {selected ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs">
           <span className="block text-[11px] text-slate-500">رصيد الخزينة الحالي</span>

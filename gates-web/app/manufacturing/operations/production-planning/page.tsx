@@ -15,6 +15,7 @@ import {
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
 import { apiClient } from '@/lib/api/client';
 import type { ApiError } from '@/lib/api/types';
 import {
@@ -35,6 +36,7 @@ import {
   type LoadedManufacturingProcess,
 } from '@/lib/manufacturing/process-from-bom';
 import { stashMfgOperationPrefill } from '@/lib/manufacturing/mfg-operation-prefill';
+import type { ManufacturingSettingsView } from '@/lib/manufacturing/settings-types';
 import {
   bomPlansFromProductionRows,
   buildProductionPlanRowsFromBomPlans,
@@ -60,6 +62,8 @@ import {
   useDocumentMode,
 } from '@/components/common/document-shell';
 import { confirmAction } from '@/lib/feedback/confirm';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 
 type BomListItem = {
   id: string;
@@ -184,6 +188,25 @@ function num(v: string | number | null | undefined): number {
   return Number(v ?? 0);
 }
 
+type WorkOrderCreateDraft = {
+  lineRows: SalesLineRow[];
+  planRows: ProductionPlanRow[];
+  draftDescription: string;
+  draftWorkDate: string;
+  draftOrderNumber: string;
+};
+
+function isWorkOrderCreateDraftEmpty(draft: WorkOrderCreateDraft): boolean {
+  const hasLines = draft.lineRows.some((row) => row.itemId?.trim());
+  const hasPlans = draft.planRows.some((row) => row.bomId || row.itemId);
+  return (
+    !draft.draftDescription.trim() &&
+    !draft.draftOrderNumber.trim() &&
+    !hasLines &&
+    !hasPlans
+  );
+}
+
 export default function ProductionPlanningPage() {
   return (
     <DocumentModeProvider initialMode="create">
@@ -218,6 +241,47 @@ function ProductionPlanningInner() {
   const [qtyCheckEmphasizeShortages, setQtyCheckEmphasizeShortages] = useState(false);
   const loadedIdRef = useRef<string | null>(null);
 
+  const draftSnapshot = useMemo<WorkOrderCreateDraft>(
+    () => ({
+      lineRows,
+      planRows,
+      draftDescription,
+      draftWorkDate,
+      draftOrderNumber,
+    }),
+    [draftDescription, draftOrderNumber, draftWorkDate, lineRows, planRows]
+  );
+
+  const applyWorkOrderCreateDraft = useCallback((payload: WorkOrderCreateDraft) => {
+    setDraftNew(true);
+    setWorkOrderId(null);
+    loadedIdRef.current = null;
+    setLineRows(Array.isArray(payload.lineRows) ? payload.lineRows : [emptySalesLineRow()]);
+    setPlanRows(Array.isArray(payload.planRows) ? payload.planRows : []);
+    setDraftDescription(payload.draftDescription ?? '');
+    setDraftWorkDate(payload.draftWorkDate || new Date().toISOString().slice(0, 10));
+    setDraftOrderNumber(payload.draftOrderNumber ?? '');
+    setError(null);
+    unlockForEdit();
+  }, [unlockForEdit]);
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'manufacturing-work-order',
+    mode: workOrderId ? 'edit' : 'new',
+    documentId: workOrderId,
+    value: draftSnapshot,
+    enabled: draftNew && !workOrderId,
+    applyRestore: applyWorkOrderCreateDraft,
+    isEmpty: isWorkOrderCreateDraftEmpty,
+    restoreMessage: 'يوجد مسودة أمر شغل غير محفوظة',
+  });
+
+  const { data: mfgSettingsRes } = useApiQuery<ManufacturingSettingsView>(
+    ['manufacturing-settings'],
+    '/manufacturing/settings'
+  );
+  const allowWorkWithoutBom = Boolean(mfgSettingsRes?.data?.allowWorkWithoutBom);
+
   const { data: bomsRes } = useApiQuery<BomListItem[]>(
     ['manufacturing-boms'],
     '/manufacturing/boms'
@@ -225,7 +289,7 @@ function ProductionPlanningInner() {
   const boms = bomsRes?.data ?? [];
   const bomById = useMemo(() => new Map(boms.map((b) => [b.id, b])), [boms]);
 
-  useManufacturingWorkOrderSerial({
+  const { invalidateNextSerial } = useManufacturingWorkOrderSerial({
     enabled: draftNew && !workOrderId,
     setSerial: setDraftOrderNumber,
   });
@@ -312,8 +376,8 @@ function ProductionPlanningInner() {
     planSyncKeyRef.current = null;
     setDraftNew(false);
     applyWorkOrderToForm(workOrder);
-    lockToView();
-  }, [workOrder, lockToView]);
+    unlockForEdit();
+  }, [workOrder, unlockForEdit]);
 
   useEffect(() => {
     if (!workOrder?.id || !boms.length) return;
@@ -386,7 +450,7 @@ function ProductionPlanningInner() {
       return;
     }
     const activePlans = planRows.filter((r) => r.bomId);
-    if (!activePlans.length) {
+    if (!activePlans.length && !allowWorkWithoutBom) {
       setError('أضف نموذج تصنيع واحداً على الأقل في التخطيط الإنتاجي');
       return;
     }
@@ -476,11 +540,11 @@ function ProductionPlanningInner() {
       setError('أضف صنفاً واحداً على الأقل');
       return;
     }
-    if (lines.some((l) => !resolveBomForFinishedItem(boms, l.itemId))) {
+    if (!allowWorkWithoutBom && lines.some((l) => !resolveBomForFinishedItem(boms, l.itemId))) {
       setError('بعض الأصناف بلا نموذج تصنيع مرتبط');
       return;
     }
-    if (planRows.some((r) => r.itemId && !r.bomId)) {
+    if (!allowWorkWithoutBom && planRows.some((r) => r.itemId && !r.bomId)) {
       setError('بعض الأصناف بلا نموذج تصنيع — عرّف نموذجاً للصنف التام أولاً');
       return;
     }
@@ -511,6 +575,7 @@ function ProductionPlanningInner() {
       })),
     });
     if (res.data?.id) {
+      clearDraft();
       setDraftNew(false);
       openWorkOrder(res.data.id);
       setSuccess('تم إنشاء أمر الشغل');
@@ -518,6 +583,7 @@ function ProductionPlanningInner() {
   }
 
   function handleStartNewDraft() {
+    clearDraft();
     setWorkOrderId(null);
     loadedIdRef.current = null;
     planSyncKeyRef.current = null;
@@ -555,6 +621,32 @@ function ProductionPlanningInner() {
       lockToView();
     } catch (err) {
       setError((err as ApiError).message || 'تعذر إلغاء أمر الشغل');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRestoreWorkOrder() {
+    if (!workOrderId || workOrder?.status !== 'CANCELLED') return;
+    const ok = await confirmAction({
+      message: 'استعادة أمر الشغل الملغي؟',
+      confirmLabel: 'استعادة',
+    });
+    if (!ok) return;
+    setError(null);
+    setSuccess(null);
+    setBusy(true);
+    try {
+      const res = await apiClient.post<WorkOrderDetail>(
+        `/manufacturing/work-orders/${workOrderId}/restore`
+      );
+      invalidateQuery(['manufacturing-work-order', workOrderId]);
+      invalidateQuery(['manufacturing-work-orders-list']);
+      if (res.data) applyWorkOrderToForm(res.data);
+      setSuccess('تم استعادة أمر الشغل');
+      unlockForEdit();
+    } catch (err) {
+      setError((err as ApiError).message || 'تعذر استعادة أمر الشغل');
     } finally {
       setBusy(false);
     }
@@ -641,7 +733,18 @@ function ProductionPlanningInner() {
       return;
     }
     if (!row.bomId) {
-      setError('لا يوجد نموذج تصنيع لهذا الصنف');
+      if (!allowWorkWithoutBom) {
+        setError('لا يوجد نموذج تصنيع لهذا الصنف');
+        return;
+      }
+      stashMfgOperationPrefill({
+        manufacturingWorkOrderId: workOrderId,
+        numberOfModels: Number(row.modelCount) || 1,
+        description: workOrder.description?.trim() || `تصنيع من أمر شغل ${workOrder.orderNumber}`,
+      });
+      router.push(
+        `/manufacturing/operations/operation?workOrderId=${encodeURIComponent(workOrderId)}`
+      );
       return;
     }
     const qty = Number(row.modelCount);
@@ -698,7 +801,11 @@ function ProductionPlanningInner() {
     setError(null);
     if (!workOrderId) return;
     if (!progress?.canFinish) {
-      setError('أكمل كل كميات النماذج في أوامر التصنيع أولاً');
+      setError(
+        progress
+          ? `أكمل إنهاء عمليات التصنيع لكل كمية النماذج أولاً (مكتمل ${progress.completedTotal} من ${progress.requiredTotal}) ثم اضغط إنهاء أمر الشغل.`
+          : 'أكمل إنهاء عمليات التصنيع لكل كمية النماذج أولاً ثم اضغط إنهاء أمر الشغل.'
+      );
       return;
     }
     await finishMutation.mutateAsync({});
@@ -721,7 +828,19 @@ function ProductionPlanningInner() {
     workOrder?.salesOrder?.id;
 
   return (
-    <ManufacturingPageChrome
+    <>
+      <PageDraftRestoreGate<WorkOrderCreateDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(workOrderId) || !draftNew}
+        message="يوجد مسودة أمر شغل غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyWorkOrderCreateDraft(payload);
+          setSuccess('تم استعادة مسودة أمر الشغل');
+        }}
+      />
+      <ManufacturingPageChrome
       title="أمر الشغل"
       docNumber={draftNew ? draftOrderNumber || undefined : workOrder?.orderNumber}
       currentId={draftNew ? null : workOrderId}
@@ -736,6 +855,11 @@ function ProductionPlanningInner() {
         draftNew ? 'جديد' : workOrder ? manufacturingWorkOrderStatusLabel(workOrder.status) : 'جديد'
       }
       statusTone={workOrder ? workOrderStatusTone(workOrder.status) : 'info'}
+      lifecycle={{
+        documentId: workOrderId,
+        isPosted: workOrder?.status === 'COMPLETED' || workOrder?.status === 'CLOSED',
+        isCancelled: workOrder?.status === 'CANCELLED',
+      }}
       standardActions={{
         hasDocument: Boolean(workOrderId),
         isCancelled: workOrder?.status === 'CANCELLED',
@@ -753,7 +877,16 @@ function ProductionPlanningInner() {
             ? () => void handleCancelWorkOrder()
             : undefined,
         voidLabel: 'إلغاء أمر الشغل',
+        onRestore:
+          workOrder?.status === 'CANCELLED' ? () => void handleRestoreWorkOrder() : undefined,
+        restoreLabel: 'استعادة أمر الشغل',
+        restorePending: busy,
         editLockedHint: fieldsLocked ? 'اضغط «تعديل» من القائمة أو الأمر مغلق/ملغي' : undefined,
+        transactionSettingsDocumentType: 'MANUFACTURING_WORK_ORDER',
+        onTransactionSettingsSaved: () => {
+          invalidateAfterTransactionSettingsSave(invalidateQuery, 'MANUFACTURING_WORK_ORDER');
+          invalidateNextSerial();
+        },
       }}
       extraActions={
         workOrder && !planningLocked ? (
@@ -761,10 +894,21 @@ function ProductionPlanningInner() {
             type="button"
             size="sm"
             variant="secondary"
-            disabled={!progress?.canFinish || finishMutation.isPending || busy}
+            disabled={
+              workOrder.status === 'COMPLETED' ||
+              workOrder.status === 'CLOSED' ||
+              workOrder.status === 'CANCELLED' ||
+              finishMutation.isPending ||
+              busy
+            }
+            title={
+              progress?.canFinish
+                ? 'إنهاء أمر الشغل بعد اكتمال كميات النماذج'
+                : `أكمل إنهاء عمليات التصنيع أولاً — مكتمل ${progress?.completedTotal ?? 0} من ${progress?.requiredTotal ?? 0}`
+            }
             onClick={() => void handleFinish()}
           >
-            إنتهاء
+            إنهاء أمر الشغل
           </Button>
         ) : null
       }
@@ -1173,7 +1317,7 @@ function ProductionPlanningInner() {
                                   type="button"
                                   size="sm"
                                   className="bg-[#0E78AA] hover:bg-[#0B6188]"
-                                  disabled={busy || planningLocked || !row.bomId}
+                                  disabled={busy || planningLocked || (!row.bomId && !allowWorkWithoutBom)}
                                   onClick={() => void handleManufacture(row)}
                                 >
                                   تصنيع
@@ -1246,5 +1390,6 @@ function ProductionPlanningInner() {
         </div>
       </DocumentBrowseDrawer>
     </ManufacturingPageChrome>
+    </>
   );
 }

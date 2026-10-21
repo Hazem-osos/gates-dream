@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   X,
   CalendarRange,
@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 
 type StatementData = {
   account?: { id: string; code: string; arabicName: string };
+  costCenterName?: string;
   openingBalance?: number;
   closingBalance?: number;
   transactions: Array<{
@@ -107,26 +108,73 @@ export function AccountLedgerDrawer({
   accountLabel,
   open,
   onClose,
+  kind = 'account',
+  fromDate,
+  toDate,
+  query,
+  heading = 'كشف حساب',
 }: {
   accountId: string | null;
   accountLabel: string;
   open: boolean;
   onClose: () => void;
+  kind?: 'account' | 'costCenter';
+  fromDate?: string;
+  toDate?: string;
+  query?: Record<string, string>;
+  heading?: string;
 }) {
-  const [preset, setPreset] = useState<(typeof PERIOD_PRESETS)[number]['id']>('quarter');
-  const [{ startDate, endDate }, setRange] = useState(() => defaultRange('quarter'));
+  type PresetId = (typeof PERIOD_PRESETS)[number]['id'] | 'report';
+  const [preset, setPreset] = useState<PresetId>(fromDate && toDate ? 'report' : 'quarter');
+  const [{ startDate, endDate }, setRange] = useState(() =>
+    fromDate && toDate ? { startDate: fromDate, endDate: toDate } : defaultRange('quarter')
+  );
 
-  const applyPreset = (id: (typeof PERIOD_PRESETS)[number]['id']) => {
+  const applyPreset = (id: PresetId) => {
     setPreset(id);
-    setRange(defaultRange(id));
+    if (id === 'report' && fromDate && toDate) {
+      setRange({ startDate: fromDate, endDate: toDate });
+      return;
+    }
+    if (id !== 'report') setRange(defaultRange(id));
   };
 
+  const extraParams = {
+    startDate,
+    endDate,
+    ...(kind === 'account' && query?.costCenterId ? { costCenterId: query.costCenterId } : {}),
+    ...(query?.branchId ? { branchId: query.branchId } : {}),
+    ...(query?.currencyId ? { currencyId: query.currencyId } : {}),
+    ...(query?.showUnposted ? { showUnposted: query.showUnposted } : {}),
+  };
+  const endpoint =
+    kind === 'costCenter'
+      ? `/accounting/reports/cost-center-statement/${accountId ?? '_'}`
+      : `/accounting/reports/account-statement/${accountId ?? '_'}`;
+
   const { data, isLoading, isError, refetch, isFetching } = useApiQuery<StatementData>(
-    ['account-statement', accountId, startDate, endDate],
-    accountId ? `/accounting/reports/account-statement/${accountId}` : '/accounting/reports/account-statement/_',
-    { startDate, endDate },
+    [
+      kind === 'costCenter' ? 'cost-center-statement' : 'account-statement',
+      accountId,
+      startDate,
+      endDate,
+      extraParams.costCenterId,
+      extraParams.branchId,
+      extraParams.currencyId,
+      extraParams.showUnposted,
+    ],
+    endpoint,
+    extraParams,
     { enabled: open && !!accountId, staleTime: 30_000 }
   );
+
+  useEffect(() => {
+    if (!open) return;
+    if (fromDate && toDate) {
+      setPreset('report');
+      setRange({ startDate: fromDate, endDate: toDate });
+    }
+  }, [open, accountId, fromDate, toDate]);
 
   const payload = data?.data;
   const lines = useMemo(
@@ -151,8 +199,11 @@ export function AccountLedgerDrawer({
 
   const codeFromLabel = accountLabel.split('—')[0]?.trim() ?? '';
   const nameFromLabel = accountLabel.includes('—') ? accountLabel.split('—').slice(1).join('—').trim() : accountLabel;
-  const accountCode = payload?.account?.code ?? codeFromLabel;
-  const accountName = payload?.account?.arabicName ?? nameFromLabel;
+  const accountCode = payload?.account?.code ?? (kind === 'costCenter' ? '' : codeFromLabel);
+  const accountName =
+    payload?.account?.arabicName ??
+    payload?.costCenterName ??
+    (kind === 'costCenter' ? accountLabel : nameFromLabel);
 
   if (!accountId) return null;
 
@@ -165,7 +216,7 @@ export function AccountLedgerDrawer({
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-white/80 mb-2 flex items-center gap-1.5">
                 <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
-                كشف حساب
+                {heading}
               </p>
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-white/15 border border-white/20 tabular-nums">
@@ -189,6 +240,18 @@ export function AccountLedgerDrawer({
           {/* Period */}
           <div className="mt-4 rounded-xl bg-white/10 border border-white/15 p-3 space-y-3">
             <div className="flex flex-wrap gap-1.5">
+              {fromDate && toDate ? (
+                <button
+                  type="button"
+                  onClick={() => applyPreset('report')}
+                  className={cn(
+                    'text-xs px-2.5 py-1 rounded-full font-medium transition-colors',
+                    preset === 'report' ? 'bg-white text-[#094C6B]' : 'bg-white/10 text-white hover:bg-white/20'
+                  )}
+                >
+                  فترة التقرير
+                </button>
+              ) : null}
               {PERIOD_PRESETS.map((p) => (
                 <button
                   key={p.id}
@@ -365,6 +428,18 @@ export function AccountLedgerDrawer({
         </div>
 
         <footer className="shrink-0 flex gap-2 p-4 bg-white border-t border-slate-200">
+          {accountId ? (
+            <Link
+              href={
+                kind === 'costCenter'
+                  ? `/accounting/account-reports/books/cost-center-ledger?costCenterId=${encodeURIComponent(accountId)}&fromDate=${encodeURIComponent(startDate)}&toDate=${encodeURIComponent(endDate)}`
+                  : `/accounting/account-reports/books/daftar-ostaz?accountId=${encodeURIComponent(accountId)}&fromDate=${encodeURIComponent(startDate)}&toDate=${encodeURIComponent(endDate)}`
+              }
+              className="inline-flex h-10 flex-1 items-center justify-center rounded-lg border border-[#0E78AA] px-3 text-sm font-semibold text-[#0E78AA] hover:bg-[#0E78AA]/5"
+            >
+              فتح التقرير الكامل
+            </Link>
+          ) : null}
           <Button type="button" variant="secondary" fullWidth onClick={onClose}>
             إغلاق
           </Button>

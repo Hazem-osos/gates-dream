@@ -66,11 +66,13 @@ export type ItemOption = {
     isFactorFixed?: boolean | null;
   }[];
   defaultTaxPercent?: number | string | null;
+  isTaxExempt?: boolean | null;
   taxExemptionReason?: string | null;
   useExpirationDate?: boolean | null;
   useSerialNumber?: boolean | null;
   clothingItem?: boolean | null;
   defaultWarehouseId?: string | null;
+  imageUrl?: string | null;
   isAssembly?: boolean | null;
   priceSource?: string | null;
   lastPurchasePrice?: number | string | null;

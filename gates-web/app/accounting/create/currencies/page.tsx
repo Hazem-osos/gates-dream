@@ -51,7 +51,7 @@ const emptyForm = (serial = ''): FormState => ({
 });
 
 function CurrenciesPageInner() {
-  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const { isReadOnly, unlockForEdit, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const queryClient = useQueryClient();
   const rememberRate = useRememberCurrencyRate();
@@ -93,7 +93,7 @@ function CurrenciesPageInner() {
   };
 
   const hydrate = (row: CurrencyRow) => {
-    lockToView();
+    unlockForEdit();
     const catalog = findCurrencyCatalog(row.code || row.symbol || '');
     setSelectedId(row.id);
     setForm({

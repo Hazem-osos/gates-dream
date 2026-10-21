@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useOwnTabPathname, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
-import { useForm, type Resolver, Controller } from 'react-hook-form';
+import { useForm, useWatch, type Resolver, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -19,6 +19,7 @@ import {
   denseThClass,
 } from '@/components/ui';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -30,12 +31,28 @@ import {
 import type { ApiError } from '@/lib/api/types';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { finishDocumentSave } from '@/lib/documents/finish-save';
-import { unpostedDocumentStatusLabel } from '@/lib/documents/document-status-labels';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { postStoreDocumentAfterSave } from '@/lib/inventory/post-store-document-after-save';
+import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
+import {
+  useApplyDefaultWarehouseFromTransactionSettings,
+  useTransactionDocumentSettings,
+} from '@/lib/transaction-settings/use-transaction-document-settings';
+import { InternalNotesScratchpad } from '@/components/documents/InternalNotesScratchpad';
+import { shouldLockLoadedSource, shouldShowAllAccountsInPartyField } from '@/lib/transaction-settings/types';
+import { maybeAutoPrintAfterSave } from '@/lib/printer/print-prefs';
+import type { InternalNoteEntry } from '@/lib/invoices/payment-split.types';
 
-import { InvoiceFinancialSummary } from '@/components/inventory/InvoiceFinancialSummary';
-import { computeInvoiceFinancialSummary } from '@/lib/invoices/computeInvoiceFinancialSummary';
+import {
+  computeInvoiceFinancialSummary,
+  computeInvoiceGrossDiscount,
+} from '@/lib/invoices/computeInvoiceFinancialSummary';
+import { InvoiceExtrasPanel } from '@/components/inventory/invoices/InvoiceExtrasPanel';
+import { PurchaseInvoiceBottomSplit } from '@/components/inventory/purchase-invoice/PurchaseInvoiceBottomSplit';
+import { useInvoiceExtras } from '@/lib/invoices/use-invoice-extras';
+import { extrasFromApi, sumPartyInvoiceExtras, validateInvoiceExtrasForSave } from '@/lib/invoices/invoice-adjustments';
+import type { InvoiceAdjustmentApiRow } from '@/lib/invoices/invoice-adjustments';
 import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/components/form/CostCenterSelect';
@@ -48,10 +65,16 @@ import {
   type ReorderCandidate,
 } from '@/lib/inventory/reorder-items';
 import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
-import { PURCHASE_ORDER_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
 import { stockHeaderFieldsFromSource } from '@/lib/inventory/apply-source-to-stock-document';
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { toast } from '@/lib/feedback/toast';
+import { useDocumentConvertMutation } from '@/lib/hooks/useDocumentConvert';
+import { DocumentFollowUpButton } from '@/components/documents/DocumentFollowUpButton';
+import { buildPurchaseInvoiceHref } from '@/lib/documents/document-follow-up';
+import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
+import { hasLineWithItem } from '@/lib/drafts/form-lines-draft';
 
 interface Currency {
   id: string;
@@ -77,6 +100,27 @@ function orderLineNet(line: PurchaseOrderLine): number {
   const gross = (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0);
   const afterDiscount = gross * (1 - (Number(line.discount) || 0) / 100);
   return afterDiscount * (1 + (Number(line.tax) || 0) / 100);
+}
+
+type PurchaseOrderDraft = {
+  header: InventoryPurchaseOrderHeaderFormInput;
+  orderLines: PurchaseOrderLine[];
+  internalNotes: InternalNoteEntry[];
+  invoiceExtras?: ReturnType<typeof extrasFromApi>;
+};
+
+function isPurchaseOrderDraftEmpty(draft: PurchaseOrderDraft): boolean {
+  const h = draft.header;
+  return (
+    !h.supplierId?.trim() &&
+    !h.description?.trim() &&
+    !h.orderNumber?.trim() &&
+    !hasLineWithItem(draft.orderLines) &&
+    !(draft.internalNotes?.length ?? 0) &&
+    !(draft.invoiceExtras ?? []).some(
+      (row) => Boolean(row.accountId?.trim()) || Number(row.additionValue) > 0 || Number(row.discountValue) > 0
+    )
+  );
 }
 
 function emptyPurchaseOrderHeader(today: string): InventoryPurchaseOrderHeaderFormInput {
@@ -118,8 +162,17 @@ export default function PurchaseOrderPage() {
   const isPosted = watch('isPosted');
   const warehouseId = watch('warehouseId');
 
-  const [showCanceled, setShowCanceled] = useState(false);
   const [orderLines, setOrderLines] = useState<PurchaseOrderLine[]>([emptyOrderLine()]);
+  const {
+    invoiceExtras,
+    setInvoiceExtras,
+    extrasOpen,
+    setExtrasOpen,
+    loadAdjustments,
+    resetExtras,
+    getExtrasPayload,
+  } = useInvoiceExtras();
+  const [loadedSourceId, setLoadedSourceId] = useState('');
   const [sourceBarKey, setSourceBarKey] = useState(0);
   const [showList, setShowList] = useState(false);
   const router = useRouter();
@@ -131,23 +184,80 @@ export default function PurchaseOrderPage() {
   const fromOrderLimit = searchParams.get('from') === 'order-limit';
   const reorderApplied = useRef(false);
   const postAfterSaveRef = useRef(false);
+  const {
+    settings: purchaseOrderTxSettings,
+    autoPostOnSave,
+    autoPrintOnSave,
+    saveLabel: legacySaveLabel,
+    serialAutomatic,
+    defaultWarehouseId: txDefaultWarehouseId,
+  } = useTransactionDocumentSettings('PURCHASE_ORDER');
+  const orderSaveLabel = autoPostOnSave ? STORE_SAVE_AND_POST_LABEL : legacySaveLabel;
+  const lockLoadedSource = shouldLockLoadedSource(purchaseOrderTxSettings, loadedSourceId);
 
-  const financialSummary = useMemo(
-    () =>
-      computeInvoiceFinancialSummary(
-        orderLines.map((line) => ({
-          quantity: line.quantity,
-          unitPrice: line.unitPrice,
-          discount: line.discount,
-          taxRate: line.tax,
-        })),
-        { applyTax: true }
-      ),
-    [orderLines]
-  );
+  useApplyDefaultWarehouseFromTransactionSettings({
+    selectedId: selectedOrderId,
+    warehouseId,
+    defaultWarehouseId: txDefaultWarehouseId,
+    setWarehouseId: (id) => setValue('warehouseId', id, { shouldDirty: false }),
+  });
 
+  const financialSummary = useMemo(() => {
+    const lines = orderLines.map((line) => ({
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      discount: line.discount,
+      taxRate: line.tax,
+    }));
+    const { gross, commercialDiscount } = computeInvoiceGrossDiscount(lines);
+    const extrasNet = sumPartyInvoiceExtras(invoiceExtras, gross - commercialDiscount, 1);
+    return computeInvoiceFinancialSummary(lines, {
+      applyTax: true,
+      additionsAndDiscounts: extrasNet,
+    });
+  }, [invoiceExtras, orderLines]);
+
+  const convertMutation = useDocumentConvertMutation();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [internalNotes, setInternalNotes] = useState<InternalNoteEntry[]>([]);
+  const watchedHeader = useWatch({ control }) as InventoryPurchaseOrderHeaderFormInput;
+
+  const draftSnapshot = useMemo(
+    (): PurchaseOrderDraft => ({
+      header: watchedHeader ?? emptyPurchaseOrderHeader(todayStr),
+      orderLines,
+      internalNotes,
+      invoiceExtras,
+    }),
+    [internalNotes, invoiceExtras, orderLines, todayStr, watchedHeader]
+  );
+
+  const applyPurchaseOrderDraft = useCallback(
+    (payload: PurchaseOrderDraft) => {
+      reset({ ...emptyPurchaseOrderHeader(todayStr), ...payload.header });
+      setOrderLines(
+        Array.isArray(payload.orderLines) && payload.orderLines.length
+          ? payload.orderLines
+          : [emptyOrderLine()]
+      );
+      setInternalNotes(Array.isArray(payload.internalNotes) ? payload.internalNotes : []);
+      setInvoiceExtras(Array.isArray(payload.invoiceExtras) ? payload.invoiceExtras : []);
+      setExtrasOpen(false);
+    },
+    [reset, setExtrasOpen, setInvoiceExtras, todayStr]
+  );
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'purchase-order',
+    mode: selectedOrderId ? 'edit' : 'new',
+    documentId: selectedOrderId,
+    value: draftSnapshot,
+    enabled: !isPosted,
+    applyRestore: applyPurchaseOrderDraft,
+    isEmpty: isPurchaseOrderDraftEmpty,
+    restoreMessage: 'يوجد مسودة أمر شراء غير محفوظة',
+  });
 
   // Fetch currencies
   const { data: currenciesResponse, isLoading: currenciesLoading } = useApiQuery<Currency[]>(
@@ -176,6 +286,10 @@ export default function PurchaseOrderPage() {
     currency?: { id?: string } | null;
     isPosted?: boolean;
     isApproved?: boolean;
+    invoiceId?: string | null;
+    isCancelled?: boolean;
+    internalNotes?: InternalNoteEntry[] | null;
+    adjustments?: InvoiceAdjustmentApiRow[] | null;
     lines?: Array<{
       itemId: string;
       quantity?: number | string;
@@ -183,6 +297,7 @@ export default function PurchaseOrderPage() {
       discountPercentage?: number | string;
       discountValue?: number | string;
       taxPercentage?: number | string;
+      item?: { arabicName?: string };
     }>;
   }>(
     ['purchase-order', selectedOrderId ?? ''],
@@ -216,7 +331,9 @@ export default function PurchaseOrderPage() {
         tax: Number(line.taxPercentage ?? 0),
       }))
     );
-  }, [selectedOrderResponse, selectedOrderId, reset, todayStr]);
+    setInternalNotes(Array.isArray(o.internalNotes) ? o.internalNotes : []);
+    loadAdjustments(o.adjustments);
+  }, [loadAdjustments, selectedOrderResponse, selectedOrderId, reset, todayStr]);
 
   useEffect(() => {
     if (!fromOrderLimit || selectedOrderId || reorderApplied.current) return;
@@ -252,14 +369,35 @@ export default function PurchaseOrderPage() {
   };
 
   const clearOrderForNext = () => {
+    clearDraft();
     setSelectedOrderId(null);
     setOrderLines([emptyOrderLine()]);
+    setLoadedSourceId('');
+    setInternalNotes([]);
+    resetExtras();
     setSourceBarKey((k) => k + 1);
     reset(emptyPurchaseOrderHeader(new Date().toISOString().split('T')[0]));
     const params = new URLSearchParams(searchParams.toString());
     params.delete('orderId');
     const qs = params.toString();
     router.replace(qs ? `${ownPathname}?${qs}` : ownPathname, { scroll: false });
+  };
+
+  const printPurchaseOrder = () => {
+    void printOperationalDocument({
+      title: 'أمر الشراء',
+      documentNo: watch('orderNumber') || 'جديد',
+      documentDate: watch('date'),
+      lines: orderLines
+        .filter((line) => line.itemId && Number(line.quantity) > 0)
+        .map((line) => ({
+          description: line.itemLabel || line.itemId,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          taxPercent: line.tax,
+          total: orderLineNet(line),
+        })),
+    });
   };
 
   const purchaseOrderMutation = useApiMutation<
@@ -269,11 +407,13 @@ export default function PurchaseOrderPage() {
     showSuccessToast: false,
     onSuccess: (res) => {
       invalidateStockViews(invalidateQuery);
+      clearDraft();
       const id = res.data?.id;
       const number = res.data?.orderNumber || res.data?.serialNumber || res.data?.serial;
       const shouldPost = postAfterSaveRef.current;
       postAfterSaveRef.current = false;
       const finish = (posted: boolean) => {
+        maybeAutoPrintAfterSave(autoPrintOnSave, printPurchaseOrder);
         finishDocumentSave({
           label: 'أمر شراء',
           number,
@@ -314,11 +454,13 @@ export default function PurchaseOrderPage() {
       showSuccessToast: false,
       onSuccess: () => {
         invalidateStockViews(invalidateQuery);
+        clearDraft();
         const id = selectedOrderId;
         const number = watch('orderNumber');
         const shouldPost = postAfterSaveRef.current;
         postAfterSaveRef.current = false;
         const finish = (posted: boolean) => {
+          maybeAutoPrintAfterSave(autoPrintOnSave, printPurchaseOrder);
           finishDocumentSave({
             label: 'أمر شراء',
             number,
@@ -353,19 +495,12 @@ export default function PurchaseOrderPage() {
     }
   );
 
-  const approveMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedOrderId ? `/inventory/purchase-orders/${selectedOrderId}/approve` : '/inventory/purchase-orders',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم اعتماد أمر الشراء');
-        if (selectedOrderId) invalidateQuery(['purchase-order', selectedOrderId]);
-      },
-      onError: (error: ApiError) => setError(error.message || 'تعذر الاعتماد'),
-    }
-  );
+  const [postFlowPending, setPostFlowPending] = useState(false);
 
-  const loading = purchaseOrderMutation.isPending || purchaseOrderUpdateMutation.isPending || approveMutation.isPending;
+  const loading =
+    purchaseOrderMutation.isPending ||
+    purchaseOrderUpdateMutation.isPending ||
+    postFlowPending;
 
   useEffect(() => {
     reset((prev) => ({ ...prev, date: prev.date || todayStr }));
@@ -392,6 +527,7 @@ export default function PurchaseOrderPage() {
     if (header.supplierId) setValue('supplierId', header.supplierId);
     if (header.warehouseId) setValue('warehouseId', header.warehouseId);
     if (header.description) setValue('description', header.description);
+    setLoadedSourceId(payload.sourceId);
     setOrderLines(
       payload.lines.length
         ? payload.lines.map((line) => ({
@@ -403,6 +539,7 @@ export default function PurchaseOrderPage() {
           }))
         : [emptyOrderLine()]
     );
+    loadAdjustments(payload.adjustments);
     toast.success(`تم تحميل الأمر من ${payload.sourceNumber}`);
   };
 
@@ -411,25 +548,40 @@ export default function PurchaseOrderPage() {
     setSuccess('');
     const parsed = inventoryPurchaseOrderFormSchema.safeParse({
       ...header,
-      lines: orderLines.filter((line) => line.itemId),
+      costCenterId: header.costCenterId?.trim() || undefined,
+      currencyId: header.currencyId?.trim() || undefined,
+      lines: orderLines.filter((line) => line.itemId && Number(line.quantity) > 0),
     });
     if (!parsed.success) {
       postAfterSaveRef.current = false;
       setError(parsed.error.issues[0]?.message ?? 'خطأ في البيانات');
       return;
     }
+    const extrasError = validateInvoiceExtrasForSave(invoiceExtras);
+    if (extrasError) {
+      postAfterSaveRef.current = false;
+      setError(extrasError);
+      setExtrasOpen(true);
+      return;
+    }
     const d = parsed.data;
+    if (!selectedOrderId && !serialAutomatic && !String(d.orderNumber ?? '').trim()) {
+      postAfterSaveRef.current = false;
+      setError('أدخل رقم أمر الشراء — الترقيم يدوي في إعدادات المستند');
+      return;
+    }
     (selectedOrderId ? purchaseOrderUpdateMutation : purchaseOrderMutation).mutate({
-      orderNumber: d.orderNumber,
+      orderNumber: serialAutomatic && !selectedOrderId ? undefined : d.orderNumber,
       description: d.description,
-      date: d.date || new Date().toISOString(),
+      date: d.date?.length === 10 ? `${d.date}T00:00:00.000Z` : d.date || new Date().toISOString(),
       hijriDate: d.hijriDate,
       supplierId: d.supplierId,
       warehouseId: d.warehouseId,
-      costCenterId: d.costCenterId,
-      currencyId: d.currencyId,
+      costCenterId: d.costCenterId?.trim() || null,
+      currencyId: d.currencyId?.trim() || null,
       isPosted: d.isPosted,
       isApproved: d.isApproved,
+      adjustments: getExtrasPayload(),
       lines: d.lines.map((line) => ({
         itemId: line.itemId,
         quantity: line.quantity,
@@ -437,20 +589,67 @@ export default function PurchaseOrderPage() {
         discountPercentage: line.discount || 0,
         taxPercentage: line.tax || 0,
       })),
+      internalNotes,
     });
   };
 
   const requestPostAfterSave = () => {
     if (isPosted) return;
+    postAfterSaveRef.current = autoPostOnSave;
+    void handleSubmit(submitOrderSave, onFieldErrors(setError))();
+  };
+
+  const requestExplicitPostAfterSave = () => {
+    if (isPosted) return;
     postAfterSaveRef.current = true;
     void handleSubmit(submitOrderSave, onFieldErrors(setError))();
   };
 
+  const orderCancelled = Boolean(
+    (selectedOrderResponse?.data as { isCancelled?: boolean } | undefined)?.isCancelled
+  );
+
+  const refreshOrder = () => {
+    invalidateQuery(['purchase-orders']);
+    invalidateQuery(['purchase-orders-browse']);
+    if (selectedOrderId) invalidateQuery(['purchase-order', selectedOrderId]);
+  };
+
+  const handleCancelOrder = async () => {
+    if (!selectedOrderId) return;
+    try {
+      await apiClient.post(`/inventory/purchase-orders/${selectedOrderId}/cancel`, {});
+      setSuccess('تم إلغاء أمر الشراء');
+      refreshOrder();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر إلغاء أمر الشراء');
+    }
+  };
+
+  const handleRestoreOrder = async () => {
+    if (!selectedOrderId) return;
+    try {
+      await restoreCancelledDocument({
+        restorePath: `/inventory/purchase-orders/${selectedOrderId}/restore`,
+        postPath: `/inventory/purchase-orders/${selectedOrderId}/post`,
+        kind: 'named',
+        autoPostOnSave,
+      });
+      setSuccess(
+        autoPostOnSave ? 'تمت الاستعادة والترحيل' : 'تمت الاستعادة — المستند غير مرحّل'
+      );
+      refreshOrder();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر الاستعادة');
+    }
+  };
+
   const postExistingOrder = () => {
     if (!selectedOrderId) {
-      requestPostAfterSave();
+      requestExplicitPostAfterSave();
       return;
     }
+    setPostFlowPending(true);
     void apiClient
       .post(`/inventory/purchase-orders/${selectedOrderId}/post`)
       .then(() => {
@@ -461,13 +660,54 @@ export default function PurchaseOrderPage() {
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : 'تعذر الترحيل');
+      })
+      .finally(() => setPostFlowPending(false));
+  };
+
+  const linkedPurchaseInvoiceId =
+    (selectedOrderResponse?.data as { invoiceId?: string | null } | undefined)?.invoiceId ?? null;
+
+  const openPurchaseInvoiceFromOrder = async () => {
+    if (!selectedOrderId) {
+      setError('احفظ أمر الشراء أولاً ثم أنشئ فاتورة المشتريات');
+      return;
+    }
+    if (linkedPurchaseInvoiceId) {
+      router.push(buildPurchaseInvoiceHref(linkedPurchaseInvoiceId));
+      return;
+    }
+    try {
+      const res = await convertMutation.mutateAsync({
+        type: 'PURCHASE_ORDER_TO_PURCHASE_INVOICE',
+        sourceId: selectedOrderId,
       });
+      const targetId = res.data?.target?.id;
+      if (!targetId) {
+        setError('تعذر إنشاء فاتورة المشتريات');
+        return;
+      }
+      router.push(buildPurchaseInvoiceHref(targetId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر إنشاء فاتورة المشتريات');
+    }
   };
 
   return (
     <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+
+      <PageDraftRestoreGate<PurchaseOrderDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedOrderId)}
+        message="يوجد مسودة أمر شراء غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyPurchaseOrderDraft(payload);
+          setSuccess('تم استعادة مسودة أمر الشراء');
+        }}
+      />
 
       <ErpDocumentPageHeader
         compact
@@ -478,12 +718,20 @@ export default function PurchaseOrderPage() {
         ]}
         title="أمر الشراء"
         docNumber={watch('orderNumber') || ''}
-        statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحّل' : unpostedDocumentStatusLabel(Boolean(selectedOrderId))}
-        saveLabel="حفظ"
-        onSaveDraft={() => void handleSubmit(submitOrderSave, onFieldErrors(setError))()}
+        lifecycle={{
+          documentId: selectedOrderId,
+          isPosted,
+          isCancelled: Boolean(
+            (selectedOrderResponse?.data as { isCancelled?: boolean } | undefined)?.isCancelled
+          ),
+        }}
+        saveLabel={orderSaveLabel}
+        onSaveDraft={requestPostAfterSave}
         savePending={loading}
         canSave={!isPosted && !loading}
+        canPost={Boolean(selectedOrderId) && !isPosted && !loading}
+        onPost={() => postExistingOrder()}
+        postPending={loading}
         hideStandalonePost
         onBrowseList={() => setShowList(true)}
         browseListLabel="السابق"
@@ -492,60 +740,58 @@ export default function PurchaseOrderPage() {
         standardActions={{
           hasDocument: Boolean(selectedOrderId),
           isPosted: Boolean(isPosted),
+          isCancelled: orderCancelled,
+          onVoid: () => void handleCancelOrder(),
+          onRestore: () => void handleRestoreOrder(),
+          onEdit: () => {
+            if (isPosted) setError('يجب فك الترحيل أولاً للتعديل');
+          },
+          postPending: postFlowPending,
+          unpostPending: postFlowPending,
           onPost: () => postExistingOrder(),
           onUnpost: () => {
             if (!selectedOrderId) {
               setError('احفظ أمر الشراء أولاً');
               return;
             }
+            setPostFlowPending(true);
             void apiClient
               .post(`/inventory/purchase-orders/${selectedOrderId}/unpost`)
               .then(() => {
                 setValue('isPosted', false);
-                setSuccess('تم إلغاء ترحيل أمر الشراء');
+                setSuccess('تم فك ترحيل أمر الشراء');
                 invalidateQuery(['purchase-orders']);
                 invalidateQuery(['purchase-order', selectedOrderId]);
               })
               .catch((err: unknown) => {
-                setError(err instanceof Error ? err.message : 'تعذر إلغاء الترحيل');
-              });
+                setError(err instanceof Error ? err.message : 'تعذر فك الترحيل');
+              })
+              .finally(() => setPostFlowPending(false));
           },
           onNew: handleNew,
           newLabel: 'جديد',
-          extraItems: [
-            {
-              id: 'approve',
-              label: 'اعتماد',
-              disabled: !selectedOrderId || Boolean(watch('isApproved')) || approveMutation.isPending,
-              onClick: () => approveMutation.mutate({}),
-            },
-          ],
+          transactionSettingsDocumentType: 'PURCHASE_ORDER',
+          onTransactionSettingsSaved: () => {
+            invalidateAfterTransactionSettingsSave(invalidateQuery, 'PURCHASE_ORDER');
+          },
+          onPrint: printPurchaseOrder,
+          printLabel: 'طباعة',
         }}
         extraActions={
-          <DocumentSourceLoadBar
-            key={sourceBarKey}
-            hasExistingLines={orderLines.some((l) => Boolean(l.itemId))}
-            disabled={Boolean(isPosted)}
-            allowedTypes={PURCHASE_ORDER_SOURCE_TYPES}
-            onHydrate={handleSourceHydrate}
+          <DocumentFollowUpButton
+            label="إنشاء فاتورة مشتريات"
+            disabled={!selectedOrderId || orderCancelled}
+            pending={convertMutation.isPending}
+            onClick={() => void openPurchaseInvoiceFromOrder()}
           />
         }
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أوامر الشراء السابقة">
-        <label className="mb-3 flex items-center gap-2 text-sm text-[#0A3D5E]">
-          <input
-            type="checkbox"
-            checked={showCanceled}
-            onChange={(e) => setShowCanceled(e.target.checked)}
-          />
-          عرض الملغي
-        </label>
         <GenericRecordsList
           apiPath="/inventory/purchase-orders"
           listKey="purchase-orders-browse"
           paging="skip"
-          extraParams={{ isCancelled: showCanceled }}
           selectedId={selectedOrderId}
           columns={[
             {
@@ -577,8 +823,30 @@ export default function PurchaseOrderPage() {
       <FormSectionCard
         title="بيانات أمر الشراء"
         subtitle="المورد والتاريخ والعملة والمخزن"
+        sourceActions={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={orderLines.some((l) => Boolean(l.itemId))}
+            disabled={Boolean(isPosted)}
+            currentAffectsStock={false}
+            onHydrate={handleSourceHydrate}
+          />
+        }
+        headerActions={
+          <InternalNotesScratchpad
+            notes={internalNotes}
+            onChange={setInternalNotes}
+            disabled={Boolean(isPosted)}
+            className="inline-flex"
+          />
+        }
       >
-        <CompactFormField label="رقم أمر الشراء" placeholder="يُولَّد عند الحفظ" {...register('orderNumber')} />
+        <CompactFormField
+          label="رقم أمر الشراء"
+          placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل الرقم يدوياً'}
+          readOnly={serialAutomatic || Boolean(isPosted)}
+          {...register('orderNumber')}
+        />
         <CompactFormField
           label="التاريخ"
           type="date"
@@ -596,6 +864,7 @@ export default function PurchaseOrderPage() {
                 onChange={field.onChange}
                 className={`${inputCls} ${errors.supplierId ? 'border-red-400' : ''}`}
                 emptyLabel="اختر المورد"
+                includeAllAccounts={shouldShowAllAccountsInPartyField(purchaseOrderTxSettings)}
               />
             )}
           />
@@ -645,6 +914,7 @@ export default function PurchaseOrderPage() {
         </div>
       </AdvancedFieldsSection>
 
+      <fieldset disabled={lockLoadedSource} className="m-0 min-w-0 border-0 p-0">
       <FormSectionCard title="أصناف أمر الشراء" subtitle="الصنف والكمية والسعر" bodyClassName="grid-cols-1 sm:grid-cols-1 lg:grid-cols-1">
         <div className="mb-2 flex justify-end">
           <button
@@ -725,8 +995,50 @@ export default function PurchaseOrderPage() {
           </table>
         </div>
       </FormSectionCard>
+      </fieldset>
 
-      <InvoiceFinancialSummary summary={financialSummary} taxLabel="قيمة ضريبة المشتريات" />
+      <InvoiceExtrasPanel
+        open={extrasOpen}
+        onToggle={() => setExtrasOpen((v) => !v)}
+        rows={invoiceExtras}
+        onChange={setInvoiceExtras}
+        currencies={currencies}
+        defaultCurrency={currencies.find((c) => c.id === watch('currencyId'))?.code ?? 'EGP'}
+        defaultExchangeRate={1}
+        defaultCostCenterId={watch('costCenterId') || ''}
+        disabled={Boolean(isPosted)}
+        count={getExtrasPayload().length}
+        headerDescription={watch('description')}
+      />
+
+      <PurchaseInvoiceBottomSplit
+        totalsOnly
+        summary={financialSummary}
+        applyTax
+        currencyCode={currencies.find((c) => c.id === watch('currencyId'))?.code ?? 'EGP'}
+        lines={orderLines.map((line) => ({
+          itemId: line.itemId,
+          itemName: line.itemLabel,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          discount: line.discount,
+          taxRate: line.tax,
+        }))}
+        savedLines={(selectedOrderResponse?.data?.lines ?? []).map((line) => ({
+          itemId: line.itemId,
+          itemName: line.item?.arabicName,
+          quantity: Number(line.quantity ?? 0),
+          unitPrice: Number(line.unitPrice ?? 0),
+          discount: Number(line.discountPercentage ?? 0),
+          taxRate: Number(line.taxPercentage ?? 0),
+        }))}
+        warehouseId={warehouseId}
+        selectedInvoiceId={selectedOrderId}
+        isPosted={Boolean(isPosted)}
+        stockSign={1}
+        settlementDirection="PAYMENT"
+        journalEmptyTitle="القيد يظهر بعد تحويل أمر الشراء إلى فاتورة مشتريات وترحيلها."
+      />
 
     </ErpDocumentLayout>
   );

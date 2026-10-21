@@ -3,6 +3,7 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { DocumentSourceActionsRow } from '@/components/erp/DocumentSourceActionsRow';
 import { erpFormGridClass } from '@/components/erp/erpUiTokens';
 
 export type FormSectionCardProps = {
@@ -12,6 +13,9 @@ export type FormSectionCardProps = {
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
+  /** القسم / الرقم — تحت الحقول الرئيسية على الشمال. */
+  sourceActions?: ReactNode;
+  headerActions?: ReactNode;
 };
 
 export function FormSectionCard({
@@ -21,6 +25,8 @@ export function FormSectionCard({
   children,
   className,
   bodyClassName,
+  sourceActions,
+  headerActions,
 }: FormSectionCardProps) {
   return (
     <section
@@ -52,6 +58,18 @@ export function FormSectionCard({
       >
         {children}
       </div>
+      {sourceActions || headerActions ? (
+        <DocumentSourceActionsRow className="mt-3 border-t-0 pt-3">
+          {headerActions ? (
+            <div className="flex flex-wrap items-end justify-start gap-2">{headerActions}</div>
+          ) : null}
+          {sourceActions ? (
+            <div className="ms-auto flex min-w-0 flex-wrap items-end justify-end gap-2">
+              {sourceActions}
+            </div>
+          ) : null}
+        </DocumentSourceActionsRow>
+      ) : null}
     </section>
   );
 }

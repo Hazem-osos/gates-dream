@@ -5,6 +5,7 @@
  */
 
 export type PositionRow = {
+  accountId?: string;
   code: string;
   arabicName: string;
   amount: number;
@@ -26,7 +27,7 @@ export type LegalNote = {
   title: string;
   opening: number;
   current: number;
-  rows: { name: string; opening: number; current: number }[];
+  rows: { name: string; opening: number; current: number; accountId?: string }[];
 };
 
 type Bucket =
@@ -138,7 +139,7 @@ export function buildLegalFinancialPosition(
   credits: PositionRow[],
   openingOf: (row: PositionRow) => number
 ): { lines: LegalFaceLine[]; notes: LegalNote[] } {
-  const buckets = new Map<Bucket, Array<{ name: string; current: number; opening: number }>>();
+  const buckets = new Map<Bucket, Array<{ name: string; current: number; opening: number; accountId?: string }>>();
   const push = (bucket: Bucket, row: PositionRow) => {
     const current = row.amount;
     const opening = openingOf(row);
@@ -148,6 +149,7 @@ export function buildLegalFinancialPosition(
       name: row.code ? `${row.code} ${norm(row.arabicName)}` : norm(row.arabicName),
       current,
       opening,
+      accountId: row.accountId,
     });
     buckets.set(bucket, list);
   };

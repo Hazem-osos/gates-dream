@@ -2,6 +2,7 @@
 
 import { DebitCreditTotals } from '@/components/accounting/DebitCreditTotals';
 import { GeneratedJournalTab } from '@/components/erp/GeneratedJournalTab';
+import { AuditActivityTab } from '@/components/erp/AuditActivityTab';
 import { currencyDisplayLabel } from '@/lib/accounting/fx-base';
 
 type Props = {
@@ -86,6 +87,9 @@ export function VoucherStickyFooter({
             </div>
           )}
         </div>
+      </div>
+      <div className="border-t border-slate-100 px-4 py-3" dir="rtl">
+        <AuditActivityTab entityType="JOURNAL_ENTRY" entityId={journalEntryId ?? null} />
       </div>
     </div>
   );

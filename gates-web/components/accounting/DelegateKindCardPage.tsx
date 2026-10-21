@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Truck, UserRound } from 'lucide-react';
 import {
   CompactFormField,
@@ -125,18 +127,42 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
 
 function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
   const copy = KIND_COPY[kind];
-  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const { isReadOnly, unlockForEdit, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const searchParams = useOwnTabSearchParams();
   const clearDocumentQuery = useClearDocumentQuery();
   const idFromUrl = searchParams.get('id');
-  const modeFromUrl = searchParams.get('mode');
   const groupIdFromUrl = searchParams.get('groupId');
   const [error, setError] = useState('');
   const [showGuide, setShowGuide] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formData, setFormData] = useState<CardForm>(EMPTY);
   const KindIcon = kind === 'DISTRIBUTOR' ? Truck : UserRound;
+
+  const editingCardId = selectedId || idFromUrl;
+  type DelegateKindDraft = CardForm;
+  const draftSnapshot = useMemo(() => formData, [formData]);
+  const applyKindDraft = useCallback(
+    (payload: DelegateKindDraft) => {
+      setFormData(payload);
+      setSelectedId(null);
+      setMode('create');
+      setError('');
+      clearDocumentQuery();
+    },
+    [clearDocumentQuery, setMode]
+  );
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: kind === 'DRIVER' ? 'driver-card' : 'distributor-card',
+    editingId: editingCardId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.arabicName.trim() && !d.code.trim() && !d.phone1.trim(),
+    applyRestore: applyKindDraft,
+    restoreMessage:
+      kind === 'DRIVER'
+        ? 'يوجد مسودة بطاقة سائق غير محفوظة'
+        : 'يوجد مسودة بطاقة موزع غير محفوظة',
+  });
 
   const listKey = useMemo(() => ['delegates', kind] as const, [kind]);
   const { data: listResponse } = useApiQuery<SavedRow[]>(listKey, '/accounting/delegates', {
@@ -178,8 +204,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
     const row = rows.find((item) => item.id === idFromUrl);
     if (row) {
       setSelectedId(row.id);
-      if (modeFromUrl === 'edit') unlockForEdit();
-      else lockToView();
+      unlockForEdit();
       setFormData((prev) => ({
         ...prev,
         serial: row.serial || '',
@@ -195,8 +220,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
     void apiClient.get<SavedRow & Partial<CardForm>>(`/accounting/delegates/${idFromUrl}`).then((res) => {
       if (cancelled || !res.data) return;
       setSelectedId(res.data.id);
-      if (modeFromUrl === 'edit') unlockForEdit();
-      else lockToView();
+      unlockForEdit();
       setFormData((prev) => ({
         ...prev,
         serial: res.data.serial || '',
@@ -224,7 +248,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
     return () => {
       cancelled = true;
     };
-  }, [idFromUrl, rows, modeFromUrl, lockToView, unlockForEdit]);
+  }, [idFromUrl, rows, unlockForEdit]);
 
   const mutation = useApiMutation<unknown, Record<string, unknown>>(
     '/accounting/delegates',
@@ -232,6 +256,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
     {
       showSuccessToast: false,
       onSuccess: () => {
+        clearDraft();
         toast.success(`${copy.success} — تقدر تضيف التالي`);
         invalidateQuery(listKey);
         invalidateQuery(groupsKey);
@@ -288,6 +313,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
         await apiClient.put(`/accounting/delegates/${selectedId}`, payload, {
           skipSuccessNotify: true,
         });
+        clearDraft();
         toast.success('تم حفظ التعديلات');
         invalidateQuery(listKey);
         invalidateQuery(groupsKey);
@@ -302,6 +328,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
   };
 
   const handleCancel = () => {
+    clearDraft();
     setSelectedId(null);
     setFormData({ ...EMPTY, groupId: groupIdFromUrl || '' });
     setError('');
@@ -329,9 +356,22 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
       }}
       editDisabled={!selectedId}
       currentId={selectedId}
+      masterArchiveEntityType={kind === 'DRIVER' ? 'DRIVER' : 'DISTRIBUTOR'}
       onBrowseList={() => setShowGuide(true)}
       favoriteHref={kind === 'DISTRIBUTOR' ? '/accounting/cards/distributor' : '/accounting/cards/driver'}
     >
+      <MasterCardDraftRestoreGate<DelegateKindDraft>
+        editingId={editingCardId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyKindDraft}
+        message={
+          kind === 'DRIVER'
+            ? 'يوجد مسودة بطاقة سائق غير محفوظة.'
+            : 'يوجد مسودة بطاقة موزع غير محفوظة.'
+        }
+      />
       <div className="mb-4">
       </div>
       <form
@@ -471,7 +511,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
           emptyTitle={copy.emptyList}
           onRowClick={(row) => {
             setSelectedId(row.id);
-            lockToView();
+            unlockForEdit();
             setFormData((prev) => ({
               ...prev,
               serial: row.serial || '',

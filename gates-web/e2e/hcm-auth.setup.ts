@@ -56,8 +56,9 @@ async function loginAndSave(
 setup('seed payroll admin session', async ({ page }) => {
   fs.mkdirSync(authDir, { recursive: true });
   const cred = readCreds();
-  const email = process.env.E2E_HCM_EMAIL ?? cred?.email;
-  const password = process.env.E2E_HCM_PASSWORD ?? cred?.password;
+  const useSeedCreds = process.env.E2E_AUTO_SEED === '1' && cred?.email && cred?.password;
+  const email = useSeedCreds ? cred!.email : process.env.E2E_HCM_EMAIL ?? cred?.email;
+  const password = useSeedCreds ? cred!.password : process.env.E2E_HCM_PASSWORD ?? cred?.password;
   if (!email || !password || !cred?.companyId) {
     throw new Error(
       'HCM E2E auth: run with E2E_AUTO_SEED=1 (and DATABASE_URL) or provide e2e/.auth/e2e-credentials.json'

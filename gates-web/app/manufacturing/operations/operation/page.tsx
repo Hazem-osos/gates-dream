@@ -15,10 +15,12 @@ import {
 import { ManufacturingPageChrome } from '@/components/manufacturing/ManufacturingPageChrome';
 import { ManufacturingProcessLinesEditor } from '@/components/manufacturing/ManufacturingProcessLinesEditor';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
 import { apiClient } from '@/lib/api/client';
 import type { ApiError } from '@/lib/api/types';
 import { cn } from '@/lib/utils';
 import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
+import { WarehouseItemScopeToggle } from '@/components/form/WarehouseItemScopeToggle';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { useAccountingSettings } from '@/lib/hooks/useAccountingSettings';
 import { useManufacturingOrderSerial } from '@/lib/manufacturing/use-manufacturing-order-serial';
@@ -34,6 +36,13 @@ import {
 } from '@/lib/manufacturing/mfg-quantity-check-ui';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ManufacturingQuantityCheckDialog } from '@/components/manufacturing/ManufacturingQuantityCheckDialog';
+import {
+  parseManufacturingLinePricingPolicy,
+  resolveManufacturingLineUnitPrice,
+} from '@/lib/manufacturing/line-pricing';
+import { pickDisplayedAverageCost } from '@/lib/inventory/average-cost-as-of';
+import type { ManufacturingSettingsView } from '@/lib/manufacturing/settings-types';
+import { buildBomCreatePayloadFromProcess } from '@/lib/manufacturing/bom-from-process';
 import {
   buildLoadedProcessFromBom,
   buildLoadedProcessFromOrderMetadata,
@@ -66,6 +75,7 @@ import { buildShortageTransferLines, shortageTransferError } from '@/lib/manufac
 import { consumeMfgOperationPrefill } from '@/lib/manufacturing/mfg-operation-prefill';
 import { compareBrowseText } from '@/lib/browse/browse-list-sort';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import {
   DocumentModeProvider,
   DocumentReadOnlyBanner,
@@ -100,7 +110,7 @@ interface Bom extends BomForProcess {
 interface ProductionOrder {
   id: string;
   orderNumber: string;
-  bomId: string;
+  bomId?: string | null;
   manufacturingWorkOrderId?: string | null;
   manufacturingWorkOrder?: { id: string; orderNumber: string; status: string } | null;
   status: 'DRAFT' | 'RELEASED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
@@ -309,26 +319,91 @@ function ManufacturingOperationPageInner() {
   const bom = bomDetailResponse?.data ?? null;
 
   const { data: itemsResponse } = useApiQuery<
-    Array<{ id: string; arabicName: string; averageCost?: string | number | null }>
+    Array<{
+      id: string;
+      arabicName: string;
+      averageCost?: string | number | null;
+      lastPurchasePrice?: string | number | null;
+    }>
   >(['inventory-items-mfg-op'], '/inventory/items', { limit: 400 });
+  const { data: mfgSettingsResponse } = useApiQuery<ManufacturingSettingsView>(
+    ['manufacturing-settings'],
+    '/manufacturing/settings'
+  );
+  const [pricingOverride, setPricingOverride] = useState<'AVERAGE_COST' | 'MANUAL' | null>(null);
+  const linePricingPolicy =
+    pricingOverride ??
+    (parseManufacturingLinePricingPolicy(mfgSettingsResponse?.data?.linePricingPolicy) === 'MANUAL'
+      ? 'MANUAL'
+      : 'AVERAGE_COST');
+  const allowWorkWithoutBom = true;
+  const materialPricingManual = linePricingPolicy === 'MANUAL';
   const itemNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const it of itemsResponse?.data ?? []) map.set(it.id, it.arabicName);
     return map;
   }, [itemsResponse?.data]);
 
-  const itemAverageCostById = useMemo(() => {
-    const map = new Map<string, number>();
+  const rawItemIdsKey = useMemo(
+    () =>
+      [...new Set((loadedProcess?.raws ?? []).map((row) => row.itemId).filter(Boolean))]
+        .sort()
+        .join(','),
+    [loadedProcess?.raws]
+  );
+  const [asOfCostByItem, setAsOfCostByItem] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const asOfDay = date.slice(0, 10);
+    if (linePricingPolicy !== 'AVERAGE_COST' || !asOfDay || !rawItemIdsKey) {
+      setAsOfCostByItem({});
+      return;
+    }
+    const ids = rawItemIdsKey.split(',').filter(Boolean);
+    let cancelled = false;
+    void Promise.all(
+      ids.map(async (id) => {
+        try {
+          const res = await apiClient.get<{ cost?: number; unitCost?: number }>(
+            `/inventory/items/${id}/cost-as-of`,
+            { date: asOfDay }
+          );
+          const n = Number(res.data?.cost ?? res.data?.unitCost ?? 0);
+          return [id, Number.isFinite(n) && n > 0 ? n : 0] as const;
+        } catch {
+          return [id, 0] as const;
+        }
+      })
+    ).then((pairs) => {
+      if (!cancelled) setAsOfCostByItem(Object.fromEntries(pairs));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [date, linePricingPolicy, rawItemIdsKey]);
+
+  const itemById = useMemo(() => {
+    const map = new Map<
+      string,
+      { averageCost?: string | number | null; lastPurchasePrice?: string | number | null }
+    >();
+    const today = new Date().toISOString().split('T')[0];
+    const asOfDay = date.slice(0, 10);
     for (const it of itemsResponse?.data ?? []) {
-      const avg = Number(it.averageCost);
-      if (Number.isFinite(avg) && avg > 0) map.set(it.id, avg);
+      const overlay = pickDisplayedAverageCost({
+        historical: asOfCostByItem[it.id] ?? 0,
+        current: Number(it.averageCost) || 0,
+        asOfDay,
+        today,
+      });
+      map.set(it.id, { ...it, averageCost: overlay });
     }
     return map;
-  }, [itemsResponse?.data]);
+  }, [itemsResponse?.data, asOfCostByItem, date]);
 
   const resolveItemAverageCost = useCallback(
-    (itemId: string) => itemAverageCostById.get(itemId) ?? 0,
-    [itemAverageCostById]
+    (itemId: string) => resolveManufacturingLineUnitPrice(linePricingPolicy, itemById.get(itemId)),
+    [itemById, linePricingPolicy]
   );
 
   const applyWorkOrderProductDescription = useCallback(
@@ -458,7 +533,7 @@ function ManufacturingOperationPageInner() {
 
   const isPostedEarly = !!order && POSTED_STATUSES.includes(order.status);
 
-  const { clearDraft } = useDraftAutosave({
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
     documentType: 'manufacturing-operation',
     mode: order?.id ? 'edit' : 'new',
     documentId: order?.id ?? null,
@@ -466,7 +541,7 @@ function ManufacturingOperationPageInner() {
     enabled: !isPostedEarly,
     applyRestore: applyOperationDraft,
     isEmpty: isMfgOperationDraftEmpty,
-    restoreMessage: 'تم استعادة مسودة أمر التصنيع',
+    restoreMessage: 'يوجد مسودة عملية تصنيع غير محفوظة',
   });
 
   const applyLoadedProcessHeaderFields = useCallback(
@@ -574,9 +649,9 @@ function ManufacturingOperationPageInner() {
     }
     if (order) return;
     const prefill = consumeMfgOperationPrefill();
-    if (!prefill?.bomId) return;
-    planPrefillPendingRef.current = true;
-    setModel(prefill.bomId);
+    if (!prefill?.bomId && !prefill?.manufacturingWorkOrderId) return;
+    planPrefillPendingRef.current = Boolean(prefill.bomId);
+    if (prefill.bomId) setModel(prefill.bomId);
     if (prefill.stage) setStage(prefill.stage);
     if (prefill.fromWarehouseId) setFromWarehouse(prefill.fromWarehouseId);
     if (prefill.toWarehouseId) setToWarehouse(prefill.toWarehouseId);
@@ -670,6 +745,7 @@ function ManufacturingOperationPageInner() {
 
   useEffect(() => {
     if (!order?.id || !loadedProcess?.raws?.length) return;
+    if (materialPricingManual) return;
     if (!itemsResponse?.data?.length) return;
     const needsCostFill = loadedProcess.raws.some(
       (r) => r.itemId.trim() && r.lineTotal <= 0 && r.unitPrice <= 0
@@ -744,6 +820,18 @@ function ManufacturingOperationPageInner() {
     [stage, fromWarehouse, toWarehouse, costCenter, laborCost, overheadCost, bom?.formMetadata?.distributeCostByUnits]
   );
 
+  useEffect(() => {
+    if (order || model || loadedProcess || !allowWorkWithoutBom) return;
+    setLoadedProcess(
+      createEmptyLoadedProcess({
+        stage,
+        fromWarehouseId: fromWarehouse,
+        toWarehouseId: toWarehouse || fromWarehouse,
+        costCenter,
+      })
+    );
+  }, [allowWorkWithoutBom, order, model, loadedProcess, stage, fromWarehouse, toWarehouse, costCenter]);
+
   const costSlices = useMemo(() => {
     const palette = ['#0d9488', '#8b5cf6', '#f59e0b', '#ec4899', '#6366f1', '#14b8a6'];
     const materials = materialCost > 0 ? materialCost : estimatedProcessCosts.materials;
@@ -804,7 +892,7 @@ function ManufacturingOperationPageInner() {
         const created = (res as unknown as { data: ProductionOrder }).data;
         setOrder(created);
         setSerial(created.orderNumber);
-        setSuccess('تم حفظ وتأكيد أمر التصنيع');
+        setSuccess('تم حفظ وتأكيد عملية التصنيع');
         clearDraft();
         invalidateNextSerial();
         unlockForEdit();
@@ -814,7 +902,7 @@ function ManufacturingOperationPageInner() {
           void refetchWorkOrderProgress();
         }
       },
-      onError: (err: ApiError) => setError(err.message || 'تعذر حفظ أمر التصنيع'),
+      onError: (err: ApiError) => setError(err.message || 'تعذر حفظ عملية التصنيع'),
     }
   );
 
@@ -827,7 +915,7 @@ function ManufacturingOperationPageInner() {
         if (!updated) return;
         setOrder(updated);
         setSerial(updated.orderNumber);
-        setSuccess('تم تحديث أمر التصنيع');
+        setSuccess('تم تحديث عملية التصنيع');
         clearDraft();
         invalidateQuery(['manufacturing-orders']);
         if (manufacturingWorkOrderId) {
@@ -835,7 +923,7 @@ function ManufacturingOperationPageInner() {
           void refetchWorkOrderProgress();
         }
       },
-      onError: (err: ApiError) => setError(err.message || 'تعذر تحديث أمر التصنيع'),
+      onError: (err: ApiError) => setError(err.message || 'تعذر تحديث عملية التصنيع'),
     }
   );
 
@@ -921,7 +1009,7 @@ function ManufacturingOperationPageInner() {
     const meta = (source.processMetadata ?? {}) as Record<string, unknown>;
     setManufacturingWorkOrderId(source.manufacturingWorkOrderId ?? '');
     setLinkedWorkOrderNumber(source.manufacturingWorkOrder?.orderNumber ?? '');
-    setModel(source.bomId);
+    setModel(source.bomId ?? '');
     setFromWarehouse(source.warehouseIdRaw);
     setToWarehouse(source.warehouseIdFinished);
     setNumberOfModels(String(source.plannedQuantity ?? '1'));
@@ -935,6 +1023,9 @@ function ManufacturingOperationPageInner() {
         ? String(meta.standardExecutionTime)
         : ''
     );
+    if (meta.linePricingPolicy === 'MANUAL' || meta.linePricingPolicy === 'AVERAGE_COST') {
+      setPricingOverride(meta.linePricingPolicy);
+    }
     if (mode === 'open') {
       setOrder(source);
       setSerial(source.orderNumber);
@@ -951,13 +1042,25 @@ function ManufacturingOperationPageInner() {
 
   async function hydrateLoadedProcessForOrder(source: ProductionOrder) {
     const qty = Number(source.plannedQuantity);
-    if (!source.bomId || !Number.isFinite(qty) || qty <= 0) return;
+    if (!Number.isFinite(qty) || qty <= 0) return;
     try {
-      const res = await apiClient.get<Bom>(`/manufacturing/boms/${source.bomId}`);
       const meta = (source.processMetadata ?? {}) as Record<string, unknown>;
+      const stubBom: Bom = source.bomId
+        ? (await apiClient.get<Bom>(`/manufacturing/boms/${source.bomId}`)).data
+        : {
+            id: '',
+            name: '',
+            baseQuantity: qty,
+            standardLaborCost: 0,
+            standardOverheadCost: 0,
+            finishedItemId: '',
+            formMetadata: meta,
+            lines: [],
+          };
+      if (!stubBom) return;
       const loaded = buildLoadedProcessFromOrderMetadata(
         meta,
-        res.data,
+        stubBom,
         qty,
         (id) => itemNameById.get(id)
       );
@@ -973,7 +1076,11 @@ function ManufacturingOperationPageInner() {
         ...r,
         itemName: itemNameById.get(r.itemId) ?? r.itemName,
       }));
-      setLoadedProcess(enrichLoadedProcessWithItemCosts(loaded, resolveItemAverageCost));
+      setLoadedProcess(
+        materialPricingManual
+          ? loaded
+          : enrichLoadedProcessWithItemCosts(loaded, resolveItemAverageCost)
+      );
     } catch {
       setLoadedProcess(null);
     }
@@ -1020,8 +1127,11 @@ function ManufacturingOperationPageInner() {
       setModel(bomId);
     }
     if (qtyNum > 0) setNumberOfModels(String(qtyNum));
-    void loadFromWorkOrder(woId, bomId || undefined, qtyNum > 0 ? qtyNum : undefined);
-  }, [searchParams, order, clearDraft]);
+    setManufacturingWorkOrderId(woId);
+    if (bomId || !allowWorkWithoutBom) {
+      void loadFromWorkOrder(woId, bomId || undefined, qtyNum > 0 ? qtyNum : undefined);
+    }
+  }, [searchParams, order, clearDraft, allowWorkWithoutBom]);
 
   async function loadOrderAsNewDraft(orderId: string) {
     resetFeedback();
@@ -1057,11 +1167,8 @@ function ManufacturingOperationPageInner() {
     return false;
   }
 
-  async function persistOrder(): Promise<ProductionOrder | null> {
-    if (!model) {
-      setError('اختر النموذج (قائمة المواد) أولاً');
-      return null;
-    }
+  async function persistOrder(bomIdOverride?: string): Promise<ProductionOrder | null> {
+    const activeBomId = (bomIdOverride ?? model).trim();
     if (!fromWarehouse) {
       setError('اختر مخزن الخامات');
       return null;
@@ -1076,7 +1183,11 @@ function ManufacturingOperationPageInner() {
       return null;
     }
     if (!loadedProcess || !processHasLineContent(loadedProcess)) {
-      setError('اضغط «تحميل» من النموذج أو أدخل أصنافاً ناتجة/خامات يدوياً');
+      setError(
+        allowWorkWithoutBom
+          ? 'أدخل أصنافاً ناتجة أو خامات يدوياً'
+          : 'اضغط «تحميل» من النموذج أو أدخل أصنافاً ناتجة/خامات يدوياً'
+      );
       return null;
     }
     const materialsAlreadyIssued = Boolean(order?.materialsIssueJournalEntryId);
@@ -1093,6 +1204,7 @@ function ManufacturingOperationPageInner() {
 
     const processMetadata = {
       description: description.trim() || undefined,
+      linePricingPolicy,
       ...(preservedReceiptAtIssue ? { finishedReceiptAtIssue: preservedReceiptAtIssue } : {}),
       ...(loadedProcess
         ? {
@@ -1122,11 +1234,13 @@ function ManufacturingOperationPageInner() {
               itemId: o.itemId,
               itemName: o.itemName,
               quantity: o.quantity,
+              estimatedQuantity: o.estimatedQuantity,
               unit: o.unit,
               unitPrice: o.unitPrice,
               lineTotal: o.lineTotal,
               costPercent: o.costPercent,
               warehouseId: o.warehouseId || undefined,
+              imageUrl: o.imageUrl || undefined,
             })),
           rawLinesSnapshot: loadedProcess.raws
             .filter((r) => r.itemId.trim())
@@ -1134,11 +1248,13 @@ function ManufacturingOperationPageInner() {
               rawItemId: r.itemId,
               itemName: r.itemName,
               quantity: r.quantity,
+              estimatedQuantity: r.estimatedQuantity,
               unitPrice: r.unitPrice,
               lineTotal: r.lineTotal,
               scrapPercentage: 0,
               warehouseId: r.warehouseId || undefined,
               manufacturedItemId: r.manufacturedItemId || undefined,
+              imageUrl: r.imageUrl || undefined,
             })),
           varianceExtras: loadedProcess.varianceExtras,
           varianceActualOverrides: loadedProcess.varianceActualOverrides,
@@ -1148,7 +1264,7 @@ function ManufacturingOperationPageInner() {
 
     const body = {
       orderNumber: serialAutomatic && !order?.id ? undefined : serial.trim() || undefined,
-      bomId: model,
+      bomId: activeBomId || undefined,
       manufacturingWorkOrderId: manufacturingWorkOrderId.trim() || undefined,
       plannedQuantity,
       warehouseIdRaw: fromWarehouse,
@@ -1182,13 +1298,52 @@ function ManufacturingOperationPageInner() {
 
   async function handleSave() {
     resetFeedback();
-    const saved = await persistOrder();
+    let bomIdForSave = model;
+    if (!bomIdForSave && allowWorkWithoutBom && !order?.id) {
+      if (!loadedProcess || !processHasLineContent(loadedProcess)) {
+        setError('أدخل أصنافاً ناتجة أو خامات يدوياً');
+        return;
+      }
+      const saveTemplate = await confirmAction({
+        title: 'حفظ نموذج تصنيع',
+        message: 'العملية دي ملهاش نموذج تصنيع. تحب تحفظ نموذج ليها؟',
+        confirmLabel: 'حفظ نموذج',
+        cancelLabel: 'حفظ الأمر فقط',
+        tone: 'info',
+      });
+      if (saveTemplate) {
+        const payload = buildBomCreatePayloadFromProcess({
+          name: description.trim() || `نموذج من عملية تصنيع ${serial.trim()}`.trim(),
+          plannedQuantity,
+          process: loadedProcess,
+        });
+        if (!payload) {
+          setError('حفظ النموذج يحتاج صنفاً ناتجاً وخامة واحدة على الأقل');
+          return;
+        }
+        try {
+          const res = await apiClient.post<{ id: string }>('/manufacturing/boms', payload);
+          const createdId = res.data?.id?.trim();
+          if (!createdId) {
+            setError('تعذر إنشاء نموذج التصنيع');
+            return;
+          }
+          setModel(createdId);
+          bomIdForSave = createdId;
+          invalidateQuery(['manufacturing-boms']);
+        } catch (err) {
+          setError((err as ApiError).message || 'تعذر إنشاء نموذج التصنيع');
+          return;
+        }
+      }
+    }
+    const saved = await persistOrder(bomIdForSave);
     if (saved) {
       setOrder(saved);
-      if (loadedProcess) {
+      if (loadedProcess && !materialPricingManual) {
         setLoadedProcess(enrichLoadedProcessWithItemCosts(loadedProcess, resolveItemAverageCost));
       }
-      setSuccess('تم تحديث أمر التصنيع');
+      setSuccess(bomIdForSave && !model ? 'تم حفظ عملية التصنيع ونموذج التصنيع' : 'تم تحديث عملية التصنيع');
     }
   }
 
@@ -1261,7 +1416,7 @@ function ManufacturingOperationPageInner() {
       toWarehouseId: toWh,
       lines,
       returnHref: '/manufacturing/operations/operation',
-      returnLabel: 'أمر التصنيع',
+      returnLabel: 'عملية التصنيع',
       shortageOnly: quantityMode === 'shortage',
     });
     setShowTransferPick(false);
@@ -1271,7 +1426,7 @@ function ManufacturingOperationPageInner() {
 
   async function handlePost() {
     resetFeedback();
-    if (!order) return setError('احفظ أمر التصنيع قبل الترحيل');
+    if (!order) return setError('احفظ عملية التصنيع قبل الترحيل');
     let activeOrder = order;
     if (canEditOrder && loadedProcess && processHasLineContent(loadedProcess)) {
       const saved = await persistOrder();
@@ -1293,6 +1448,11 @@ function ManufacturingOperationPageInner() {
         );
         setOrder(withCosts.data);
       }
+      invalidateQuery(['manufacturing-orders']);
+      if (manufacturingWorkOrderId) {
+        invalidateQuery(['manufacturing-work-order-progress', manufacturingWorkOrderId]);
+        void refetchWorkOrderProgress();
+      }
       setSuccess('تم بدء التنفيذ — صرف الخامات واستلام المنتج النهائي في مخزن الوجهة والقيد المحاسبي');
     } catch (err) {
       setError((err as ApiError).message || 'تعذر بدء التنفيذ');
@@ -1312,7 +1472,7 @@ function ManufacturingOperationPageInner() {
     if (!order?.id || order.status === 'CANCELLED') return;
     const ok = await confirmAction({
       message:
-        'إلغاء أمر التصنيع: الحالة «ملغي»، إلغاء القيود المرتبطة (بدون قيود عكسية)، وإلغاء حركات المخزن الأصلية (بدون حركات إضافة عكسية). يبقى الأمر في السابق. الحذف النهائي يزيل السجل. متابعة؟',
+        'إلغاء عملية التصنيع: الحالة «ملغي»، إلغاء القيود المرتبطة (بدون قيود عكسية)، وإلغاء حركات المخزن الأصلية (بدون حركات إضافة عكسية). يبقى الأمر في السابق. الحذف النهائي يزيل السجل. متابعة؟',
       confirmLabel: 'إلغاء الأمر',
       tone: 'danger',
     });
@@ -1322,7 +1482,7 @@ function ManufacturingOperationPageInner() {
     try {
       const res = await apiClient.post<ProductionOrder>(`/manufacturing/orders/${order.id}/cancel`);
       setOrder(res.data);
-      setSuccess('تم إلغاء أمر التصنيع — القيود ملغاة ويظهر الأمر في السابق');
+      setSuccess('تم إلغاء عملية التصنيع — القيود ملغاة ويظهر الأمر في السابق');
       lockToView();
       invalidateQuery(['manufacturing-orders']);
       if (manufacturingWorkOrderId) {
@@ -1331,6 +1491,28 @@ function ManufacturingOperationPageInner() {
       }
     } catch (err) {
       setError((err as ApiError).message || 'تعذر إلغاء الأمر');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRestoreOrder() {
+    if (!order?.id || order.status !== 'CANCELLED') return;
+    const ok = await confirmAction({
+      message: 'استعادة عملية التصنيع الملغي؟ (متاح فقط إذا لم يُرحَّل مواد أو تكاليف قبل الإلغاء)',
+      confirmLabel: 'استعادة',
+    });
+    if (!ok) return;
+    resetFeedback();
+    setBusy(true);
+    try {
+      const res = await apiClient.post<ProductionOrder>(`/manufacturing/orders/${order.id}/restore`);
+      setOrder(res.data);
+      setSuccess('تم استعادة عملية التصنيع');
+      unlockForEdit();
+      invalidateQuery(['manufacturing-orders']);
+    } catch (err) {
+      setError((err as ApiError).message || 'تعذر استعادة الأمر');
     } finally {
       setBusy(false);
     }
@@ -1423,7 +1605,7 @@ function ManufacturingOperationPageInner() {
     }
     const ok = await confirmAction({
       message:
-        'حذف أمر التصنيع نهائياً من النظام. إن كان قد بدأ تنفيذه سيتم فك الترحيلات أولاً. متابعة؟',
+        'حذف عملية التصنيع نهائياً من النظام. إن كان قد بدأ تنفيذه سيتم فك الترحيلات أولاً. متابعة؟',
       confirmLabel: 'حذف نهائي',
       tone: 'danger',
     });
@@ -1432,7 +1614,7 @@ function ManufacturingOperationPageInner() {
     setBusy(true);
     try {
       await apiClient.delete(`/manufacturing/orders/${order.id}`);
-      setSuccess('تم حذف أمر التصنيع');
+      setSuccess('تم حذف عملية التصنيع');
       clearDraft();
       handleNewOrder();
       invalidateQuery(['manufacturing-orders']);
@@ -1450,7 +1632,17 @@ function ManufacturingOperationPageInner() {
     clearDraft();
     setOrder(null);
     setSerial('');
-    setLoadedProcess(null);
+    setModel('');
+    setLoadedProcess(
+      allowWorkWithoutBom
+        ? createEmptyLoadedProcess({
+            stage,
+            fromWarehouseId: fromWarehouse,
+            toWarehouseId: toWarehouse || fromWarehouse,
+            costCenter,
+          })
+        : null
+    );
     setDescription('');
     resetFeedback();
     unlockForEdit();
@@ -1459,7 +1651,7 @@ function ManufacturingOperationPageInner() {
 
   async function handleComplete() {
     resetFeedback();
-    if (!order) return setError('احفظ أمر التصنيع قبل الإنهاء');
+    if (!order) return setError('احفظ عملية التصنيع قبل الإنهاء');
     setBusy(true);
     try {
       let activeOrder = order;
@@ -1486,11 +1678,13 @@ function ManufacturingOperationPageInner() {
         { actualQuantity }
       );
       setOrder(completed.data);
+      invalidateQuery(['manufacturing-orders']);
       if (manufacturingWorkOrderId) {
         invalidateQuery(['manufacturing-work-order-progress', manufacturingWorkOrderId]);
+        invalidateQuery(['manufacturing-work-order', manufacturingWorkOrderId]);
         void refetchWorkOrderProgress();
       }
-      setSuccess('تم إنهاء الأمر — إقفال التكاليف والقيد المحاسبي (المنتج النهائي دخل المخزن عند بدء التنفيذ)');
+      setSuccess('تم إنهاء العملية — إقفال التكاليف والقيد المحاسبي (المنتج النهائي دخل المخزن عند بدء التنفيذ)');
     } catch (err) {
       setError((err as ApiError).message || 'تعذر إنهاء التصنيع');
     } finally {
@@ -1499,8 +1693,20 @@ function ManufacturingOperationPageInner() {
   }
 
   return (
+    <>
+      <PageDraftRestoreGate<MfgOperationDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(order?.id) || isPostedEarly}
+        message="يوجد مسودة عملية تصنيع غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyOperationDraft(payload);
+          setSuccess('تم استعادة مسودة عملية التصنيع');
+        }}
+      />
     <ManufacturingPageChrome
-      title="أمر التصنيع"
+      title="عملية التصنيع"
       statusLabel={order ? statusLabel(order.status) : 'جديد'}
       statusTone={
         order?.status === 'COMPLETED'
@@ -1518,9 +1724,9 @@ function ManufacturingOperationPageInner() {
       savePending={createOrderMutation.isPending || updateOrderMutation.isPending || busy}
       canSave={
         canEditOrder &&
-        Boolean(model && fromWarehouse && loadedProcess && processHasLineContent(loadedProcess))
+        Boolean(fromWarehouse && loadedProcess && processHasLineContent(loadedProcess))
       }
-      saveLabel={order?.id ? 'تحديث الأمر' : 'حفظ أمر التصنيع'}
+      saveLabel={order?.id ? 'تحديث الأمر' : 'حفظ عملية التصنيع'}
       saveDisabledHint={
         orderLocked
           ? 'لا يمكن تعديل أمر ملغي — افتح أمرًا جديدًا'
@@ -1537,19 +1743,26 @@ function ManufacturingOperationPageInner() {
         onNew: handleNewOrder,
         newLabel: 'أمر جديد',
         onEdit: () => unlockForEdit(),
-        onDuplicate: order?.id ? () => void loadOrderAsNewDraft(order.id) : undefined,
-        duplicateLabel: 'نسخ كمسودة',
         onVoid:
           order?.id && order.status !== 'CANCELLED'
             ? () => void handleCancelOrder()
             : undefined,
         voidLabel: 'إلغاء الأمر',
+        onRestore:
+          order?.status === 'CANCELLED' ? () => void handleRestoreOrder() : undefined,
+        restoreLabel: 'استعادة الأمر',
+        restorePending: busy,
         hidePostActions: true,
         editLockedHint: orderLocked
           ? 'لا يمكن تعديل أمر ملغي'
           : orderExecutionLocked
             ? 'الأمر منتهي — التعديل من القائمة بعد إرجاعه لقيد التنفيذ إن لزم'
             : undefined,
+        transactionSettingsDocumentType: 'MANUFACTURING_ORDER',
+        onTransactionSettingsSaved: () => {
+          invalidateAfterTransactionSettingsSave(invalidateQuery, 'MANUFACTURING_ORDER');
+          invalidateNextSerial();
+        },
         extraItems: [
           ...(order?.id && order.status === 'COMPLETED'
             ? [
@@ -1768,7 +1981,11 @@ function ManufacturingOperationPageInner() {
 
       <FormSectionCard
         title="بيانات الأمر"
-        subtitle="اختر نموذج التصنيع و«تحميل» — أمر الشغل اختياري (يقيّد النماذج والكمية عند الربط)"
+        subtitle={
+          allowWorkWithoutBom
+            ? 'تقدر تكتب الخامات والمنتج بإيدك من غير نموذج، أو تختار نموذجاً وتضغط «تحميل»'
+            : 'اختر نموذج التصنيع و«تحميل» — أمر الشغل اختياري (يقيّد النماذج والكمية عند الربط)'
+        }
         bodyClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
       >
         <CompactFormField
@@ -1835,7 +2052,11 @@ function ManufacturingOperationPageInner() {
             </Link>
           </div>
         ) : null}
-        <CompactFormField label="نموذج التصنيع" required className="sm:col-span-2">
+        <CompactFormField
+          label="نموذج التصنيع"
+          required={!allowWorkWithoutBom}
+          className="sm:col-span-2"
+        >
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={model}
@@ -1882,7 +2103,7 @@ function ManufacturingOperationPageInner() {
               disabled={fieldsDisabled}
               className={cn(compactControlClass, 'min-w-[10rem] max-w-md flex-1')}
             >
-              <option value="">اختر النموذج</option>
+              <option value="">{allowWorkWithoutBom ? 'بدون نموذج — إدخال يدوي' : 'اختر النموذج'}</option>
               {selectableBoms.map((b) => {
                 const plan = linkedWorkOrderRes?.data
                   ? getBomPlan(linkedWorkOrderRes.data.processMetadata ?? null, b.id)
@@ -1905,6 +2126,23 @@ function ManufacturingOperationPageInner() {
             >
               تحميل
             </Button>
+            {allowWorkWithoutBom ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="shrink-0"
+                disabled={fieldsDisabled}
+                onClick={() => {
+                  setModel('');
+                  setLoadedProcess(emptyProcessSeed());
+                  resetFeedback();
+                  setSuccess('أدخل الأصناف الناتجة والخامات يدوياً');
+                }}
+              >
+                إدخال يدوي
+              </Button>
+            ) : null}
           </div>
         </CompactFormField>
         <CompactFormField label="المرحلة" value={stage} onChange={(e) => setStage(e.target.value)} />
@@ -1917,6 +2155,7 @@ function ManufacturingOperationPageInner() {
             leafOnly
             emptyLabel="مخزن حركة"
           />
+          <WarehouseItemScopeToggle />
         </CompactFormField>
         <CompactFormField label="إلى مخزن (حركة)">
           <WarehouseSelect
@@ -1939,6 +2178,30 @@ function ManufacturingOperationPageInner() {
             processReloadPendingRef.current = true;
           }}
         />
+        <CompactFormField label="تسعير الخامات">
+          <div className="flex flex-wrap gap-3 pt-1 text-sm font-semibold text-[#094C6B]">
+            <label className="inline-flex cursor-pointer items-center gap-1.5">
+              <input
+                type="radio"
+                className="accent-[#0E78AA]"
+                checked={!materialPricingManual}
+                onChange={() => setPricingOverride('AVERAGE_COST')}
+                disabled={fieldsDisabled}
+              />
+              متوسط التكلفة
+            </label>
+            <label className="inline-flex cursor-pointer items-center gap-1.5">
+              <input
+                type="radio"
+                className="accent-[#0E78AA]"
+                checked={materialPricingManual}
+                onChange={() => setPricingOverride('MANUAL')}
+                disabled={fieldsDisabled}
+              />
+              بايدي
+            </label>
+          </div>
+        </CompactFormField>
         {workOrderQuantityCapMessage ? (
           <div
             className={cn(
@@ -2054,6 +2317,10 @@ function ManufacturingOperationPageInner() {
         materialCostFromOrder={num(order?.totalMaterialCost)}
         usePostedMaterialTotal={materialsAlreadyIssued}
         emptyProcessSeed={emptyProcessSeed}
+        unitPricesReadOnly={!materialPricingManual}
+        resolveLineUnitPrice={(item) =>
+          resolveManufacturingLineUnitPrice(linePricingPolicy, itemById.get(item.id) ?? item)
+        }
       />
 
       <CostRollupCard slices={costSlices} />
@@ -2108,5 +2375,6 @@ function ManufacturingOperationPageInner() {
         </div>
       ) : null}
     </ManufacturingPageChrome>
+    </>
   );
 }

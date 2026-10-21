@@ -53,7 +53,7 @@ export const manufacturingModules: ModuleWithChildren[] = [
         color: '#0E78AA',
         href: '/manufacturing/operations/production-planning',
       },
-      { key: 'production-orders', icon: '', label: 'أمر التصنيع', color: '#0E78AA', href: '/manufacturing/operations/operation' },
+      { key: 'production-orders', icon: '', label: 'عملية تصنيع', color: '#0E78AA', href: '/manufacturing/operations/operation' },
     ]
   },
   {
@@ -71,6 +71,17 @@ export const manufacturingModules: ModuleWithChildren[] = [
       { key: 'production-commitments', icon: '', label: 'التزامات الإنتاج والتسليم', color: '#0E78AA', href: '/manufacturing/reports/production-commitments' },
       { key: 'cost-posting-summary', icon: '', label: 'ملخص التكاليف والترحيل', color: '#0E78AA', href: '/manufacturing/reports/cost-posting-summary' },
     ]
+  },
+  {
+    key: 'settings',
+    icon: '',
+    label: 'الإعدادات',
+    color: '#0E78AA',
+    children: [
+      { key: 'manufacturing-settings', icon: '', label: 'إعدادات التصنيع', color: '#0E78AA', href: '/manufacturing/settings' },
+      { key: 'manufacturing-order-settings', icon: '', label: 'إعدادات عملية التصنيع', color: '#0E78AA', href: '/manufacturing/settings/transactions/manufacturing-order' },
+      { key: 'manufacturing-work-order-settings', icon: '', label: 'إعدادات أمر الشغل', color: '#0E78AA', href: '/manufacturing/settings/transactions/manufacturing-work-order' },
+    ],
   },
 ];
 

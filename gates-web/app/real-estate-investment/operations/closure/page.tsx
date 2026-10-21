@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { useRouter } from 'next/navigation';
 import { FileCheck } from 'lucide-react';
 import { MasterCardShell } from '@/components/erp';
@@ -29,11 +31,39 @@ const emptyForm = () => ({
   notes: '',
 });
 
+type ClosureDraft = ReturnType<typeof emptyForm>;
+
+function isClosureDraftEmpty(form: ClosureDraft): boolean {
+  return (
+    !form.unitId &&
+    !form.customerId &&
+    !form.salePrice.trim() &&
+    !form.paymentMethod.trim() &&
+    !form.notes.trim()
+  );
+}
+
 export default function ClosurePage() {
   const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
   const [formData, setFormData] = useState(emptyForm);
   const [pending, setPending] = useState(false);
+
+  const draftSnapshot = useMemo(() => formData, [formData]);
+
+  const applyClosureDraft = useCallback((payload: ClosureDraft) => {
+    setFormData({ ...emptyForm(), ...payload });
+  }, []);
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'real-estate-closure',
+    mode: 'new',
+    value: draftSnapshot,
+    enabled: true,
+    applyRestore: applyClosureDraft,
+    isEmpty: isClosureDraftEmpty,
+    restoreMessage: 'يوجد مسودة إقفال عقاري غير محفوظة',
+  });
 
   const { data: customersResponse } = useApiQuery<LookupRow[]>(
     ['real-estate-customers'],
@@ -95,6 +125,7 @@ export default function ClosurePage() {
       });
       const contractId = contractRes.data.id;
       await apiClient.post(`/real-estate/contracts/${contractId}/post-contract`);
+      clearDraft();
       toast.success('تم إنشاء وترحيل عقد الإقفال بنجاح');
       invalidateQuery(['closures']);
       invalidateQuery(queryKeys.realEstate.contracts());
@@ -107,6 +138,7 @@ export default function ClosurePage() {
   };
 
   const handleNew = () => {
+    clearDraft();
     const today = new Date().toISOString().split('T')[0];
     setFormData({ ...emptyForm(), closureDate: today });
   };
@@ -123,6 +155,14 @@ export default function ClosurePage() {
       savePending={pending}
       onNew={handleNew}
     >
+      <PageDraftRestoreGate<ClosureDraft>
+        restoreOffer={restoreOffer}
+        hide={false}
+        message="يوجد مسودة إقفال عقاري غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyClosureDraft}
+      />
       <FormSectionCard title="بيانات الإقفال" subtitle="ينشئ عقد وحدة ويُرحّله مباشرة" icon={FileCheck}>
         <CompactFormField label="الوحدة" required>
           <select className={compactControlClass} value={formData.unitId} onChange={(e) => patch('unitId', e.target.value)}>

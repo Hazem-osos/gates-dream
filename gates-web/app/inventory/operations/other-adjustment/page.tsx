@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { pinDocumentTabQuery } from '@/lib/navigation/tab-memory';
 import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -40,15 +41,28 @@ import {
   useStoreDocumentSerial,
   STORE_DOCUMENT_UNPOSTED_LABEL,
 } from '@/lib/inventory/use-store-document-serial';
-import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
 import { stockHeaderFieldsFromSource } from '@/lib/inventory/apply-source-to-stock-document';
-import { STOCK_LINE_COPY_SOURCE_TYPES, type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { toast } from '@/lib/feedback/toast';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
+import {
+  useApplyDefaultWarehouseFromTransactionSettings,
+  useTransactionDocumentSettings,
+} from '@/lib/transaction-settings/use-transaction-document-settings';
+import { maybePrintStockDocumentAfterSave } from '@/lib/inventory/stock-document-print-after-save';
+import { useWatch } from 'react-hook-form';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
+import {
+  type FormLinesDraft,
+  isFormLinesDraftEmpty,
+} from '@/lib/drafts/form-lines-draft';
 
 type AdjustmentType = 'addition' | 'discount';
 
@@ -131,11 +145,50 @@ export default function OtherAdjustmentPage() {
   const [lines, setLines] = useState<OtherAdjLine[]>([blankLine()]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [restorePending, setRestorePending] = useState(false);
   const [showList, setShowList] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(
     () => searchParams.get('id')?.trim() || null
   );
   const [sourceBarKey, setSourceBarKey] = useState(0);
+  const skipServerHydrateRef = useRef(false);
+  const watchedForm = useWatch({ control }) as HeaderForm;
+
+  type OtherAdjDraft = FormLinesDraft<HeaderForm, OtherAdjLine>;
+
+  const draftSnapshot = useMemo(
+    (): OtherAdjDraft => ({ form: watchedForm ?? emptyHeaderDefaults(), lines }),
+    [lines, watchedForm]
+  );
+
+  const applyOtherAdjDraft = useCallback(
+    (payload: OtherAdjDraft) => {
+      skipServerHydrateRef.current = true;
+      reset({ ...emptyHeaderDefaults(), ...payload.form });
+      setLines(
+        Array.isArray(payload.lines) && payload.lines.length ? payload.lines : [blankLine()]
+      );
+    },
+    [reset]
+  );
+
+  const {
+    autoPostOnSave,
+    autoPrintOnSave,
+    saveLabel,
+    defaultWarehouseId: txDefaultWarehouseId,
+  } = useTransactionDocumentSettings('STOCK_OTHER_ADJUSTMENT');
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'stock-other-adjustment',
+    mode: selectedId ? 'edit' : 'new',
+    documentId: selectedId,
+    value: draftSnapshot,
+    enabled: !isPosted,
+    applyRestore: applyOtherAdjDraft,
+    isEmpty: (draft) => isFormLinesDraftEmpty(draft, txDefaultWarehouseId),
+    restoreMessage: 'يوجد مسودة تسوية مخزنية غير محفوظة',
+  });
 
   const setSerialNumber = useCallback(
     (value: string) =>
@@ -149,6 +202,13 @@ export default function OtherAdjustmentPage() {
   });
   const postAfterSaveRef = useRef(false);
 
+  useApplyDefaultWarehouseFromTransactionSettings({
+    selectedId,
+    warehouseId,
+    defaultWarehouseId: txDefaultWarehouseId,
+    setWarehouseId: (id) => setValue('warehouseId', id, { shouldDirty: false }),
+  });
+
   const { data: detailResponse } = useApiQuery<OtherAdjustmentDetail>(
     ['other-adjustment', selectedId],
     `/inventory/other-adjustments/${selectedId}`,
@@ -158,6 +218,10 @@ export default function OtherAdjustmentPage() {
   const selected = detailResponse?.data;
 
   useEffect(() => {
+    if (skipServerHydrateRef.current) {
+      skipServerHydrateRef.current = false;
+      return;
+    }
     if (!selected) return;
     reset({
       serialNumber: selected.serial || '',
@@ -186,11 +250,16 @@ export default function OtherAdjustmentPage() {
 
   const openDoc = (id: string | null) => {
     setSelectedId(id);
-    if (id) window.history.replaceState(null, '', `?id=${id}`);
-    else window.history.replaceState(null, '', window.location.pathname);
+    pinDocumentTabQuery(id);
   };
 
+  useEffect(() => {
+    const id = searchParams.get('id')?.trim() || null;
+    setSelectedId((prev) => (prev === id ? prev : id));
+  }, [searchParams]);
+
   const clearForNew = () => {
+    clearDraft();
     openDoc(null);
     setLines([blankLine()]);
     reset(emptyHeaderDefaults());
@@ -230,22 +299,30 @@ export default function OtherAdjustmentPage() {
     onSuccess: (res) => {
       invalidateStockViews(invalidateQuery);
       invalidateNextSerial();
+      clearDraft();
       const id = res.data?.id;
       const number = res.data?.serial;
       const shouldPost = postAfterSaveRef.current;
       postAfterSaveRef.current = false;
       const finish = (posted: boolean) => {
+        maybePrintStockDocumentAfterSave(autoPrintOnSave, {
+          title: 'إضافات وخصومات أخرى',
+          number: number || watch('serialNumber'),
+          date: watch('date'),
+          rows: lines.map((line) => ({
+            item: line.itemId,
+            quantity: line.quantity,
+            price: line.unitPrice,
+          })),
+        });
         finishDocumentSave({
           label: 'إضافة/خصم',
           number,
           posted,
           savedId: id,
-          cleared: false,
           onOpen: openDoc,
           onSavedOpen: (saved) => invalidateQuery(['other-adjustment', saved]),
-          reset: () => {
-            if (id) openDoc(id);
-          },
+          reset: clearForNew,
         });
       };
       if (shouldPost && id) {
@@ -289,8 +366,9 @@ export default function OtherAdjustmentPage() {
     {
       onSuccess: () => {
         setSuccess('تم إلغاء المستند');
-        invalidateQuery(['other-adjustment', selectedId]);
-        clearForNew();
+        invalidateStockViews(invalidateQuery);
+        if (selectedId) invalidateQuery(['other-adjustment', selectedId]);
+        setValue('isPosted', false);
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر الإلغاء'),
     }
@@ -342,6 +420,12 @@ export default function OtherAdjustmentPage() {
 
   const requestPostAfterSave = () => {
     if (isPosted) return;
+    postAfterSaveRef.current = autoPostOnSave;
+    void handleSubmit(onSaveValid, onFieldErrors(setError))();
+  };
+
+  const requestExplicitPostAfterSave = () => {
+    if (isPosted) return;
     postAfterSaveRef.current = true;
     void handleSubmit(onSaveValid, onFieldErrors(setError))();
   };
@@ -349,7 +433,7 @@ export default function OtherAdjustmentPage() {
   const handlePostUnpost = async (post: boolean) => {
     if (post) {
       if (!selectedId) {
-        requestPostAfterSave();
+        requestExplicitPostAfterSave();
         return;
       }
       postMutation.mutate(
@@ -360,6 +444,7 @@ export default function OtherAdjustmentPage() {
             setValue('isPosted', true);
             invalidateStockViews(invalidateQuery);
             if (selectedId) invalidateQuery(['other-adjustment', selectedId]);
+            invalidateQuery(['journal-entry']);
           },
           onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الترحيل'),
         }
@@ -378,6 +463,7 @@ export default function OtherAdjustmentPage() {
           setValue('isPosted', false);
           invalidateStockViews(invalidateQuery);
           if (selectedId) invalidateQuery(['other-adjustment', selectedId]);
+          invalidateQuery(['journal-entry']);
         },
         onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء فك الترحيل'),
       }
@@ -390,7 +476,29 @@ export default function OtherAdjustmentPage() {
       setError('فك الترحيل قبل الإلغاء');
       return;
     }
-    if (await confirmAction('إلغاء هذا المستند؟')) cancelMutation.mutate({});
+    if (await confirmAction('إلغاء المستند؟ يمكن استعادته من قائمة (...).')) {
+      cancelMutation.mutate({});
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!selectedId || restorePending) return;
+    setRestorePending(true);
+    try {
+      await restoreCancelledDocument({
+        restorePath: `/inventory/other-adjustments/${selectedId}/restore`,
+        postPath: `/inventory/other-adjustments/${selectedId}/post`,
+        kind: 'named',
+        autoPostOnSave,
+      });
+      invalidateQuery(['other-adjustment', selectedId]);
+      invalidateStockViews(invalidateQuery);
+      setSuccess(autoPostOnSave ? 'تمت الاستعادة والترحيل' : 'تمت الاستعادة — المستند غير مرحّل');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'تعذر الاستعادة');
+    } finally {
+      setRestorePending(false);
+    }
   };
 
   const totalAmount = lines.reduce((s, l) => s + (l.total || 0), 0);
@@ -401,6 +509,18 @@ export default function OtherAdjustmentPage() {
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
+      <PageDraftRestoreGate<OtherAdjDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedId)}
+        message="يوجد مسودة تسوية مخزنية غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyOtherAdjDraft(payload);
+          setSuccess('تم استعادة مسودة الإضافات والخصومات');
+        }}
+      />
+
       <ErpDocumentPageHeader
         compact
         breadcrumbs={[
@@ -410,9 +530,12 @@ export default function OtherAdjustmentPage() {
         ]}
         title="إضافات وخصومات أخرى"
         docNumber={watch('serialNumber') || ''}
-        statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحّل' : STORE_DOCUMENT_UNPOSTED_LABEL}
-        saveLabel={STORE_SAVE_AND_POST_LABEL}
+        lifecycle={{
+          documentId: selectedId,
+          isPosted,
+          isCancelled: Boolean(selected?.isCancelled),
+        }}
+        saveLabel={saveLabel}
         onSaveDraft={requestPostAfterSave}
         savePending={loading}
         canSave={!formLocked && !isPosted}
@@ -424,48 +547,60 @@ export default function OtherAdjustmentPage() {
         standardActions={{
           hasDocument: Boolean(selectedId),
           isPosted,
+          isCancelled: Boolean(selected?.isCancelled),
+          onRestore: selectedId ? () => void handleRestore() : undefined,
+          restoreLabel: 'استعادة',
+          restorePending,
           onEdit: () => setError('لا يتوفر تعديل بعد الحفظ — أنشئ مستنداً جديداً إن لزم'),
           onPost: () => void handlePostUnpost(true),
+          transactionSettingsDocumentType: 'STOCK_OTHER_ADJUSTMENT',
+          onTransactionSettingsSaved: () => {
+            invalidateAfterTransactionSettingsSave(invalidateQuery, 'STOCK_OTHER_ADJUSTMENT');
+            void invalidateNextSerial();
+          },
           onUnpost: () => void handlePostUnpost(false),
           onVoid: () => void handleCancel(),
+          voidPending: cancelMutation.isPending,
           onNew: clearForNew,
           newLabel: 'جديد',
           postPending: postMutation.isPending,
           unpostPending: unpostMutation.isPending,
         }}
         extraActions={
-          <div className="flex flex-wrap items-end justify-end gap-2">
-            <DocumentSourceLoadBar
-              key={sourceBarKey}
-              hasExistingLines={lines.some((l) => Boolean(l.itemId))}
-              disabled={formLocked || isPosted}
-              allowedTypes={STOCK_LINE_COPY_SOURCE_TYPES}
-              onHydrate={handleSourceHydrate}
-            />
-            <button
-              type="button"
-              className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
-              onClick={() =>
-                printStockDocument({
-                  title: 'إضافات وخصومات أخرى',
-                  number: watch('serialNumber'),
-                  date: watch('date'),
-                  rows: lines.map((line) => ({
-                    item: line.itemId,
-                    quantity: line.quantity,
-                    price: line.unitPrice,
-                  })),
-                })
-              }
-            >
-              طباعة
-            </button>
-          </div>
+          <button
+            type="button"
+            className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
+            onClick={() =>
+              printStockDocument({
+                title: 'إضافات وخصومات أخرى',
+                number: watch('serialNumber'),
+                date: watch('date'),
+                rows: lines.map((line) => ({
+                  item: line.itemId,
+                  quantity: line.quantity,
+                  price: line.unitPrice,
+                })),
+              })
+            }
+          >
+            طباعة
+          </button>
         }
       />
 
       <form className="flex flex-1 flex-col gap-3 px-1 pb-24">
-        <FormSectionCard title="بيانات المستند">
+        <FormSectionCard
+          title="بيانات المستند"
+          sourceActions={
+            <DocumentSourceLoadBar
+              key={sourceBarKey}
+              hasExistingLines={lines.some((l) => Boolean(l.itemId))}
+              disabled={formLocked || isPosted}
+              currentAffectsStock
+              onHydrate={handleSourceHydrate}
+            />
+          }
+        >
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <CompactFormField label="المسلسل" error={errors.serialNumber?.message}>
               <input

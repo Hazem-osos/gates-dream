@@ -427,7 +427,7 @@ export function SearchableCombobox({
               style={portaled ? listFixedStyle ?? undefined : undefined}
               onWheel={(e) => e.stopPropagation()}
               onTouchMove={(e) => e.stopPropagation()}
-              className={`${portaled ? 'fixed' : 'absolute'} z-[14000] ${listPositionClass} max-h-[min(26rem,70vh)] min-w-[min(100%,28rem)] w-max max-w-[32rem] overflow-auto overscroll-contain rounded-lg border border-[#D6EAF3] bg-white py-1 text-sm shadow-lg ${listClassName ?? ''}`}
+              className={`${portaled ? 'fixed' : 'absolute'} z-[16000] ${listPositionClass} max-h-[min(26rem,70vh)] min-w-[min(100%,28rem)] w-max max-w-[32rem] overflow-auto overscroll-contain rounded-lg border border-[#D6EAF3] bg-white py-1 text-sm shadow-lg ${listClassName ?? ''}`}
             >
               {filtered.length === 0 && !showQuickCreate ? (
                 <li className="px-3 py-2 text-gray-500">{emptyMessage}</li>

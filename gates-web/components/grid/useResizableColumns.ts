@@ -24,11 +24,18 @@ function loadStoredWidths(storageKey: string | undefined, columnIds: string[]): 
 
 export function useResizableColumns(
   columnIds: string[],
-  options?: { storageKey?: string; minWidth?: number; defaultWidth?: number; enabled?: boolean }
+  options?: {
+    storageKey?: string;
+    minWidth?: number;
+    defaultWidth?: number;
+    defaultWidths?: Record<string, number>;
+    enabled?: boolean;
+  }
 ) {
   const enabled = options?.enabled !== false;
   const minWidth = options?.minWidth ?? MIN_WIDTH;
   const defaultWidth = options?.defaultWidth ?? DEFAULT_WIDTH;
+  const defaultWidths = options?.defaultWidths;
   const storageKey = options?.storageKey;
   const idsKey = columnIds.join('\0');
 
@@ -43,7 +50,7 @@ export function useResizableColumns(
     const stored = loadStoredWidths(storageKey, ids);
     const next: Record<string, number> = {};
     for (const id of ids) {
-      next[id] = stored[id] ?? defaultWidth;
+      next[id] = stored[id] ?? defaultWidths?.[id] ?? defaultWidth;
     }
     setWidths((prev) => {
       if (ids.length === Object.keys(prev).length) {
@@ -58,7 +65,7 @@ export function useResizableColumns(
       }
       return next;
     });
-  }, [defaultWidth, enabled, idsKey, storageKey]);
+  }, [defaultWidth, defaultWidths, enabled, idsKey, storageKey]);
 
   const persist = useCallback(
     (snapshot: Record<string, number>) => {

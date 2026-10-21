@@ -23,7 +23,7 @@ export function useManufacturingWorkOrderSerial(input: {
     { enabled, staleTime: 0 }
   );
 
-  const automatic = response?.data?.automatic !== false;
+  const automatic = response?.data?.automatic === true;
   const nextSerial = response?.data?.number?.trim() || '';
 
   useEffect(() => {

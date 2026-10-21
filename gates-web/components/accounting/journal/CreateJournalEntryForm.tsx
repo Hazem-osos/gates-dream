@@ -7,8 +7,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
-import { ErpFormHeaderCard } from '@/components/erp/ErpFormHeaderCard';
-import { erpInputClass, erpLabelClass } from '@/components/erp/erpUiTokens';
+import { ErpFormHeaderCard, ErpFieldError } from '@/components/erp/ErpFormHeaderCard';
+import { erpInputClass, erpInputErrorClass, erpLabelClass } from '@/components/erp/erpUiTokens';
 import { JournalEntryBottomSplit } from '@/components/accounting/journal/JournalEntryBottomSplit';
 import { JournalEntryStickyFooter } from '@/components/accounting/journal/JournalEntryStickyFooter';
 import { JournalLinesTable } from '@/components/accounting/journal/JournalLinesTable';
@@ -20,7 +20,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query/query-keys';
 import { fetchApiQuery } from '@/lib/api/query-fetch';
 import type { JournalEntryRow } from '@/app/components/accounting/JournalEntriesListSection';
-import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import type { ApiError } from '@/lib/api/types';
 import { dispatchAcademyTrigger } from '@/lib/onboarding/tourCheckpoints';
@@ -57,6 +57,7 @@ import { toHijriDate } from '@/lib/hijri-date';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import {
+  canRestoreJournalEntry,
   isDailyJournalVoucherMutable,
   journalDocumentHref,
   resolveJournalSourceKind,
@@ -80,6 +81,7 @@ import {
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
 import type { TransactionSettings } from '@/lib/transaction-settings/types';
+import { maybeAutoPrintAfterSave } from '@/lib/printer/print-prefs';
 import { useAccountingSettings } from '@/lib/hooks/useAccountingSettings';
 import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
@@ -178,6 +180,15 @@ function FieldError({ message }: { message?: string }) {
   return <span className={fieldErrorClass}>{message}</span>;
 }
 
+function isJournalNotFoundApiError(error: ApiError | null | undefined): boolean {
+  if (!error) return false;
+  return (
+    error.code === '404' ||
+    Boolean(error.message?.includes('غير موجود')) ||
+    Boolean(error.message?.toLowerCase().includes('not found'))
+  );
+}
+
 export default function CreateJournalEntryForm() {
   return (
     <DocumentModeProvider>
@@ -222,7 +233,6 @@ function CreateJournalEntryFormInner() {
   const prevHeaderCurrencyIdRef = useRef<string>('');
   const lastHydratedKeyRef = useRef<string | null>(null);
   const [headerRateOverride, setHeaderRateOverride] = useState<number | null>(null);
-  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
 
   const { data: journalTxSettingsRes } = useApiQuery<TransactionSettings>(
     ['transaction-settings', 'JOURNAL_ENTRY'],
@@ -233,6 +243,11 @@ function CreateJournalEntryFormInner() {
     journalTxSettingsRes?.data,
     accountingSettingsRes?.data?.general?.autoPostGl
   );
+  const autoPrintOnSaveRef = useRef(false);
+  autoPrintOnSaveRef.current = journalTxSettingsRes?.data?.autoPrintOnSave === true;
+  const printJournalNowRef = useRef<(documentNo?: string) => void>(() => {});
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } =
+    useRepostAfterUnpost(journalAutoPostOnSave);
 
   useEffect(() => {
     const id = journalEntryIdFromUrl?.trim();
@@ -245,13 +260,16 @@ function CreateJournalEntryFormInner() {
     }
   }, [journalEntryIdFromUrl, savedJournalEntryId]);
 
-  const sourceLocked = !isDailyJournalVoucherMutable({
+  const journalSourceMeta = {
     sourceType: sourceTypeRaw,
     sourceKind,
     sourceId,
     entryType,
     isCyclic,
-  });
+    isRecurring: isCyclic,
+  };
+  const sourceLocked = !isDailyJournalVoucherMutable(journalSourceMeta);
+  const canRestoreJournal = canRestoreJournalEntry(journalSourceMeta);
   const sourceHref = journalDocumentHref({
     sourceType: sourceTypeRaw,
     sourceKind,
@@ -265,8 +283,8 @@ function CreateJournalEntryFormInner() {
       return;
     }
     if (isPosted || isCancelled || sourceLocked) lockToView();
-    else if (savedJournalEntryId && mode === 'create') setMode('edit');
-  }, [isCancelled, isPosted, lockToView, mode, savedJournalEntryId, setMode, sourceLocked]);
+    else unlockForEdit();
+  }, [isCancelled, isPosted, lockToView, savedJournalEntryId, setMode, sourceLocked, unlockForEdit]);
 
   const openJournal = useCallback(
     (id: string | null) => {
@@ -344,13 +362,44 @@ function CreateJournalEntryFormInner() {
       ? savedJournalEntryId
       : null;
 
-  const { data: journalEntryResponse } = useApiQuery<JournalEntryDetail>(
+  const {
+    data: journalEntryResponse,
+    error: journalLoadError,
+    isError: journalLoadFailed,
+    isFetching: journalEntryFetching,
+  } = useApiQuery<JournalEntryDetail>(
     ['journal-entry', validSavedJournalId],
     `/accounting/journal-entries/${validSavedJournalId}`,
     undefined,
     { enabled: Boolean(validSavedJournalId), retry: false, skipErrorNotify: true }
   );
   const loadedJournalEntry = journalEntryResponse?.data;
+  const canUpdateExistingJournal = Boolean(
+    validSavedJournalId && loadedJournalEntry?.id === validSavedJournalId
+  );
+
+  useEffect(() => {
+    if (!validSavedJournalId || !journalLoadFailed) return;
+    if (!isJournalNotFoundApiError(journalLoadError)) return;
+    lastHydratedKeyRef.current = null;
+    skipUrlHydrateRef.current = true;
+    setLoadedVersion(undefined);
+    openJournal(null);
+    setError('تعذّر تحميل القيد — تم تجهيز قيد جديد. احفظ لإنشاء قيد جديد.');
+    invalidateQuery(['journal-entry-next-number']);
+  }, [
+    validSavedJournalId,
+    journalLoadFailed,
+    journalLoadError,
+    invalidateQuery,
+    openJournal,
+  ]);
+
+  useEffect(() => {
+    if (!savedJournalEntryId) return;
+    if (validSavedJournalId) return;
+    setSavedJournalEntryId(null);
+  }, [savedJournalEntryId, validSavedJournalId]);
 
   const { data: nextNumberResponse } = useApiQuery<{ automatic: boolean; number: string }>(
     ['journal-entry-next-number'],
@@ -359,16 +408,19 @@ function CreateJournalEntryFormInner() {
     { enabled: !savedJournalEntryId, staleTime: 0 }
   );
   const nextJournalNumber = nextNumberResponse?.data?.number ?? '';
+  const journalSerialAutomatic = true;
+  const lockReferenceNumber = Boolean(savedJournalEntryId) || journalSerialAutomatic;
 
   useEffect(() => {
     if (savedJournalEntryId || !nextJournalNumber) return;
+    if (!journalSerialAutomatic) return;
     setValue('referenceNumber', nextJournalNumber, { shouldDirty: false, shouldValidate: false });
-  }, [nextJournalNumber, savedJournalEntryId, setValue]);
+  }, [journalSerialAutomatic, nextJournalNumber, savedJournalEntryId, setValue]);
 
   useEffect(() => {
     if (!loadedJournalEntry || currencies.length === 0) return;
     const posted = resolvePostedFlag(loadedJournalEntry);
-    const hydrateKey = `${loadedJournalEntry.id}:${loadedJournalEntry.version ?? 0}:${posted ? 1 : 0}`;
+    const hydrateKey = `${loadedJournalEntry.id}:${loadedJournalEntry.version ?? 0}:${posted ? 1 : 0}:${loadedJournalEntry.isCancelled ? 1 : 0}`;
     if (lastHydratedKeyRef.current === hydrateKey) return;
     lastHydratedKeyRef.current = hydrateKey;
     skipHeaderFxSyncRef.current = true;
@@ -463,6 +515,9 @@ function CreateJournalEntryFormInner() {
         const number = created.voucherNumber || created.legacyGlNum;
 
         const finishCreate = (posted: boolean) => {
+          maybeAutoPrintAfterSave(autoPrintOnSaveRef.current, () => {
+            printJournalNowRef.current(number);
+          });
           finishDocumentSave({
             label,
             number,
@@ -501,11 +556,13 @@ function CreateJournalEntryFormInner() {
   );
 
   const journalUpdateMutation = useApiMutation<unknown, JournalEntryApiBody>(
-    savedJournalEntryId ? `/accounting/journal-entries/${savedJournalEntryId}` : '/accounting/journal-entries',
+    validSavedJournalId
+      ? `/accounting/journal-entries/${validSavedJournalId}`
+      : '/accounting/journal-entries',
     'PUT',
     {
       onSuccess: () => {
-        const id = savedJournalEntryId;
+        const id = validSavedJournalId;
         invalidateQuery(['journal-entries']);
         invalidateQuery(['recurring-journal-entries']);
         invalidateQuery(['journal-entry-next-number']);
@@ -518,6 +575,9 @@ function CreateJournalEntryFormInner() {
               invalidateQuery(['journal-entries']);
               invalidateQuery(['journal-entry', id]);
               invalidateTreasuryFundBalances(invalidateQuery);
+              maybeAutoPrintAfterSave(autoPrintOnSaveRef.current, () => {
+                printJournalNowRef.current();
+              });
               if (result === 'posted') {
                 setIsPosted(true);
                 setVoucherStatus('مرحل');
@@ -537,13 +597,25 @@ function CreateJournalEntryFormInner() {
           return;
         }
         const message = isCyclic ? 'تم حفظ التعديلات وتحديث القيد الدوري' : 'تم حفظ التعديلات بنجاح';
+        maybeAutoPrintAfterSave(autoPrintOnSaveRef.current, () => {
+          printJournalNowRef.current();
+        });
         setSuccess(message);
       },
       onError: (error: ApiError) => {
         if (isOptimisticLockApiError(error)) {
           toastVersionConflict(error.message, () =>
-            invalidateQuery(['journal-entry', savedJournalEntryId])
+            invalidateQuery(['journal-entry', validSavedJournalId])
           );
+          return;
+        }
+        if (isJournalNotFoundApiError(error) && validSavedJournalId) {
+          lastHydratedKeyRef.current = null;
+          skipUrlHydrateRef.current = true;
+          setLoadedVersion(undefined);
+          openJournal(null);
+          setError('لم يُعثر على القيد — تم تجهيز قيد جديد. احفظ مرة أخرى لإنشاء قيد.');
+          invalidateQuery(['journal-entry-next-number']);
           return;
         }
         setError(error.message || 'حدث خطأ أثناء التحديث');
@@ -552,7 +624,9 @@ function CreateJournalEntryFormInner() {
   );
 
   const postJournalMutation = useApiMutation<unknown, Record<string, never>>(
-    savedJournalEntryId ? `/accounting/journal-entries/${savedJournalEntryId}/post` : '/accounting/journal-entries',
+    validSavedJournalId
+      ? `/accounting/journal-entries/${validSavedJournalId}/post`
+      : '/accounting/journal-entries',
     'POST',
     {
       onSuccess: () => {
@@ -633,25 +707,28 @@ function CreateJournalEntryFormInner() {
     }
   );
 
-  const restoreJournalMutation = useApiMutation<unknown, Record<string, never>>(
+  const restoreJournalMutation = useApiMutation<unknown, { post: boolean }>(
     savedJournalEntryId
       ? `/accounting/journal-entries/${savedJournalEntryId}/restore`
       : '/accounting/journal-entries',
     'POST',
     {
-      onSuccess: () => {
+      onSuccess: (_res, vars) => {
         setIsCancelled(false);
-        setIsPosted(true);
-        setIsApproved(true);
-        setVoucherStatus('مرحل');
-        setSuccess('تم استعادة القيد وترحيله');
+        setIsPosted(vars.post);
+        setIsApproved(vars.post);
+        setVoucherStatus(vars.post ? 'مرحل' : 'غير مرحل');
+        setSuccess(vars.post ? 'تم استعادة القيد وترحيله' : 'تم استعادة القيد — غير مرحّل');
         invalidateQuery(['journal-entries']);
         invalidateQuery(['journal-entry', savedJournalEntryId]);
         lockToView();
       },
       onError: (error: ApiError) => {
         const message = error.message || 'تعذر استعادة القيد';
-        if (message.includes('تم استعادة القيد كمسودة')) {
+        if (
+          message.includes('تم استعادة القيد غير مرحّل') ||
+          message.includes('تم استعادة القيد كمسودة')
+        ) {
           setIsCancelled(false);
           setIsPosted(false);
           setVoucherStatus('غير مرحل');
@@ -803,7 +880,7 @@ function CreateJournalEntryFormInner() {
     enabled: !savedJournalEntryId && !isPosted,
     applyRestore: applyJournalDraft,
     isEmpty: isJournalDraftEmpty,
-    restoreMessage: 'تم استعادة المسودة المحفوظة',
+    restoreMessage: 'تم استعادة مسودة قيد اليومية',
   });
 
   useEffect(() => {
@@ -848,6 +925,33 @@ function CreateJournalEntryFormInner() {
     debitTotal,
     creditTotal,
   ]);
+
+  const printJournalNow = useCallback(
+    (documentNo?: string, opts?: { silentLayout?: boolean }) => {
+      void printOperationalDocument(
+        {
+          title: 'قيد يومية',
+          documentNo:
+            documentNo ||
+            journalPrintModel.voucherNumber ||
+            (savedJournalEntryId ? 'غير مرحل' : 'جديد'),
+          documentDate: dateW || new Date().toISOString().slice(0, 10),
+          sellerName: companyProfile?.nameAr,
+          buyerName: journalPrintModel.description,
+          currency: journalPrintModel.currencyCode,
+          lines: journalPrintModel.lines.map((line) => ({
+            description: `${line.accountLabel}${line.description ? ` — ${line.description}` : ''}`,
+            quantity: 1,
+            unitPrice: line.debit || line.credit || 0,
+            total: line.debit || line.credit || 0,
+          })),
+        },
+        { silentLayout: opts?.silentLayout }
+      );
+    },
+    [companyProfile?.nameAr, dateW, journalPrintModel, savedJournalEntryId]
+  );
+  printJournalNowRef.current = (documentNo) => printJournalNow(documentNo, { silentLayout: true });
 
   const linesRootMessage =
     errors.lines && typeof errors.lines === 'object' && 'message' in errors.lines && errors.lines.message
@@ -951,7 +1055,11 @@ function CreateJournalEntryFormInner() {
       }),
     };
 
-    if (savedJournalEntryId) {
+    if (validSavedJournalId && journalEntryFetching && !loadedJournalEntry) {
+      setError('جاري تحميل القيد… انتظر لحظة ثم احفظ مرة أخرى.');
+      return;
+    }
+    if (canUpdateExistingJournal) {
       journalUpdateMutation.mutate({ ...requestBody, expectedVersion: loadedVersion });
       return;
     }
@@ -1068,7 +1176,7 @@ function CreateJournalEntryFormInner() {
   };
 
   const triggerPrint = () => {
-    document.querySelector<HTMLButtonElement>('[data-print-document]')?.click();
+    printJournalNow();
   };
 
   const handlePost = () => {
@@ -1090,18 +1198,17 @@ function CreateJournalEntryFormInner() {
     <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-      {restoreOffer && !savedJournalEntryId ? (
-        <PageDraftRestoreBanner
-          message="يوجد مسودة قيد غير محفوظة من جلسة سابقة."
-          onRestore={() => {
-            const payload = acceptRestore();
-            if (!payload) return;
-            applyJournalDraft(payload);
-            setSuccess('تم استعادة المسودة المحفوظة');
-          }}
-          onDismiss={dismissRestore}
-        />
-      ) : null}
+      <PageDraftRestoreGate<JournalDraftSnapshot>
+        restoreOffer={restoreOffer}
+        hide={Boolean(savedJournalEntryId)}
+        message="يوجد مسودة قيد يومية غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyJournalDraft(payload);
+          setSuccess('تم استعادة مسودة قيد اليومية');
+        }}
+      />
 
       <ErpDocumentPageHeader
         breadcrumbs={[
@@ -1110,11 +1217,15 @@ function CreateJournalEntryFormInner() {
           { label: 'قيود اليومية' },
         ]}
         title="قيد يومية"
-        docNumber={referenceNumberW || voucherStatus}
-        statusTone={isCancelled ? 'danger' : isPosted ? 'success' : 'warning'}
-        statusLabel={
-          isCancelled ? 'ملغي' : isPosted ? 'مرحّل' : savedJournalEntryId ? 'غير مرحل' : 'مسودة'
+        docNumber={
+          referenceNumberW ||
+          (savedJournalEntryId ? '—' : voucherStatus === 'ملغي' ? 'ملغي' : 'جديد')
         }
+        lifecycle={{
+          documentId: savedJournalEntryId,
+          isPosted,
+          isCancelled,
+        }}
         saveLabel="حفظ"
         onSaveDraft={submitJournal}
         onPost={handlePost}
@@ -1125,23 +1236,8 @@ function CreateJournalEntryFormInner() {
         printTrigger={
           <PrintDocumentButton
             label="طباعة"
-            disabled={!watchedLines?.length}
-            onPrintLayout={() =>
-              printOperationalDocument({
-                title: 'قيد يومية',
-                documentNo: journalPrintModel.voucherNumber || (savedJournalEntryId ? 'غير مرحل' : 'جديد'),
-                documentDate: dateW || new Date().toISOString().slice(0, 10),
-                sellerName: companyProfile?.nameAr,
-                buyerName: journalPrintModel.description,
-                currency: journalPrintModel.currencyCode,
-                lines: journalPrintModel.lines.map((line) => ({
-                  description: `${line.accountLabel}${line.description ? ` — ${line.description}` : ''}`,
-                  quantity: 1,
-                  unitPrice: line.debit || line.credit || 0,
-                  total: line.debit || line.credit || 0,
-                })),
-              })
-            }
+            disabled={!savedJournalEntryId || !watchedLines?.length}
+            onPrintLayout={() => printJournalNow()}
           />
         }
         favoriteHref="/accounting/operations/journal-entry"
@@ -1151,9 +1247,8 @@ function CreateJournalEntryFormInner() {
         hideStandalonePost
         navEntity="journal-entry"
         currentId={savedJournalEntryId}
-        onNavigate={openJournal}
         standardActions={{
-          hasDocument: Boolean(savedJournalEntryId) || Boolean(watchedLines?.length),
+          hasDocument: Boolean(savedJournalEntryId),
           isPosted,
           isCancelled,
           hidePostActions: sourceLocked,
@@ -1185,10 +1280,23 @@ function CreateJournalEntryFormInner() {
           printLabel: 'طباعة قيد اليومية',
           onVoid: sourceLocked ? undefined : () => cancelJournalMutation.mutate({}),
           voidLabel: 'إلغاء القيد',
+          voidConfirmMessage:
+            'سيتم وضع القيد بحالة ملغي فقط — بدون قيد عكسي. يتطلب أن يكون القيد غير مرحّل (بعد فك الترحيل إن لزم).',
+          voidLockedHint: 'فك ترحيل القيد أولاً من قائمة (...) ثم ألغِه',
           voidPending: cancelJournalMutation.isPending,
-          onRestore: sourceLocked ? undefined : () => restoreJournalMutation.mutate({}),
+          onRestore:
+            isCancelled && savedJournalEntryId
+              ? () => {
+                  if (!canRestoreJournal) return;
+                  restoreJournalMutation.mutate({ post: journalAutoPostOnSave });
+                }
+              : undefined,
+          restoreDisabled: Boolean(isCancelled && savedJournalEntryId && !canRestoreJournal),
+          restoreDisabledHint:
+            'استعادة القيد من هنا للقيود اليومية اليدوية الملغاة فقط. القيود المولَّدة تلقائياً تُستعاد من شاشة المستند المصدر.',
           restoreLabel: 'استعادة القيد',
           restorePending: restoreJournalMutation.isPending,
+          transactionSettingsDocumentType: 'JOURNAL_ENTRY',
         }}
       />
 
@@ -1241,11 +1349,21 @@ function CreateJournalEntryFormInner() {
                 autoComplete="off"
                 data-1p-ignore="true"
                 data-lpignore="true"
-                readOnly
-                disabled
-                className={`${erpInputClass} cursor-not-allowed bg-[#F3F7FA] text-[#64748B]`}
-                placeholder="تلقائي"
-                value={referenceNumberW || nextJournalNumber}
+                readOnly={lockReferenceNumber}
+                disabled={lockReferenceNumber}
+                className={
+                  lockReferenceNumber
+                    ? `${erpInputClass} cursor-not-allowed bg-[#F3F7FA] text-[#64748B]`
+                    : `${erpInputClass} ${errors.referenceNumber ? erpInputErrorClass : ''}`
+                }
+                placeholder={journalSerialAutomatic ? 'تلقائي' : 'حتى 16 رقماً'}
+                {...(lockReferenceNumber
+                  ? { value: referenceNumberW || nextJournalNumber }
+                  : register('referenceNumber'))}
+              />
+              <ErpFieldError
+                message={errors.referenceNumber?.message}
+                show={Boolean(errors.referenceNumber)}
               />
             </div>
             <div>

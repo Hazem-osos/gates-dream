@@ -21,6 +21,17 @@ import {
 } from '@/components/common/document-shell';
 import { useDocumentToolbarSlot, useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext';
 import { asText } from '@/lib/text/as-text';
+import {
+  type DocumentLifecycleInput,
+  resolveDocumentLifecycleStatus,
+  resolveErpDocumentHeaderBadge,
+} from '@/lib/documents/document-status-labels';
+import {
+  CANCELLED_LOCK_HINT,
+  POSTED_LOCK_HINT,
+  resolveDocumentActionPolicy,
+} from '@/lib/documents/document-action-policy';
+import { useArchiveSaveGuard } from '@/lib/attachments/use-archive-save-guard';
 
 function RegisterScreenChrome() {
   useRegisterScreenChrome();
@@ -39,8 +50,10 @@ type Props = {
   breadcrumbs: { href?: string; label: string }[];
   title: string;
   docNumber?: string;
-  statusTone: StatusTone;
-  statusLabel: string;
+  statusTone?: StatusTone;
+  statusLabel?: string;
+  /** When set, badge follows جديد / غير مرحّل / مرحّل / ملغي. */
+  lifecycle?: DocumentLifecycleInput;
   onCancel?: () => void;
   cancelLabel?: string;
   saveLabel?: string;
@@ -61,6 +74,8 @@ type Props = {
   /** Replaces the default three-dots / standard action menu when provided. */
   actionMenu?: ReactNode;
   extraActions?: ReactNode;
+  /** @deprecated القسم والرقم تُعرض أسفل حقول المستند، ليس في شريط الأعلى. */
+  sourceActions?: ReactNode;
   /** Opens the previous-documents list on this same page (not reports). */
   onBrowseList?: () => void;
   browseListLabel?: string;
@@ -99,6 +114,7 @@ function isPostedStatusLabel(label: string): boolean {
   const t = asText(label);
   if (!t || /غير\s*مرح/.test(t)) return false;
   if (/مسودة|جديد|تعديل|مفتوحة|مغلقة/.test(t)) return false;
+  if (/ملغ/.test(t)) return false;
   return /مرحّ?ل|posted/i.test(t);
 }
 
@@ -106,8 +122,9 @@ export function ErpDocumentPageHeader({
   breadcrumbs,
   title,
   docNumber,
-  statusTone,
-  statusLabel,
+  statusTone: statusToneProp,
+  statusLabel: statusLabelProp,
+  lifecycle,
   saveLabel = 'حفظ',
   saveDisabledHint,
   postLabel = 'ترحيل',
@@ -120,7 +137,6 @@ export function ErpDocumentPageHeader({
   onCancel,
   cancelLabel = 'إلغاء',
   printTrigger,
-  printMenuItems,
   moreMenuItems,
   onEdit,
   editDisabled,
@@ -150,27 +166,94 @@ export function ErpDocumentPageHeader({
   compact = false,
   lockWhenPosted = true,
 }: Props) {
-  const docTitle = asText(docNumber) || (lockWhenPosted ? 'مسودة جديدة' : 'جديد');
+  const lifecycleStatus = lifecycle ? resolveDocumentLifecycleStatus(lifecycle) : null;
+  const headerBadge = resolveErpDocumentHeaderBadge(lifecycle, statusLabelProp, statusToneProp);
+  const statusLabel = headerBadge.label;
+  const statusTone = headerBadge.tone;
+  const docTitle = asText(docNumber) || 'جديد';
   const { isFavorite, toggleFavorite } = usePageFavorites();
   const starred = favoriteHref ? isFavorite(favoriteHref) : false;
   const documentMode = useOptionalDocumentMode();
   const leaseId = asText(currentId) || null;
   const isReadOnly = documentMode?.isReadOnly === true;
   const looksPosted = lockWhenPosted && isPostedStatusLabel(statusLabel);
+  const looksCancelled =
+    lockWhenPosted && (lifecycleStatus?.phase === 'cancelled' || /ملغ/.test(asText(statusLabel)));
+  const lifecyclePolicy = lifecycle
+    ? resolveDocumentActionPolicy(lifecycle, {
+        allowEditWhenCancelled: standardActions?.allowEditWhenCancelled,
+      })
+    : null;
   const hidePost =
     hideStandalonePost === true ||
     (hideStandalonePost !== false && Boolean(standardActions));
-  const saveHint = isReadOnly
-    ? 'المستند في وضع العرض فقط. اضغط تعديل للبدء في التغيير'
-    : looksPosted
-      ? 'المستند مرحل ومثبت محاسبياً. فك الترحيل أولاً من قائمة (...)'
-      : !canSave
-        ? saveDisabledHint || 'لا يمكن الحفظ الآن — أكمل البيانات المطلوبة أو انتظر انتهاء العملية'
-        : undefined;
+  /** تعديل / إلغاء المستند تظهر في قائمة (...) فقط عند استخدام DocumentActionMenu */
+  const shellMenuActions = Boolean(standardActions);
+  const saveHint = looksPosted
+    ? POSTED_LOCK_HINT
+    : looksCancelled && !standardActions?.allowEditWhenCancelled
+      ? CANCELLED_LOCK_HINT
+      : isReadOnly
+        ? 'المستند في وضع العرض فقط. اضغط تعديل للبدء في التغيير'
+        : !canSave
+          ? saveDisabledHint || 'لا يمكن الحفظ الآن — أكمل البيانات المطلوبة أو انتظر انتهاء العملية'
+          : undefined;
+  const postAllowed = canPost && (lifecyclePolicy ? lifecyclePolicy.post.enabled : true);
   const saveDisabled = Boolean(saveHint) || Boolean(savePending);
   const toolbarSlot = useDocumentToolbarSlot();
+  const archiveDocType = standardActions?.transactionSettingsDocumentType;
+  const archiveDocId = standardActions?.documentId ?? leaseId;
+  const { assertArchiveBeforeSave } = useArchiveSaveGuard({
+    documentType: archiveDocType,
+    documentId: archiveDocId,
+  });
+  const runSaveDraft = () => {
+    void (async () => {
+      if (!(await assertArchiveBeforeSave())) return;
+      onSaveDraft?.();
+    })();
+  };
   const moreMenuPrintItems = (moreMenuItems ?? []).filter((item) => item.id === 'print');
   const moreMenuDropdownItems = (moreMenuItems ?? []).filter((item) => item.id !== 'print');
+  const printFromMoreMenu = moreMenuPrintItems[0];
+  const headerPrint =
+    printTrigger ??
+    (standardActions?.onPrint
+      ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className={`${formActionButtonClass} gap-1.5`}
+            disabled={
+              !(
+                String(standardActions.documentId ?? leaseId ?? '').trim() ||
+                standardActions.hasDocument
+              )
+            }
+            onClick={() => standardActions.onPrint?.()}
+            data-tour="document-print"
+          >
+            <Printer className="h-3.5 w-3.5" aria-hidden />
+            {standardActions.printLabel ?? 'طباعة'}
+          </Button>
+        )
+      : printFromMoreMenu
+        ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className={`${formActionButtonClass} gap-1.5`}
+              disabled={printFromMoreMenu.disabled}
+              onClick={printFromMoreMenu.onClick}
+              data-tour="document-print"
+            >
+              <Printer className="h-3.5 w-3.5" aria-hidden />
+              {printFromMoreMenu.label}
+            </Button>
+          )
+        : null);
 
   useEffect(() => {
     publishAiScreenSession({
@@ -184,7 +267,7 @@ export function ErpDocumentPageHeader({
 
   const header = (
     <>
-    <header className={`erp-sticky-toolbar sticky top-0 z-40 isolate bg-white border-b border-[#E6F0F7] shadow-sm overflow-visible ${toolbarSlot ? 'px-3 xl:px-5' : '-mx-3 rounded-lg px-3'} ${compact ? 'py-1.5 mb-1' : 'py-2.5 mb-2'}`} data-tour="document-header" data-tour-legacy="erp-page-header">
+    <header className={`erp-sticky-toolbar sticky top-0 z-40 isolate min-w-0 max-w-full bg-white border-b border-[#E6F0F7] shadow-sm overflow-visible ${toolbarSlot ? 'px-3 xl:px-5' : '-mx-3 rounded-lg px-3'} ${compact ? 'py-1.5 mb-1' : 'py-2.5 mb-2'}`} data-tour="document-header" data-tour-legacy="erp-page-header">
       {registerChrome ? <RegisterScreenChrome /> : null}
       <div className={`flex min-w-0 max-w-full flex-wrap justify-between gap-2 ${compact ? 'items-center' : 'items-start'}`}>
         <div className={`min-w-0 ${compact ? '' : 'space-y-0.5'}`}>
@@ -259,9 +342,9 @@ export function ErpDocumentPageHeader({
               {browseListLabel}
             </Button>
           )}
+          {headerPrint}
           {extraActions}
-          {printTrigger}
-          {onCancel ? (
+          {!shellMenuActions && onCancel ? (
             <Button
               type="button"
               variant="secondary"
@@ -272,7 +355,7 @@ export function ErpDocumentPageHeader({
               {cancelLabel}
             </Button>
           ) : null}
-          {onEdit && documentMode?.isReadOnly && currentId ? (
+          {!shellMenuActions && onEdit && documentMode?.isReadOnly && currentId ? (
             <Button
               type="button"
               variant="secondary"
@@ -291,7 +374,7 @@ export function ErpDocumentPageHeader({
                 variant="primary"
                 size="sm"
                 className={formActionButtonClass}
-                onClick={onSaveDraft}
+                onClick={archiveDocType ? runSaveDraft : onSaveDraft}
                 disabled={saveDisabled}
                 isLoading={savePending}
                 data-academy-trigger-id={saveTriggerId}
@@ -307,39 +390,29 @@ export function ErpDocumentPageHeader({
               size="sm"
               className={formActionButtonClass}
               onClick={() => onPost?.()}
-              disabled={!canPost || postPending}
+              disabled={!postAllowed || postPending}
               isLoading={postPending}
               data-academy-trigger-id={postTriggerId}
             >
               {postLabel}
             </Button>
           )}
-          {moreMenuPrintItems.map((item) => (
-            <Button
-              key={item.id}
-              type="button"
-              variant="secondary"
-              size="sm"
-              className={`${formActionButtonClass} gap-1.5`}
-              disabled={item.disabled}
-              onClick={item.onClick}
-              data-tour="document-print"
-            >
-              <Printer className="h-3.5 w-3.5" aria-hidden />
-              {item.label}
-            </Button>
-          ))}
-          {printMenuItems?.length ? (
-            <SimpleDropdownMenu
-              align="right"
-              trigger={printTrigger ?? <span className="hidden" />}
-              items={printMenuItems}
-            />
-          ) : null}
           {hideActionMenu ? null : actionMenu ? (
             actionMenu
           ) : standardActions ? (
-            <DocumentActionMenu {...standardActions} />
+            <DocumentActionMenu
+              {...standardActions}
+              documentId={
+                standardActions.documentId !== undefined
+                  ? standardActions.documentId
+                  : leaseId
+              }
+              hasDocument={Boolean(
+                (standardActions.documentId !== undefined
+                  ? String(standardActions.documentId ?? '').trim()
+                  : leaseId) || false
+              )}
+            />
           ) : (
             <SimpleDropdownMenu
               align="right"

@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { ArrowLeftRight, CalendarRange } from 'lucide-react';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { Button } from '@/components/ui';
@@ -27,6 +29,26 @@ function todayIso() {
   return new Date().toISOString().split('T')[0];
 }
 
+type AccountMovementDraft = {
+  sourceAccountId: string;
+  destinationAccountId: string;
+  fromDate: string;
+  toDate: string;
+  selectedIds: string[];
+  previewKey: number;
+};
+
+function isAccountMovementDraftEmpty(draft: AccountMovementDraft): boolean {
+  return (
+    !draft.sourceAccountId &&
+    !draft.destinationAccountId &&
+    !draft.selectedIds.length &&
+    draft.previewKey === 0 &&
+    draft.fromDate === todayIso() &&
+    draft.toDate === todayIso()
+  );
+}
+
 export function AccountMovementTransferScreen() {
   const [sourceAccountId, setSourceAccountId] = useState('');
   const [destinationAccountId, setDestinationAccountId] = useState('');
@@ -37,6 +59,39 @@ export function AccountMovementTransferScreen() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  const draftSnapshot = useMemo<AccountMovementDraft>(
+    () => ({
+      sourceAccountId,
+      destinationAccountId,
+      fromDate,
+      toDate,
+      selectedIds,
+      previewKey,
+    }),
+    [destinationAccountId, fromDate, previewKey, selectedIds, sourceAccountId, toDate]
+  );
+
+  const applyAccountMovementDraft = useCallback((payload: AccountMovementDraft) => {
+    setSourceAccountId(payload.sourceAccountId ?? '');
+    setDestinationAccountId(payload.destinationAccountId ?? '');
+    setFromDate(payload.fromDate || todayIso());
+    setToDate(payload.toDate || todayIso());
+    setSelectedIds(Array.isArray(payload.selectedIds) ? payload.selectedIds : []);
+    setPreviewKey(Number(payload.previewKey) || 0);
+    setError('');
+    setSuccess('');
+  }, []);
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'account-movement-transfer',
+    mode: 'new',
+    value: draftSnapshot,
+    enabled: true,
+    applyRestore: applyAccountMovementDraft,
+    isEmpty: isAccountMovementDraftEmpty,
+    restoreMessage: 'يوجد مسودة نقل حركات الحساب',
+  });
 
   const sourceBalanceQ = useApiQuery<MovementPreviewPayload>(
     ['account-movement-balance', sourceAccountId],
@@ -90,6 +145,7 @@ export function AccountMovementTransferScreen() {
       onSuccess: (res) => {
         setSuccess(`تم نقل ${res.data?.matchedLinesCount ?? selectedIds.length} حركة بنجاح`);
         setConfirmOpen(false);
+        clearDraft();
         setSelectedIds([]);
         setPreviewKey((n) => n + 1);
       },
@@ -98,6 +154,7 @@ export function AccountMovementTransferScreen() {
   );
 
   const resetForm = () => {
+    clearDraft();
     setSourceAccountId('');
     setDestinationAccountId('');
     setFromDate(todayIso());
@@ -160,6 +217,14 @@ export function AccountMovementTransferScreen() {
 
   return (
     <ErpDocumentLayout>
+      <PageDraftRestoreGate<AccountMovementDraft>
+        restoreOffer={restoreOffer}
+        hide={false}
+        message="يوجد مسودة نقل حركات الحساب."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyAccountMovementDraft}
+      />
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 

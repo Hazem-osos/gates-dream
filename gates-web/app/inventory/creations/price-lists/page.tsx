@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { useQuery } from '@tanstack/react-query';
 import { Tags } from 'lucide-react';
 import {
@@ -342,6 +344,28 @@ function PriceListsPageInner() {
   const priceSheetRef = useRef<HTMLInputElement>(null);
   const [sheetBusy, setSheetBusy] = useState(false);
 
+  type PriceListDraft = { form: FormState; lines: PriceLine[] };
+  const draftSnapshot = useMemo<PriceListDraft>(() => ({ form, lines }), [form, lines]);
+  const applyPriceListDraft = useCallback(
+    (payload: PriceListDraft) => {
+      setForm(payload.form);
+      setLines(payload.lines);
+      setSelectedId(null);
+      pendingPrices.current = undefined;
+      setMode('create');
+      setError('');
+    },
+    [setMode]
+  );
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'price-list-card',
+    editingId: selectedId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.form.arabicName.trim() && !d.form.code.trim() && !d.lines.some((l) => l.salePrice.trim()),
+    applyRestore: applyPriceListDraft,
+    restoreMessage: 'يوجد مسودة قائمة أسعار غير محفوظة',
+  });
+
   const { data: currenciesResponse } = useApiQuery<Currency[]>(
     queryKeys.currencies,
     '/accounting/currencies',
@@ -400,7 +424,7 @@ function PriceListsPageInner() {
     seedFromCatalog(detail.prices);
   };
 
-  const loadList = async (id: string, afterLoad: 'view' | 'edit' = 'view') => {
+  const loadList = async (id: string, afterLoad: 'view' | 'edit' = 'edit') => {
     setLoadingDetail(true);
     setError('');
     try {
@@ -425,6 +449,7 @@ function PriceListsPageInner() {
   };
 
   const handleNew = () => {
+    clearDraft();
     setSelectedId(null);
     setForm(emptyForm());
     pendingPrices.current = undefined;
@@ -666,6 +691,7 @@ function PriceListsPageInner() {
       invalidateStockViews(invalidateQuery);
       invalidateQuery(['price-lists']);
       invalidateQuery(['price-list']);
+      clearDraft();
       if (wasUpdate) {
         finishDocumentSave({
           label: 'قائمة أسعار',
@@ -761,6 +787,15 @@ function PriceListsPageInner() {
     >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+
+      <MasterCardDraftRestoreGate<PriceListDraft>
+        editingId={selectedId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyPriceListDraft}
+        message="يوجد مسودة قائمة أسعار غير محفوظة."
+      />
 
       {selectedId && isReadOnly ? (
         <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">

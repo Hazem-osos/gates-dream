@@ -4,7 +4,12 @@ import {
   isParentItemCode,
   itemCodeDepth,
   ownerBoqHierarchyHints,
+  boqHeaderRoleLabel,
+  canEnterBoqLineQuantity,
+  isHierarchicalRowVisible,
+  isParentIdTreeRowVisible,
   parentCodeFromItemCode,
+  parentIdsWithChildren,
   sumExecutable,
   withItemCodeHierarchy,
 } from './boq-hierarchy';
@@ -120,5 +125,36 @@ describe('boq-hierarchy', () => {
     expect(rows[0].__isParent).toBe(true);
     expect(rows[1].__isExecutable).toBe(true);
     expect(sumExecutable(rows, () => 1)).toBe(1);
+  });
+
+  it('hides nested codes until each ancestor is expanded', () => {
+    expect(isHierarchicalRowVisible('1', new Set())).toBe(true);
+    expect(isHierarchicalRowVisible('1.1', new Set())).toBe(false);
+    expect(isHierarchicalRowVisible('1.1', new Set(['1']))).toBe(true);
+    expect(isHierarchicalRowVisible('1.1.1', new Set(['1']))).toBe(false);
+    expect(isHierarchicalRowVisible('1.1.1', new Set(['1', '1.1']))).toBe(true);
+  });
+
+  it('labels root vs sub headers and gates quantity to executables', () => {
+    expect(boqHeaderRoleLabel(true, 0)).toBe('رئيسي');
+    expect(boqHeaderRoleLabel(true, 1)).toBe('رئيسي فرعي');
+    expect(boqHeaderRoleLabel(false, 1)).toBeNull();
+    expect(canEnterBoqLineQuantity(true)).toBe(false);
+    expect(canEnterBoqLineQuantity(false)).toBe(true);
+  });
+
+  it('parentId tree visibility respects expanded ancestors', () => {
+    const rows = [
+      { id: 'a', parentId: null },
+      { id: 'b', parentId: 'a' },
+      { id: 'c', parentId: 'b' },
+    ];
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(parentIdsWithChildren(rows)).toEqual(new Set(['a', 'b']));
+    expect(isParentIdTreeRowVisible(rows[0], new Set(), byId)).toBe(true);
+    expect(isParentIdTreeRowVisible(rows[1], new Set(), byId)).toBe(false);
+    expect(isParentIdTreeRowVisible(rows[1], new Set(['a']), byId)).toBe(true);
+    expect(isParentIdTreeRowVisible(rows[2], new Set(['a']), byId)).toBe(false);
+    expect(isParentIdTreeRowVisible(rows[2], new Set(['a', 'b']), byId)).toBe(true);
   });
 });

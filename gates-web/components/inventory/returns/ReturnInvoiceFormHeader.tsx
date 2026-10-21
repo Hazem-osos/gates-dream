@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { CustomerSelect, SupplierSelect } from '@/components/form/PartySelect';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
@@ -63,6 +64,12 @@ type Props = {
   delegates?: { id: string; arabicName: string }[];
   drivers?: { id: string; arabicName: string }[];
   distributors?: { id: string; arabicName: string }[];
+  headerActions?: ReactNode;
+  sourceActions?: ReactNode;
+  serialAutomatic?: boolean;
+  hasSavedDocument?: boolean;
+  includeAllAccounts?: boolean;
+  disabled?: boolean;
 };
 
 function formatSourceLabel(inv: SourceInvoiceOption, variant: 'sales' | 'purchase') {
@@ -110,6 +117,12 @@ export function ReturnInvoiceFormHeader({
   delegates = [],
   drivers = [],
   distributors = [],
+  headerActions,
+  sourceActions,
+  serialAutomatic = false,
+  hasSavedDocument = false,
+  includeAllAccounts = false,
+  disabled = false,
 }: Props) {
   const partyLabel = variant === 'sales' ? 'العميل' : 'المورد';
   const sourceLabel = variant === 'sales' ? 'فاتورة المبيعات الأصلية' : 'فاتورة المشتريات الأصلية';
@@ -117,6 +130,8 @@ export function ReturnInvoiceFormHeader({
   return (
     <ErpFormHeaderCard
       extrasLabel="خيارات إضافية"
+      headerActions={headerActions}
+      sourceActions={sourceActions}
       row1={
         <>
           <div className="space-y-1">
@@ -125,10 +140,11 @@ export function ReturnInvoiceFormHeader({
               className={erpInputClass}
               value={invoiceNumber}
               onChange={(e) => onInvoiceNumber(e.target.value)}
-              placeholder="تلقائي عند الحفظ"
+              placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل الرقم يدوياً'}
+              readOnly={serialAutomatic && !hasSavedDocument}
             />
           </div>
-          <DatePickerWithHijri label="التاريخ" value={date} onChange={onDate} />
+          <DatePickerWithHijri label="التاريخ" value={date} onChange={onDate} disabled={disabled} />
         </>
       }
       row2={
@@ -136,9 +152,19 @@ export function ReturnInvoiceFormHeader({
           <div className="space-y-1">
             <label className={erpLabelClass}>{partyLabel}</label>
             {variant === 'sales' ? (
-              <CustomerSelect value={partyId} onChange={onPartyId} className={erpInputClass} />
+              <CustomerSelect
+                value={partyId}
+                onChange={onPartyId}
+                className={erpInputClass}
+                includeAllAccounts={includeAllAccounts}
+              />
             ) : (
-              <SupplierSelect value={partyId} onChange={onPartyId} className={erpInputClass} />
+              <SupplierSelect
+                value={partyId}
+                onChange={onPartyId}
+                className={erpInputClass}
+                includeAllAccounts={includeAllAccounts}
+              />
             )}
           </div>
           <div className="space-y-1">

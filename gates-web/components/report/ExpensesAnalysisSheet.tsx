@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { journalDocumentHref, journalSourceLabelFromRow } from '@/lib/accounting/journal-source';
 import { journalEntryHref } from '@/lib/reportEngine/reportRowHref';
+import { isReportColumnVisible } from '@/lib/reportEngine/reportColumnVisible';
 
 type Row = Record<string, unknown>;
 type Mode = 'date' | 'totals';
@@ -55,8 +56,33 @@ function groupTotals(rows: Row[]): Row[] {
   return [...groups.values()].sort((a, b) => text(a, 'account').localeCompare(text(b, 'account'), 'ar'));
 }
 
-export function ExpensesAnalysisSheet({ rows, mode }: { rows: Row[]; mode: Mode }) {
+const COLS: Array<{ id: string; label: string }> = [
+  { id: 'entryDate', label: 'التاريخ' },
+  { id: 'account', label: 'الحساب' },
+  { id: 'debit', label: 'مدين' },
+  { id: 'credit', label: 'دائن' },
+  { id: 'balance', label: 'الرصيد' },
+  { id: 'description', label: 'الشرح' },
+  { id: 'documentNumber', label: 'الرقم' },
+  { id: 'sourceType', label: 'الأصل' },
+  { id: 'sourceNumber', label: 'رقمه' },
+  { id: 'costCenterName', label: 'مركز التكلفة' },
+  { id: 'supportStatus', label: 'مؤيد' },
+];
+
+export function ExpensesAnalysisSheet({
+  rows,
+  mode,
+  visibleColumnIds,
+}: {
+  rows: Row[];
+  mode: Mode;
+  visibleColumnIds?: string[];
+}) {
   const router = useRouter();
+  const on = (id: string) => isReportColumnVisible(visibleColumnIds, id);
+  const shown = COLS.filter((col) => on(col.id));
+  const tailSpan = Math.max(1, shown.filter((col) => !['entryDate', 'account', 'debit', 'credit', 'balance'].includes(col.id)).length);
   const visible = mode === 'totals' ? groupTotals(rows) : rows;
   const supported = rows.filter((row) => text(row, 'supportStatus') === 'مؤيد');
   const unsupported = rows.filter((row) => text(row, 'supportStatus') !== 'مؤيد');
@@ -74,9 +100,9 @@ export function ExpensesAnalysisSheet({ rows, mode }: { rows: Row[]; mode: Mode 
       <table className="w-full border-collapse text-sm" dir="rtl">
         <thead>
           <tr className="bg-[#1787B8] text-white">
-            {['التاريخ', 'الحساب', 'مدين', 'دائن', 'الرصيد', 'الشرح', 'الرقم', 'الأصل', 'رقمه', 'مركز التكلفة', 'مؤيد'].map((label) => (
-              <th key={label} className="whitespace-nowrap border border-white/30 px-2 py-2 font-medium">
-                {label}
+            {shown.map((col) => (
+              <th key={col.id} className="whitespace-nowrap border border-white/30 px-2 py-2 font-medium">
+                {col.label}
               </th>
             ))}
           </tr>
@@ -98,44 +124,48 @@ export function ExpensesAnalysisSheet({ rows, mode }: { rows: Row[]; mode: Mode 
                 : null;
             return (
               <tr key={index} className={index % 2 === 0 ? 'bg-sky-50/60' : 'bg-white'}>
-                <td className="border border-slate-200 px-2 py-1 text-center">{mode === 'date' ? dayLabel(row.entryDate) : ''}</td>
-                <td className="border border-slate-200 px-2 py-1">{text(row, 'account')}</td>
-                <td className="border border-slate-200 px-2 py-1 text-center">{money(amount(row.debit))}</td>
-                <td className="border border-slate-200 px-2 py-1 text-center">{money(amount(row.credit))}</td>
-                <td className="border border-slate-200 px-2 py-1 text-center">{money(amount(row.debit) - amount(row.credit))}</td>
-                <td className="border border-slate-200 px-2 py-1">{mode === 'date' ? text(row, 'description') : ''}</td>
-                <td className="border border-slate-200 px-2 py-1 text-center">
-                  {href && number ? (
-                    <button type="button" className="font-medium text-[#0E78AA] underline" onClick={() => router.push(href)}>
-                      {number}
-                    </button>
-                  ) : (
-                    number
-                  )}
-                </td>
-                <td className="border border-slate-200 px-2 py-1 text-center">{mode === 'date' ? originLabel(row) : ''}</td>
-                <td className="border border-slate-200 px-2 py-1 text-center">
-                  {sourceHref && sourceNumber ? (
-                    <button type="button" className="font-medium text-[#0E78AA] underline" onClick={() => router.push(sourceHref)}>
-                      {sourceNumber}
-                    </button>
-                  ) : (
-                    sourceNumber
-                  )}
-                </td>
-                <td className="border border-slate-200 px-2 py-1">{mode === 'date' ? text(row, 'costCenterName') : ''}</td>
-                <td className="border border-slate-200 px-2 py-1 text-center">{text(row, 'supportStatus')}</td>
+                {on('entryDate') ? <td className="border border-slate-200 px-2 py-1 text-center">{mode === 'date' ? dayLabel(row.entryDate) : ''}</td> : null}
+                {on('account') ? <td className="border border-slate-200 px-2 py-1">{text(row, 'account')}</td> : null}
+                {on('debit') ? <td className="border border-slate-200 px-2 py-1 text-center">{money(amount(row.debit))}</td> : null}
+                {on('credit') ? <td className="border border-slate-200 px-2 py-1 text-center">{money(amount(row.credit))}</td> : null}
+                {on('balance') ? <td className="border border-slate-200 px-2 py-1 text-center">{money(amount(row.debit) - amount(row.credit))}</td> : null}
+                {on('description') ? <td className="border border-slate-200 px-2 py-1">{mode === 'date' ? text(row, 'description') : ''}</td> : null}
+                {on('documentNumber') ? (
+                  <td className="border border-slate-200 px-2 py-1 text-center">
+                    {href && number ? (
+                      <button type="button" className="font-medium text-[#0E78AA] underline" onClick={() => router.push(href)}>
+                        {number}
+                      </button>
+                    ) : (
+                      number
+                    )}
+                  </td>
+                ) : null}
+                {on('sourceType') ? <td className="border border-slate-200 px-2 py-1 text-center">{mode === 'date' ? originLabel(row) : ''}</td> : null}
+                {on('sourceNumber') ? (
+                  <td className="border border-slate-200 px-2 py-1 text-center">
+                    {sourceHref && sourceNumber ? (
+                      <button type="button" className="font-medium text-[#0E78AA] underline" onClick={() => router.push(sourceHref)}>
+                        {sourceNumber}
+                      </button>
+                    ) : (
+                      sourceNumber
+                    )}
+                  </td>
+                ) : null}
+                {on('costCenterName') ? <td className="border border-slate-200 px-2 py-1">{mode === 'date' ? text(row, 'costCenterName') : ''}</td> : null}
+                {on('supportStatus') ? <td className="border border-slate-200 px-2 py-1 text-center">{text(row, 'supportStatus')}</td> : null}
               </tr>
             );
           })}
         </tbody>
         <tfoot>
           <tr className="bg-slate-50 font-semibold">
-            <td className="border border-slate-300 px-2 py-1" colSpan={2}>مجموع المؤيد</td>
+            <td className="border border-slate-300 px-2 py-1" colSpan={Math.max(1, shown.filter((col) => col.id === 'entryDate' || col.id === 'account').length)}>مجموع المؤيد</td>
             <td className="border border-slate-300 px-2 py-1 text-center">{money(supportedDebit)}</td>
             <td className="border border-slate-300 px-2 py-1 text-center">{money(supportedCredit)}</td>
             <td className="border border-slate-300 px-2 py-1 text-center">{money(supportedNet)}</td>
-            <td className="border border-slate-300" colSpan={6} />
+            <td className="border border-slate-300" colSpan={tailSpan} />
           </tr>
           <tr className="bg-slate-50 font-semibold">
             <td className="border border-slate-300 px-2 py-1" colSpan={2}>مجموع غير المؤيد</td>
@@ -144,7 +174,7 @@ export function ExpensesAnalysisSheet({ rows, mode }: { rows: Row[]; mode: Mode 
             <td className="border border-slate-300 px-2 py-1 text-center">
               {money(unsupportedDebit - sum(unsupported, 'credit'))}
             </td>
-            <td className="border border-slate-300" colSpan={6} />
+            <td className="border border-slate-300" colSpan={tailSpan} />
           </tr>
           <tr className="bg-slate-50 font-semibold">
             <td className="border border-slate-300 px-2 py-1" colSpan={2}>نسبة غير المؤيد</td>
@@ -152,7 +182,7 @@ export function ExpensesAnalysisSheet({ rows, mode }: { rows: Row[]; mode: Mode 
               {percent.toLocaleString('en-US', { maximumFractionDigits: 2 })}%
             </td>
             <td className="border border-slate-300" />
-            <td className="border border-slate-300" colSpan={6} />
+            <td className="border border-slate-300" colSpan={tailSpan} />
           </tr>
           <tr className="bg-slate-50 font-semibold">
             <td className="border border-slate-300 px-2 py-1" colSpan={2}>٧٪ من إجمالي المؤيد</td>
@@ -160,7 +190,7 @@ export function ExpensesAnalysisSheet({ rows, mode }: { rows: Row[]; mode: Mode 
               {supportedLevy.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </td>
             <td className="border border-slate-300" />
-            <td className="border border-slate-300" colSpan={6} />
+            <td className="border border-slate-300" colSpan={tailSpan} />
           </tr>
         </tfoot>
       </table>

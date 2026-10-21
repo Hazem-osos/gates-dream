@@ -34,6 +34,7 @@ type Props = {
   lines: AssemblyComponentLine[];
   onChange: (lines: AssemblyComponentLine[]) => void;
   warehouseId?: string;
+  asOfDate?: string;
   pricingMethod: AssemblyPricingMethod;
   disabled?: boolean;
   headerDescription?: string;
@@ -47,6 +48,7 @@ export function AssemblyLinesTable({
   lines,
   onChange,
   warehouseId,
+  asOfDate,
   pricingMethod: _pricingMethod,
   disabled,
   headerDescription = '',
@@ -60,7 +62,7 @@ export function AssemblyLinesTable({
   linesRef.current = lines;
 
   useEffect(() => {
-    if (!warehouseId) return;
+    if (!warehouseId || disabled) return;
     const rows = linesRef.current;
     const targets = rows
       .map((line, index) => ({ line, index }))
@@ -71,7 +73,12 @@ export function AssemblyLinesTable({
       const patches = await Promise.all(
         targets.map(async ({ line, index }) => ({
           index,
-          unitCost: await resolveWarehouseAverageUnitCost(line.itemId, warehouseId),
+          unitCost: await resolveWarehouseAverageUnitCost(
+            line.itemId,
+            warehouseId,
+            null,
+            asOfDate
+          ),
         }))
       );
       if (cancelled) return;
@@ -84,7 +91,7 @@ export function AssemblyLinesTable({
     return () => {
       cancelled = true;
     };
-  }, [warehouseId, onChange]);
+  }, [warehouseId, asOfDate, disabled, onChange]);
 
   useFollowHeaderDescription({
     headerDescription,
@@ -220,7 +227,7 @@ export function AssemblyLinesTable({
                     availableQuantity: availableFromItemOption(catalog) ?? 0,
                   };
                   updateLine(index, patch);
-                  void resolveWarehouseAverageUnitCost(item.id, warehouseId, catalog).then(
+                  void resolveWarehouseAverageUnitCost(item.id, warehouseId, catalog, asOfDate).then(
                     (unitCost) => {
                       if (linesRef.current[index]?.itemId !== item.id) return;
                       updateLine(index, { unitCost });

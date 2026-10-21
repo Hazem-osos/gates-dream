@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { CalendarCheck } from 'lucide-react';
 import { MasterCardShell } from '@/components/erp';
 import { FormSectionCard, CompactFormField, compactControlClass } from '@/components/ui';
@@ -25,9 +27,37 @@ const emptyForm = () => ({
   expiryDate: '',
 });
 
+type ReservationDraft = ReturnType<typeof emptyForm>;
+
+function isReservationDraftEmpty(form: ReservationDraft): boolean {
+  return (
+    !form.propertyId &&
+    !form.customerId &&
+    !form.reservationAmount.trim() &&
+    !form.notes.trim() &&
+    !form.expiryDate.trim()
+  );
+}
+
 export default function ReservationPage() {
   const invalidateQuery = useInvalidateQuery();
   const [formData, setFormData] = useState(emptyForm);
+
+  const draftSnapshot = useMemo(() => formData, [formData]);
+
+  const applyReservationDraft = useCallback((payload: ReservationDraft) => {
+    setFormData({ ...emptyForm(), ...payload });
+  }, []);
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'real-estate-reservation',
+    mode: 'new',
+    value: draftSnapshot,
+    enabled: true,
+    applyRestore: applyReservationDraft,
+    isEmpty: isReservationDraftEmpty,
+    restoreMessage: 'يوجد مسودة حجز عقاري غير محفوظة',
+  });
 
   const { data: propertiesResponse } = useApiQuery<LookupRow[]>(
     ['properties'],
@@ -48,6 +78,7 @@ export default function ReservationPage() {
     'POST',
     {
       onSuccess: () => {
+        clearDraft();
         toast.success('تم حفظ الحجز بنجاح');
         invalidateQuery(['reservations']);
         handleNew();
@@ -91,6 +122,7 @@ export default function ReservationPage() {
   };
 
   const handleNew = () => {
+    clearDraft();
     const today = new Date().toISOString().split('T')[0];
     setFormData({ ...emptyForm(), reservationDate: today });
   };
@@ -107,6 +139,14 @@ export default function ReservationPage() {
       savePending={reservationMutation.isPending}
       onNew={handleNew}
     >
+      <PageDraftRestoreGate<ReservationDraft>
+        restoreOffer={restoreOffer}
+        hide={false}
+        message="يوجد مسودة حجز عقاري غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyReservationDraft}
+      />
       <FormSectionCard title="بيانات الحجز" subtitle="العقار والعميل وتاريخ الحجز" icon={CalendarCheck}>
         <CompactFormField label="العقار">
           <select className={compactControlClass} value={formData.propertyId} onChange={(e) => patch('propertyId', e.target.value)}>

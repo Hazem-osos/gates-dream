@@ -40,6 +40,29 @@ export const APPROVAL_STEPS = [
   'FINANCE_POSTED',
 ] as const satisfies readonly SubcontractInvoiceStatus[];
 
+export type SubcontractorContact = {
+  nameAr: string;
+  nameEn?: string;
+  job?: string;
+  mobile?: string;
+  email?: string;
+  nationalId?: string;
+  suspended?: boolean;
+};
+
+export type SubcontractorDetailsBag = {
+  taxOffice?: string;
+  taxFileNumber?: string;
+  fax?: string;
+  dealNature?: string;
+  paymentMethod?: string;
+  bankName?: string;
+  iban?: string;
+  accountNumber?: string;
+  notes?: string;
+  contacts?: SubcontractorContact[];
+};
+
 export type Subcontractor = {
   id: string;
   nameAr: string;
@@ -47,8 +70,11 @@ export type Subcontractor = {
   taxRegistrationNumber?: string | null;
   commercialRegister?: string | null;
   phone?: string | null;
+  email?: string | null;
   address?: string | null;
   status?: string;
+  createdAt?: string;
+  bankAccountDetails?: SubcontractorDetailsBag | null;
 };
 
 export type ContractingProjectOption = {
@@ -154,6 +180,7 @@ export type SubcontractDetail = {
   id: string;
   subcontractNumber: string;
   contractDate: string;
+  createdAt?: string;
   totalContractValue: string | number;
   status: SubcontractStatus;
   advancePaymentTotal: string | number;

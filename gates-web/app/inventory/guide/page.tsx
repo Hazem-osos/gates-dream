@@ -26,6 +26,7 @@ import { bumpTrailingCode, isCodeAfter } from '@/lib/masters/nextNumericSerial';
 import {
   inheritWarehouseAccounts,
   warehouseCanBranch,
+  warehouseEmptyStockAccountsMessage,
   warehouseRoleLabel,
   type WarehouseKind,
 } from '@/lib/inventory/warehouse-kind';
@@ -218,6 +219,17 @@ export default function WarehouseGuidePage() {
     if (editId && form.parentId === editId) {
       toast.error('لا يمكن أن يكون المخزن أباً لنفسه');
       return;
+    }
+    const emptyAccountsMessage = warehouseEmptyStockAccountsMessage(form);
+    if (emptyAccountsMessage) {
+      const ok = await confirmAction({
+        title: 'حسابات المخزن فارغة',
+        message: emptyAccountsMessage,
+        confirmLabel: 'متابعة',
+        cancelLabel: 'رجوع',
+        tone: 'warning',
+      });
+      if (!ok) return;
     }
     setSaving(true);
     try {

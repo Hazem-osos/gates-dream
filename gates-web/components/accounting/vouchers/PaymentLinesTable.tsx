@@ -33,6 +33,7 @@ type Props = {
   invoiceKind?: InvoiceKind;
   partyEmptyHint?: string;
   headerDescription?: string;
+  addLabel?: string;
 };
 
 export function PaymentLinesTable({
@@ -49,6 +50,7 @@ export function PaymentLinesTable({
   invoiceKind = 'PURCHASE',
   partyEmptyHint,
   headerDescription = '',
+  addLabel,
 }: Props) {
   const { data: accountsRes } = useAccountsQuery(undefined, ACCOUNT_PICKER_PAGE_SIZE, { leafOnly: true });
   const accounts = accountsRes?.data ?? [];
@@ -145,6 +147,7 @@ export function PaymentLinesTable({
       rowCount={Math.max(lines.length, 1)}
       disabled={disabled}
       onAddRow={disabled ? undefined : onAddLine}
+      addLabel={addLabel}
       renderCell={(index, columnId) => {
         const line = lines[index] ?? {
           accountId: '',
@@ -167,7 +170,10 @@ export function PaymentLinesTable({
               value={line.accountId}
               partyId={line.partyId}
               partyKind={line.partyKind}
-              valueLabel={accountLabelFor?.(line.accountId)}
+              valueLabel={
+                accountLabelFor?.(line.accountId) ||
+                (line.partyId ? accountLabelFor?.('') : undefined)
+              }
               disabled={disabled}
               onPick={(pick) =>
                 updateLine(index, {

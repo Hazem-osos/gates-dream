@@ -1,5 +1,7 @@
 'use client';
 
+import { AccountingSettingsPageHeader } from '@/components/accounting-settings';
+import { FormSectionCard } from '@/components/ui';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
@@ -72,14 +74,15 @@ export default function CompanyEmailSettingsPage() {
   });
 
   return (
-    <div className="mx-auto max-w-xl p-6" dir="rtl">
-      <h1 className="mb-1 text-2xl font-bold text-[#0E78AA]">إعدادات البريد</h1>
-      <p className="mb-4 text-sm text-slate-600 dark:text-slate-300">
-        كلمة المرور لا تُعرض بعد الحفظ. الحالة الحالية: {saved?.passwordSet ? 'محفوظة' : 'غير محفوظة'}.
+    <>
+      <AccountingSettingsPageHeader title="إعدادات البريد" />
+      <FormSectionCard title="SMTP" subtitle="كلمة المرور لا تُعرض بعد الحفظ" className="max-w-xl">
+      <p className="col-span-full mb-2 text-sm text-slate-600">
+        الحالة الحالية: {saved?.passwordSet ? 'محفوظة' : 'غير محفوظة'}.
       </p>
-      {notice ? <p className="mb-3 text-sm font-medium">{notice}</p> : null}
+      {notice ? <p className="col-span-full mb-3 text-sm font-medium text-[#094C6B]">{notice}</p> : null}
       <form
-        className="flex flex-col gap-3"
+        className="col-span-full flex flex-col gap-3"
         onSubmit={(event) => {
           event.preventDefault();
           save.mutate();
@@ -126,7 +129,7 @@ export default function CompanyEmailSettingsPage() {
         </button>
       </form>
       <form
-        className="mt-6 flex flex-col gap-3 border-t border-slate-200 pt-4 dark:border-slate-700"
+        className="col-span-full mt-6 flex flex-col gap-3 border-t border-slate-200 pt-4"
         onSubmit={(event) => {
           event.preventDefault();
           test.mutate();
@@ -140,6 +143,7 @@ export default function CompanyEmailSettingsPage() {
           اختبار الإرسال
         </button>
       </form>
-    </div>
+      </FormSectionCard>
+    </>
   );
 }

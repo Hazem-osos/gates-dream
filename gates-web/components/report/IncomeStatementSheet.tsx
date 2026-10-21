@@ -1,5 +1,8 @@
 'use client';
 
+import { AccountLedgerLink } from '@/components/report/AccountLedgerLink';
+import { BalanceRowEye } from '@/components/report/BalanceAnalysisProvider';
+
 type Row = Record<string, unknown>;
 
 type StatementLine = {
@@ -7,6 +10,7 @@ type StatementLine = {
   amount?: number;
   compareAmount?: number;
   kind: 'section' | 'detail' | 'total';
+  accountId?: string;
 };
 
 function num(value: unknown): number {
@@ -46,6 +50,7 @@ export function IncomeStatementSheet({
   compareSummary,
   currentYearLabel,
   compareYearLabel,
+  drillQuery,
 }: {
   rows: Row[];
   summary?: unknown;
@@ -53,6 +58,7 @@ export function IncomeStatementSheet({
   compareSummary?: unknown;
   currentYearLabel?: string;
   compareYearLabel?: string;
+  drillQuery?: Record<string, string>;
 }) {
   const revenue = linesOf(rows, 'REVENUE');
   const cogs = linesOf(rows, 'COGS');
@@ -82,12 +88,24 @@ export function IncomeStatementSheet({
 
   const statement: StatementLine[] = [
     { name: 'المبيعات', kind: 'section' },
-    ...revenue.map((row) => ({ name: text(row, 'arabicName') || text(row, 'code'), amount: num(row.amount), compareAmount: compareAmountOf(row), kind: 'detail' as const })),
+    ...revenue.map((row) => ({
+      name: text(row, 'arabicName') || text(row, 'code'),
+      amount: num(row.amount),
+      compareAmount: compareAmountOf(row),
+      kind: 'detail' as const,
+      accountId: text(row, 'accountId') || undefined,
+    })),
     { name: 'صافي المبيعات', amount: netSales, compareAmount: compareNetSales, kind: 'total' },
     { name: 'تكلفة البضاعة المباعة', amount: cost, compareAmount: compareCost, kind: 'total' },
     { name: 'مجمل الربح', amount: gross, compareAmount: compareGross, kind: 'total' },
     { name: 'المصاريف', kind: 'section' },
-    ...expenses.map((row) => ({ name: text(row, 'arabicName') || text(row, 'code'), amount: num(row.amount), compareAmount: compareAmountOf(row), kind: 'detail' as const })),
+    ...expenses.map((row) => ({
+      name: text(row, 'arabicName') || text(row, 'code'),
+      amount: num(row.amount),
+      compareAmount: compareAmountOf(row),
+      kind: 'detail' as const,
+      accountId: text(row, 'accountId') || undefined,
+    })),
     { name: 'صافي المصروفات', amount: -Math.abs(netExpenses), compareAmount: -Math.abs(compareNetExpenses), kind: 'total' },
     { name: 'صافي الربح', amount: netProfit, compareAmount: compareNetProfit, kind: 'total' },
   ];
@@ -103,6 +121,7 @@ export function IncomeStatementSheet({
             <th className="w-36 border border-slate-300 px-2 py-2">{currentYearLabel || 'الإجمالي'}</th>
             <th className="w-36 border border-slate-300 px-2 py-2">التفاصيل</th>
             <th className="border border-slate-300 px-3 py-2 text-right">البيان</th>
+            <th className="w-10 border border-slate-300 px-1 py-2 no-print">تحليل</th>
           </tr>
         </thead>
         <tbody>
@@ -114,6 +133,7 @@ export function IncomeStatementSheet({
                   <td className="border border-slate-200" />
                   <td className="border border-slate-200" />
                   <td className="border border-slate-200 px-3 py-2 text-right font-bold text-red-600">{line.name}</td>
+                  <td className="border border-slate-200 no-print" />
                 </tr>
               );
             }
@@ -121,23 +141,47 @@ export function IncomeStatementSheet({
             const amountClass = `border border-slate-200 px-2 py-1 text-center ${
               line.kind === 'total' || negative ? 'font-semibold text-red-600' : 'text-slate-900'
             }`;
+            const amountText = formatAmount(line.amount ?? 0);
+            const detailAmount =
+              line.kind === 'detail' ? (
+                <AccountLedgerLink accountId={line.accountId} query={drillQuery} showIcon={false}>
+                  {amountText}
+                </AccountLedgerLink>
+              ) : (
+                amountText
+              );
             return (
               <tr key={`${line.name}-${index}`} className={line.kind === 'total' ? 'bg-slate-50' : undefined}>
                 {showCompare ? (
                   <td className={amountClass}>{formatAmount(line.compareAmount ?? 0)}</td>
                 ) : null}
                 <td className={amountClass}>
-                  {currentYearLabel || line.kind === 'total' ? formatAmount(line.amount ?? 0) : ''}
+                  {currentYearLabel || line.kind === 'total' ? (
+                    currentYearLabel && line.kind === 'detail' ? detailAmount : amountText
+                  ) : (
+                    ''
+                  )}
                 </td>
                 <td className={amountClass}>
-                  {!currentYearLabel && line.kind === 'detail' ? formatAmount(line.amount ?? 0) : ''}
+                  {!currentYearLabel && line.kind === 'detail' ? detailAmount : ''}
                 </td>
                 <td
                   className={`border border-slate-200 px-3 py-1 text-right ${
                     line.kind === 'total' ? 'font-bold text-red-600' : 'text-slate-800'
                   }`}
                 >
-                  {line.name}
+                  {line.kind === 'detail' ? (
+                    <AccountLedgerLink accountId={line.accountId} query={drillQuery} showIcon={false}>
+                      {line.name}
+                    </AccountLedgerLink>
+                  ) : (
+                    line.name
+                  )}
+                </td>
+                <td className="border border-slate-200 px-1 py-1 text-center no-print">
+                  {line.kind === 'detail' ? (
+                    <BalanceRowEye accountId={line.accountId} label={line.name} query={drillQuery} />
+                  ) : null}
                 </td>
               </tr>
             );

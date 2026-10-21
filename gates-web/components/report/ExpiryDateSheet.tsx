@@ -3,6 +3,7 @@
 import { Fragment } from 'react';
 import Link from 'next/link';
 import { movementDocumentHref } from '@/lib/accounting/journal-source';
+import { isReportColumnVisible } from '@/lib/reportEngine/reportColumnVisible';
 
 type Row = Record<string, unknown>;
 
@@ -35,13 +36,32 @@ const STATUS_CLASS: Record<string, string> = {
   صُرف: 'bg-slate-100 text-slate-600',
 };
 
+const COLS: Array<{ id: string; label: string }> = [
+  { id: 'status', label: 'الحالة' },
+  { id: 'itemName', label: 'الصنف' },
+  { id: 'warehouseName', label: 'المخزن' },
+  { id: 'batchNumber', label: 'التشغيلة' },
+  { id: 'expiryDate', label: 'الصلاحية' },
+  { id: 'daysLeft', label: 'الأيام' },
+  { id: 'quantity', label: 'الرصيد' },
+  { id: 'unitName', label: 'الوحدة' },
+  { id: 'sourceLabel', label: 'المصدر' },
+  { id: 'sourceNumber', label: 'الرقم' },
+  { id: 'partyName', label: 'الجهة' },
+  { id: 'itemGroupName', label: 'المجموعة' },
+];
+
 export function ExpiryDateSheet({
   rows,
   summary,
+  visibleColumnIds,
 }: {
   rows: Row[];
   summary?: unknown;
+  visibleColumnIds?: string[];
 }) {
+  const on = (id: string) => isReportColumnVisible(visibleColumnIds, id);
+  const span = COLS.filter((col) => on(col.id)).length || 1;
   const totals = summary && typeof summary === 'object' ? (summary as Record<string, unknown>) : {};
   const cards = [
     ['التشغيلات', num(totals.lotCount).toLocaleString('ar-EG')],
@@ -67,9 +87,9 @@ export function ExpiryDateSheet({
         <table className="min-w-full border-collapse text-xs text-slate-800">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
-              {['الحالة', 'الصنف', 'المخزن', 'التشغيلة', 'الصلاحية', 'الأيام', 'الرصيد', 'الوحدة', 'المصدر', 'الرقم', 'الجهة', 'المجموعة'].map((label) => (
-                <th key={label} className="border-b border-slate-200 px-2 py-2 text-right font-semibold whitespace-nowrap">
-                  {label}
+              {COLS.filter((col) => on(col.id)).map((col) => (
+                <th key={col.id} className="border-b border-slate-200 px-2 py-2 text-right font-semibold whitespace-nowrap">
+                  {col.label}
                 </th>
               ))}
             </tr>
@@ -87,36 +107,40 @@ export function ExpiryDateSheet({
                 <Fragment key={`${text(row, 'groupKey')}-${index}`}>
                 {showGroup ? (
                   <tr className="bg-sky-100">
-                    <td colSpan={12} className="border-b border-slate-200 px-3 py-2 text-right text-xs font-semibold text-sky-950">
+                    <td colSpan={span} className="border-b border-slate-200 px-3 py-2 text-right text-xs font-semibold text-sky-950">
                       {path}
                     </td>
                   </tr>
                 ) : null}
                 <tr className="odd:bg-white even:bg-slate-50/60">
-                  <td className="border-b border-slate-100 px-2 py-1.5">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_CLASS[status] || 'bg-slate-100 text-slate-700'}`}>
-                      {status}
-                    </span>
-                  </td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 font-medium">{text(row, 'itemName')}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'warehouseName')}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'batchNumber')}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">{dateLabel(row.expiryDate)}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 text-center tabular-nums">{days.toLocaleString('en-US')}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 text-center font-semibold tabular-nums">{qty(row.quantity)}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'unitName')}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">{text(row, 'sourceLabel')}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5">
-                    {sourceHref && sourceNumber ? (
-                      <Link href={sourceHref} className="font-semibold text-[#0A6E8A] hover:underline">
-                        {sourceNumber}
-                      </Link>
-                    ) : (
-                      sourceNumber
-                    )}
-                  </td>
-                  <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'partyName')}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'itemGroupName')}</td>
+                  {on('status') ? (
+                    <td className="border-b border-slate-100 px-2 py-1.5">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_CLASS[status] || 'bg-slate-100 text-slate-700'}`}>
+                        {status}
+                      </span>
+                    </td>
+                  ) : null}
+                  {on('itemName') ? <td className="border-b border-slate-100 px-2 py-1.5 font-medium">{text(row, 'itemName')}</td> : null}
+                  {on('warehouseName') ? <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'warehouseName')}</td> : null}
+                  {on('batchNumber') ? <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'batchNumber')}</td> : null}
+                  {on('expiryDate') ? <td className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">{dateLabel(row.expiryDate)}</td> : null}
+                  {on('daysLeft') ? <td className="border-b border-slate-100 px-2 py-1.5 text-center tabular-nums">{days.toLocaleString('en-US')}</td> : null}
+                  {on('quantity') ? <td className="border-b border-slate-100 px-2 py-1.5 text-center font-semibold tabular-nums">{qty(row.quantity)}</td> : null}
+                  {on('unitName') ? <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'unitName')}</td> : null}
+                  {on('sourceLabel') ? <td className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">{text(row, 'sourceLabel')}</td> : null}
+                  {on('sourceNumber') ? (
+                    <td className="border-b border-slate-100 px-2 py-1.5">
+                      {sourceHref && sourceNumber ? (
+                        <Link href={sourceHref} className="font-semibold text-[#0A6E8A] hover:underline">
+                          {sourceNumber}
+                        </Link>
+                      ) : (
+                        sourceNumber
+                      )}
+                    </td>
+                  ) : null}
+                  {on('partyName') ? <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'partyName')}</td> : null}
+                  {on('itemGroupName') ? <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'itemGroupName')}</td> : null}
                 </tr>
                 </Fragment>
               );

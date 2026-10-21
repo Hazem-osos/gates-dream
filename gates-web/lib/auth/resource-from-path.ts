@@ -31,8 +31,6 @@ const PATH_RESOURCE: Array<{ prefix: string; resource: string; module?: string }
   { prefix: '/inventory/operations/purchase-order', resource: 'invoice', module: 'inventory' },
   { prefix: '/inventory/operations/price-quote', resource: 'invoice', module: 'inventory' },
   { prefix: '/inventory/operations/sales-order', resource: 'invoice', module: 'inventory' },
-  { prefix: '/inventory/operations/supply-order', resource: 'invoice', module: 'inventory' },
-  { prefix: '/inventory/reports/supply-order-follow-up', resource: 'invoice', module: 'inventory' },
   { prefix: '/inventory/operations/sales-returns', resource: 'invoice', module: 'inventory' },
   { prefix: '/inventory/operations/purchase-returns', resource: 'invoice', module: 'inventory' },
   { prefix: '/sales/quotes', resource: 'invoice', module: 'inventory' },

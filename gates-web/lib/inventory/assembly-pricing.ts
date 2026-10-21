@@ -16,6 +16,13 @@ export type AssemblyPricingItemBases = {
   lastPurchasePrice?: number | string | null;
 };
 
+export function catalogItemForAsOfAverageCost(
+  item: AssemblyPricingItemBases | null | undefined,
+  asOfDate?: string
+): AssemblyPricingItemBases | null {
+  return asOfDate?.trim() ? null : (item ?? null);
+}
+
 export function resolveAssemblyUnitCost(
   method: AssemblyPricingMethod,
   item?: AssemblyPricingItemBases | null,
@@ -28,26 +35,31 @@ export function resolveAssemblyUnitCost(
     const avg = Number(item?.averageCost ?? 0);
     return Number.isFinite(avg) && avg > 0 ? avg : 0;
   }
-  const wh = Number(warehouseAverageCost ?? 0);
-  if (Number.isFinite(wh) && wh > 0) return wh;
   const avg = Number(item?.averageCost ?? 0);
-  return Number.isFinite(avg) && avg > 0 ? avg : 0;
+  if (Number.isFinite(avg) && avg > 0) return avg;
+  const wh = Number(warehouseAverageCost ?? 0);
+  return Number.isFinite(wh) && wh > 0 ? wh : 0;
 }
 
-/** Average cost for stock vouchers / adjustments (warehouse average, then item card). */
+/** Average cost for stock vouchers / adjustments (item MAC, then warehouse copy). */
 export async function resolveWarehouseAverageUnitCost(
   itemId: string,
   warehouseId: string | undefined,
-  item?: AssemblyPricingItemBases | null
+  item?: AssemblyPricingItemBases | null,
+  asOfDate?: string
 ): Promise<number> {
   let warehouseAvg: number | null = null;
   if (itemId && warehouseId) {
     try {
-      const wh = await fetchWarehouseAverageCost(itemId, warehouseId);
+      const wh = await fetchWarehouseAverageCost(itemId, warehouseId, asOfDate);
       warehouseAvg = wh > 0 ? wh : null;
     } catch {
       warehouseAvg = null;
     }
   }
-  return resolveAssemblyUnitCost('AVERAGE_COST', item, warehouseAvg);
+  return resolveAssemblyUnitCost(
+    'AVERAGE_COST',
+    catalogItemForAsOfAverageCost(item, asOfDate),
+    warehouseAvg
+  );
 }

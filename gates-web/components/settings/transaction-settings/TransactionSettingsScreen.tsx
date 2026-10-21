@@ -23,7 +23,16 @@ export function TransactionSettingsScreen({
   return (
     <ErpDocumentLayout>
       <nav className="mb-3 flex flex-wrap items-center gap-1 text-xs text-slate-500" aria-label="مسار الصفحة">
-        <Link href={ctx.module === 'inventory' ? '/inventory' : '/accounting'} className="hover:text-[#0E78AA]">
+        <Link
+          href={
+            ctx.module === 'inventory'
+              ? '/inventory'
+              : ctx.module === 'manufacturing'
+                ? '/manufacturing'
+                : '/accounting'
+          }
+          className="hover:text-[#0E78AA]"
+        >
           {ctx.moduleLabel}
         </Link>
         <span>/</span>

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { pinDocumentTabQuery } from '@/lib/navigation/tab-memory';
 import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -34,6 +35,8 @@ import {
   getBranchIdForStoreDocumentSave,
   STORE_SAVE_AND_POST_LABEL,
 } from '@/lib/inventory/store-document-save-post';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
+import { maybePrintStockDocumentAfterSave } from '@/lib/inventory/stock-document-print-after-save';
 import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -48,6 +51,7 @@ import {
 } from '@/lib/accounting/ensure-posted-after-save';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
 import {
   postSuccessMessage,
   useDocumentPostMutation,
@@ -58,18 +62,21 @@ import {
   useStoreDocumentSerial,
   STORE_DOCUMENT_UNPOSTED_LABEL,
 } from '@/lib/inventory/use-store-document-serial';
-import { TransactionSettingsDrawer } from '@/components/settings/transaction-settings/TransactionSettingsDrawer';
 import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
 import {
   mapSourcePayloadToStockLines,
   stockHeaderFieldsFromSource,
 } from '@/lib/inventory/apply-source-to-stock-document';
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
-import { STOCK_RECEIPT_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
+import { useDocumentFollowUpHydrate } from '@/lib/hooks/useDocumentFollowUpHydrate';
 import { toast } from '@/lib/feedback/toast';
 import { useStockMovementPanel } from '@/lib/inventory/use-stock-movement-panel';
 import { Button } from '@/components/ui/button';
 import { formActionButtonClass } from '@/components/ui/forms/formTokens';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { isUnsetOrDefaultWarehouse } from '@/lib/drafts/form-lines-draft';
+import { datetimeLocalToIso, toDatetimeLocalValue } from '@/lib/datetime/local-datetime';
 
 
 interface Item {
@@ -108,12 +115,27 @@ function receiptOffsetAccountForSave(formValue: string, settingsDefault: string)
   return raw;
 }
 
+type ReceiptDraft = { form: ReceiptHeaderForm; lines: StockVoucherLine[] };
+
+function isReceiptDraftEmpty(draft: ReceiptDraft, defaultWarehouseId?: string | null): boolean {
+  const hasLine = draft.lines.some(
+    (line) => line.itemId || line.quantity > 0 || (line.unitPrice ?? 0) > 0
+  );
+  const f = draft.form;
+  return (
+    !hasLine &&
+    isUnsetOrDefaultWarehouse(f.warehouseId, defaultWarehouseId) &&
+    !f.supplierId?.trim() &&
+    !f.description?.trim() &&
+    !f.record?.trim()
+  );
+}
+
 function emptyReceiptFormDefaults(): ReceiptHeaderForm {
-  const t = new Date().toISOString().split('T')[0];
   return {
     serialNumber: '',
     description: '',
-    date: t,
+    date: toDatetimeLocalValue(),
     hijriDate: '',
     warehouseId: '',
     supplierId: '',
@@ -129,7 +151,6 @@ function emptyReceiptFormDefaults(): ReceiptHeaderForm {
 export default function ReceiptPage() {
   const searchParams = useOwnTabSearchParams();
   const invalidateQuery = useInvalidateQuery();
-  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
 
   const inputCls = compactControlClass;
 
@@ -149,8 +170,10 @@ export default function ReceiptPage() {
   });
 
   const isPosted = watch('isPosted');
+  const watchedForm = watch();
   const warehouseId = watch('warehouseId');
   const hideExistingQty = watch('hideExistingQty');
+  const skipServerHydrateRef = useRef(false);
 
   const [receiptLines, setReceiptLines] = useState<StockVoucherLine[]>(() => seedStockVoucherLines());
   const [sourceBarKey, setSourceBarKey] = useState(0);
@@ -161,12 +184,14 @@ export default function ReceiptPage() {
   );
   const openReceipt = (id: string | null) => {
     setSelectedReceiptId(id);
-    if (typeof window === 'undefined') return;
-    if (id) window.history.replaceState(null, '', `?id=${id}`);
-    else window.history.replaceState(null, '', window.location.pathname);
+    pinDocumentTabQuery(id);
   };
+
+  useEffect(() => {
+    const id = searchParams.get('id')?.trim() || null;
+    setSelectedReceiptId((prev) => (prev === id ? prev : id));
+  }, [searchParams]);
   const [showList, setShowList] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const setSerialNumber = useCallback(
     (value: string) =>
@@ -179,12 +204,23 @@ export default function ReceiptPage() {
     setSerial: setSerialNumber,
   });
   const postAfterSaveRef = useRef(false);
+  const [restorePending, setRestorePending] = useState(false);
 
   const { data: stockReceiptSettingsRes } = useApiQuery<TransactionSettings>(
     ['transaction-settings', 'STOCK_RECEIPT'],
     '/transaction-settings/STOCK_RECEIPT'
   );
-  const stockReceiptOffsetDefault = stockReceiptSettingsRes?.data?.defaultOffsetAccountId ?? '';
+  const stockTxSettings = stockReceiptSettingsRes?.data;
+  const autoPostOnSave = stockTxSettings?.autoPostOnSave === true;
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost(
+    autoPostOnSave
+  );
+  const stockReceiptOffsetDefault = stockTxSettings?.defaultOffsetAccountId ?? '';
+
+  useEffect(() => {
+    if (selectedReceiptId || !stockTxSettings?.defaultWarehouseId || warehouseId) return;
+    setValue('warehouseId', stockTxSettings.defaultWarehouseId, { shouldDirty: false });
+  }, [selectedReceiptId, setValue, stockTxSettings?.defaultWarehouseId, warehouseId]);
 
   // Fetch items
   const { isLoading: itemsLoading } = useApiQuery<Item[]>(
@@ -200,6 +236,41 @@ export default function ReceiptPage() {
     { enabled: !!selectedReceiptId }
   );
   const selectedReceipt = receiptResponse?.data;
+
+  const draftSnapshot = useMemo<ReceiptDraft>(
+    () => ({ form: watchedForm, lines: receiptLines }),
+    [watchedForm, receiptLines]
+  );
+
+  const applyReceiptDraft = useCallback(
+    (payload: ReceiptDraft) => {
+      skipServerHydrateRef.current = true;
+      reset({ ...emptyReceiptFormDefaults(), ...payload.form });
+      setReceiptLines(
+        Array.isArray(payload.lines) && payload.lines.length
+          ? payload.lines
+          : seedStockVoucherLines()
+      );
+    },
+    [reset]
+  );
+
+  const {
+    restoreOffer,
+    acceptRestore,
+    dismissRestore,
+    clearDraft,
+  } = useDraftAutosave({
+    documentType: 'stock-receipt',
+    mode: selectedReceiptId ? 'edit' : 'new',
+    documentId: selectedReceiptId,
+    value: draftSnapshot,
+    enabled: !isPosted,
+    applyRestore: applyReceiptDraft,
+    isEmpty: (draft) => isReceiptDraftEmpty(draft, stockTxSettings?.defaultWarehouseId),
+    restoreMessage: 'تم استعادة مسودة إذن الإضافة',
+  });
+
   const stockPanel = useStockMovementPanel(
     selectedReceiptId,
     isPosted,
@@ -218,14 +289,18 @@ export default function ReceiptPage() {
 
   // Load receipt data when selected
   useEffect(() => {
+    if (skipServerHydrateRef.current) {
+      skipServerHydrateRef.current = false;
+      return;
+    }
     if (selectedReceipt) {
       const storedOffset = String(selectedReceipt.offsetAccountId ?? '').trim();
       reset({
         serialNumber: String(selectedReceipt.serialNumber || selectedReceipt.serial || ''),
         description: selectedReceipt.description || '',
         date: selectedReceipt.date
-          ? new Date(selectedReceipt.date).toISOString().split('T')[0]
-          : new Date().toISOString().split('T')[0],
+          ? toDatetimeLocalValue(selectedReceipt.date)
+          : toDatetimeLocalValue(),
         hijriDate: selectedReceipt.hijriDate || '',
         warehouseId: selectedReceipt.warehouseId || '',
         supplierId: String(selectedReceipt.supplierId || ''),
@@ -251,6 +326,7 @@ export default function ReceiptPage() {
 
   // Receipt create mutation
   const clearReceiptForNext = () => {
+    clearDraft();
     openReceipt(null);
     stockPanel.resetPanel();
     setReceiptLines(seedStockVoucherLines());
@@ -271,6 +347,16 @@ export default function ReceiptPage() {
         const shouldPost = postAfterSaveRef.current;
         postAfterSaveRef.current = false;
         const finish = (posted: boolean) => {
+          maybePrintStockDocumentAfterSave(Boolean(stockTxSettings?.autoPrintOnSave), {
+            title: 'إذن إضافة مخزني',
+            number,
+            date: watch('date'),
+            rows: receiptLines.map((line) => ({
+              item: line.itemId,
+              quantity: line.quantity,
+              price: line.unitPrice,
+            })),
+          });
           finishDocumentSave({
             label: 'إذن إضافة مخزني',
             number,
@@ -321,6 +407,16 @@ export default function ReceiptPage() {
         const shouldPost = postAfterSaveRef.current;
         postAfterSaveRef.current = false;
         const finishSaved = (posted: boolean) => {
+          maybePrintStockDocumentAfterSave(Boolean(stockTxSettings?.autoPrintOnSave), {
+            title: 'إذن إضافة مخزني',
+            number,
+            date: watch('date'),
+            rows: receiptLines.map((line) => ({
+              item: line.itemId,
+              quantity: line.quantity,
+              price: line.unitPrice,
+            })),
+          });
           finishDocumentSave({
             label: 'إذن إضافة مخزني',
             number,
@@ -369,6 +465,23 @@ export default function ReceiptPage() {
     }
   );
 
+  const receiptCancelMutation = useApiMutation<unknown, Record<string, unknown>>(
+    selectedReceiptId ? `/inventory/receipts/${selectedReceiptId}/cancel` : '/inventory/receipts',
+    'POST',
+    {
+      showSuccessToast: false,
+      onSuccess: () => {
+        setSuccess('تم إلغاء الإذن');
+        invalidateStockViews(invalidateQuery);
+        invalidateQuery(['receipt', selectedReceiptId]);
+        setValue('isPosted', false);
+      },
+      onError: (error: ApiError) => {
+        setError(error.message || 'تعذر الإلغاء');
+      },
+    }
+  );
+
   // Receipt delete mutation
   const receiptDeleteMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedReceiptId ? `/inventory/receipts/${selectedReceiptId}` : '/inventory/receipts',
@@ -396,20 +509,44 @@ export default function ReceiptPage() {
     receiptMutation.isPending || receiptUpdateMutation.isPending || receiptDeleteMutation.isPending || itemsLoading;
 
   // Handle delete
-  const handleDelete = async () => {
+  const handleVoid = async () => {
     if (!selectedReceiptId) {
       setError('يرجى اختيار إضافة أولاً');
       return;
     }
+    if (await confirmAction('إلغاء المستند؟ يمكن استعادته من قائمة (...).')) {
+      receiptCancelMutation.mutate({});
+    }
+  };
 
-    if (await confirmAction('هل أنت متأكد من حذف هذه الإضافة؟')) {
-      receiptDeleteMutation.mutate({});
+  const handleRestore = async () => {
+    if (!selectedReceiptId || restorePending) return;
+    setRestorePending(true);
+    try {
+      await restoreCancelledDocument({
+        restorePath: `/inventory/receipts/${selectedReceiptId}/restore`,
+        postPath: `/inventory/receipts/${selectedReceiptId}/post`,
+        kind: 'named',
+        autoPostOnSave: stockReceiptSettingsRes?.data?.autoPostOnSave,
+      });
+      invalidateQuery(['receipt', selectedReceiptId]);
+      invalidateStockViews(invalidateQuery);
+      setSuccess(
+        stockReceiptSettingsRes?.data?.autoPostOnSave
+          ? 'تمت الاستعادة والترحيل'
+          : 'تمت الاستعادة — المستند غير مرحّل'
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'تعذر الاستعادة');
+    } finally {
+      setRestorePending(false);
     }
   };
 
   // Handle new receipt
   const handleNew = () => {
     resetKeepPosted();
+    clearDraft();
     openReceipt(null);
     setReceiptLines(seedStockVoucherLines());
     setError('');
@@ -426,6 +563,12 @@ export default function ReceiptPage() {
     setReceiptLines(mapSourcePayloadToStockLines(payload));
     toast.success(`تم تحميل الإذن من ${payload.sourceNumber}`);
   };
+
+  useDocumentFollowUpHydrate({
+    enabled: true,
+    isNewDocument: !selectedReceiptId,
+    onHydrate: handleSourceHydrate,
+  });
 
   const onSaveValid: SubmitHandler<ReceiptHeaderForm> = (values) => {
     setError('');
@@ -448,7 +591,7 @@ export default function ReceiptPage() {
       ...(activeBranchId ? { branchId: activeBranchId } : {}),
       serial: values.serialNumber || undefined,
       description: values.description || undefined,
-      date: new Date(values.date).toISOString(),
+      date: datetimeLocalToIso(values.date),
       hijriDate: values.hijriDate || undefined,
       warehouseId: values.warehouseId,
       supplierId: values.supplierId?.trim() ? values.supplierId.trim() : null,
@@ -474,15 +617,19 @@ export default function ReceiptPage() {
     }
   };
 
-  const requestPostAfterSave = () => {
+  const submitReceipt = (postAfterSave: boolean) => {
     if (isPosted) return;
-    postAfterSaveRef.current = true;
+    postAfterSaveRef.current = postAfterSave;
     void handleSubmit(onSaveValid, onFieldErrors(setError))();
   };
 
+  const requestSaveDraft = () => submitReceipt(autoPostOnSave);
+
+  const requestExplicitPostAfterSave = () => submitReceipt(true);
+
   const handlePostUnpost = async (post: boolean) => {
     if (post) {
-      requestPostAfterSave();
+      requestExplicitPostAfterSave();
       return;
     }
     if (!selectedReceiptId) {
@@ -496,7 +643,14 @@ export default function ReceiptPage() {
           setSuccess('تم فك ترحيل الإضافة بنجاح');
           setValue('isPosted', false);
           markUnpostedForEdit();
+          stockPanel.resetPanel();
           invalidateStockViews(invalidateQuery);
+          if (selectedReceiptId) {
+            invalidateQuery(['receipt', selectedReceiptId]);
+            invalidateQuery(['inventory-movements-by-doc', selectedReceiptId]);
+            const jeId = (selectedReceipt as { journalEntryId?: string | null })?.journalEntryId;
+            if (jeId) invalidateQuery(['journal-entry', jeId]);
+          }
         },
         onError: (error: ApiError) => {
           setError(error.message || 'حدث خطأ أثناء فك الترحيل');
@@ -538,6 +692,17 @@ export default function ReceiptPage() {
     <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+      <PageDraftRestoreGate<ReceiptDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedReceiptId)}
+        message="يوجد مسودة إذن إضافة غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyReceiptDraft(payload);
+          setSuccess('تم استعادة مسودة إذن الإضافة');
+        }}
+      />
 
       <ErpDocumentPageHeader
         breadcrumbs={[
@@ -547,10 +712,15 @@ export default function ReceiptPage() {
         ]}
         title="إذن إضافة مخزني"
         docNumber={watch('serialNumber') || ''}
-        statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحّل' : STORE_DOCUMENT_UNPOSTED_LABEL}
-        saveLabel={STORE_SAVE_AND_POST_LABEL}
-        onSaveDraft={requestPostAfterSave}
+        lifecycle={{
+          documentId: selectedReceiptId,
+          isPosted,
+          isCancelled: Boolean(
+            (selectedReceipt as { isCancelled?: boolean } | undefined)?.isCancelled
+          ),
+        }}
+        saveLabel={autoPostOnSave ? STORE_SAVE_AND_POST_LABEL : 'حفظ'}
+        onSaveDraft={requestSaveDraft}
         onCancel={handleNew}
         cancelLabel="تراجع"
         hideStandalonePost
@@ -561,9 +731,15 @@ export default function ReceiptPage() {
         canSave={!isPosted}
         onBrowseList={() => setShowList(true)}
         browseListLabel="السابق"
+        currentId={selectedReceiptId}
+        onNavigate={openReceipt}
         standardActions={{
-          hasDocument: Boolean(selectedReceiptId) || receiptLines.some((l) => l.itemId),
+          hasDocument: Boolean(selectedReceiptId),
           isPosted,
+          isCancelled: Boolean(selectedReceipt?.isCancelled),
+          onRestore: selectedReceiptId ? () => void handleRestore() : undefined,
+          restoreLabel: 'استعادة',
+          restorePending,
           onEdit: () => {
             if (!selectedReceiptId) return;
             if (isPosted) {
@@ -572,14 +748,17 @@ export default function ReceiptPage() {
           },
           onPost: () => handlePostUnpost(true),
           onUnpost: () => handlePostUnpost(false),
-          onVoid: handleDelete,
+          onVoid: handleVoid,
+          voidPending: receiptCancelMutation.isPending,
           onNew: handleNew,
           newLabel: 'جديد',
           postPending: loading,
           unpostPending: unpostReceiptMutation.isPending,
-          extraItems: [
-            { id: 'settings', label: 'إعدادات المستند', onClick: () => setSettingsOpen(true) },
-          ],
+          transactionSettingsDocumentType: 'STOCK_RECEIPT',
+          onTransactionSettingsSaved: () => {
+            invalidateAfterTransactionSettingsSave(invalidateQuery, 'STOCK_RECEIPT');
+            invalidateNextSerial();
+          },
         }}
         printTrigger={
           <Button
@@ -603,21 +782,6 @@ export default function ReceiptPage() {
             طباعة
           </Button>
         }
-        extraActions={
-          <DocumentSourceLoadBar
-            key={sourceBarKey}
-            hasExistingLines={receiptLines.some((l) => Boolean(l.itemId))}
-            disabled={isPosted}
-            allowedTypes={STOCK_RECEIPT_SOURCE_TYPES}
-            onHydrate={handleSourceHydrate}
-          />
-        }
-      />
-
-      <TransactionSettingsDrawer
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        documentType="STOCK_RECEIPT"
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أذون الإضافة المخزنية السابقة">
@@ -634,7 +798,19 @@ export default function ReceiptPage() {
         />
       </DocumentBrowseDrawer>
 
-      <FormSectionCard title="بيانات الإذن" subtitle="المخزن والمورد والتاريخ">
+      <FormSectionCard
+        title="بيانات الإذن"
+        subtitle="المخزن والمورد والتاريخ"
+        sourceActions={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={receiptLines.some((l) => Boolean(l.itemId))}
+            disabled={isPosted}
+            currentAffectsStock
+            onHydrate={handleSourceHydrate}
+          />
+        }
+      >
           <CompactFormField
             label="المسلسل"
             placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل رقم المسلسل'}
@@ -643,7 +819,8 @@ export default function ReceiptPage() {
           />
           <CompactFormField
             label="التاريخ"
-            type="date"
+            type="datetime-local"
+            step="1"
             error={errors.date?.message}
             {...register('date')}
           />
@@ -763,6 +940,7 @@ export default function ReceiptPage() {
         totalAmount={totalAmount}
         lineCount={receiptLines.length}
         {...stockPanel.bottomSplitProps}
+        stockMovementsTabLabel="التأثير المخزني"
       />
     </ErpDocumentLayout>
   );

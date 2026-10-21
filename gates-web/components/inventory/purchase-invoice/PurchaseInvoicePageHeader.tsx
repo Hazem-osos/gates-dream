@@ -4,6 +4,8 @@ import { SalesInvoicePageHeader } from '@/components/inventory/sales-invoice/Sal
 import type { CompanyPrintProfile } from '@/lib/print/types';
 import type { StatusTone } from '@/components/ui/StatusBadge';
 import type { ReactNode } from 'react';
+import type { DocumentLifecycleInput } from '@/lib/documents/document-status-labels';
+import type { TransactionDocumentType } from '@/lib/transaction-settings/types';
 
 type Props = {
   invoiceNumber: string;
@@ -35,8 +37,21 @@ type Props = {
   onEdit?: () => void;
   journalEntryId?: string | null;
   journalNumber?: string | null;
+  journalOptions?: { id: string; label: string }[];
+  onJournalIdChange?: (id: string) => void;
+  lifecycle?: DocumentLifecycleInput;
+  isCancelled?: boolean;
+  isPosted?: boolean;
+  onRestore?: () => void;
+  restorePending?: boolean;
   onPreviewJournal?: () => void;
+  sourceActions?: ReactNode;
+  /** @deprecated use sourceActions */
   toolbarLeading?: ReactNode;
+  extraMenuItems?: Array<{ id: string; label: string; onClick: () => void; disabled?: boolean }>;
+  followUpActions?: ReactNode;
+  transactionSettingsDocumentType?: TransactionDocumentType;
+  onTransactionSettingsSaved?: () => void;
 };
 
 /** Sales invoice header. Purchase only changes the party-side labels. */
@@ -72,8 +87,19 @@ export function PurchaseInvoicePageHeader(props: Props) {
       onEdit={props.onEdit}
       journalEntryId={props.journalEntryId}
       journalNumber={props.journalNumber}
+      journalOptions={props.journalOptions}
+      onJournalIdChange={props.onJournalIdChange}
+      lifecycle={props.lifecycle}
+      isCancelled={props.isCancelled}
+      isPosted={props.isPosted}
+      onRestore={props.onRestore}
+      restorePending={props.restorePending}
       onPreviewJournal={props.onPreviewJournal}
-      toolbarLeading={props.toolbarLeading}
+      sourceActions={props.sourceActions ?? props.toolbarLeading}
+      extraMenuItems={props.extraMenuItems}
+      followUpActions={props.followUpActions}
+      transactionSettingsDocumentType={props.transactionSettingsDocumentType}
+      onTransactionSettingsSaved={props.onTransactionSettingsSaved}
       hideStandalonePost
       title="فاتورة مشتريات"
       breadcrumbLabel="فاتورة مشتريات"

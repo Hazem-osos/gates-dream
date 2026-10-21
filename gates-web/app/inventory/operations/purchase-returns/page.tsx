@@ -18,23 +18,41 @@ import SuccessToast from '@/components/SuccessToast';
 import { toastVersionConflict } from '@/lib/feedback/toast';
 import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
 import { mapSalesFormToM5CreateBody, mapSalesFormToM5UpdateBody } from '@/lib/invoices/mapFormToM5Invoice';
-import { computeInvoiceFinancialSummary } from '@/lib/invoices/computeInvoiceFinancialSummary';
+import {
+  computeInvoiceFinancialSummary,
+  computeInvoiceGrossDiscount,
+} from '@/lib/invoices/computeInvoiceFinancialSummary';
+import { sumPartyInvoiceExtras, type InvoiceAdjustmentApiRow } from '@/lib/invoices/invoice-adjustments';
+import { useInvoiceExtras } from '@/lib/invoices/use-invoice-extras';
+import { InvoiceExtrasPanel } from '@/components/inventory/invoices/InvoiceExtrasPanel';
+import { readInvoiceLineItemName } from '@/lib/invoices/stock-impact-line';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ERP_INVOICE_DOCUMENT_LAYOUT_CLASS } from '@/components/erp/erpUiTokens';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ReturnInvoiceFormHeader, type SourceInvoiceOption } from '@/components/inventory/returns/ReturnInvoiceFormHeader';
 import type { ReturnLineForm } from '@/components/inventory/returns/ReturnInvoiceLinesGrid';
-import type { TransactionSettings } from '@/lib/transaction-settings/types';
-import { TransactionSettingsDrawer } from '@/components/settings/transaction-settings/TransactionSettingsDrawer';
+import { isTransactionSerialAutomatic } from '@/lib/transaction-settings/serial-mode';
+import {
+  shouldLockLoadedSource,
+  shouldShowAllAccountsInPartyField,
+  type TransactionSettings,
+} from '@/lib/transaction-settings/types';
+import { dispatchAutoPrintAfterSave } from '@/lib/printer/print-prefs';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
 import { PurchaseInvoiceBottomSplit } from '@/components/inventory/purchase-invoice/PurchaseInvoiceBottomSplit';
 import dynamic from 'next/dynamic';
 import { LineGridSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { apiClient } from '@/lib/api/client';
 import { confirmAction } from '@/lib/feedback/confirm';
+import { retryIfNegativeStockConfirm } from '@/lib/invoices/purchase-unpost-negative-stock';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
+import { toast } from '@/lib/feedback/toast';
 import { invalidateInvoiceReturnCaches } from '@/lib/invoices/invalidate-after-return';
+import { savedInvoiceHydrateKey } from '@/lib/invoices/invoice-form-hydrate';
 import { finishDocumentSave } from '@/lib/documents/finish-save';
-import { unpostedDocumentStatusLabel } from '@/lib/documents/document-status-labels';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
+import { InternalNotesScratchpad } from '@/components/documents/InternalNotesScratchpad';
+import type { InternalNoteEntry } from '@/lib/invoices/payment-split.types';
 import {
   buildCashTenderSplits,
   isCashPaymentMethod,
@@ -44,9 +62,24 @@ import {
 import { paymentMethodForCashPaid } from '@/components/invoices/InvoiceCashPaidControls';
 import { sumPaymentSplits, type PaymentSplitLine } from '@/lib/invoices/payment-split.types';
 import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
-import { PURCHASE_RETURN_SOURCE_TYPES, type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { MultiPaymentSplitterModal } from '@/components/invoices/MultiPaymentSplitterModal';
 import { pickDefaultSafeId, useSafesQuery } from '@/lib/hooks/useMasterDataQueries';
+import { postInvoiceSettlementSplits } from '@/lib/invoices/post-invoice-settlement-splits';
+import {
+  type InvoiceCashSettlement,
+  type InvoiceChequesPayload,
+  invoiceCashPaidDisplayAmount,
+  invoiceRemainingForCollect,
+  unwrapInvoiceCheques,
+} from '@/lib/invoices/invoice-settlements';
+import {
+  invoiceNetBelowCollectionsMessage,
+  invoiceNetCoversCollections,
+} from '@/lib/invoices/invoice-collected-guard';
+import { invoicePaymentButtonDisabled } from '@/lib/invoices/invoice-payment-controls';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 
 const ReturnInvoiceLinesGrid = dynamic(
   () =>
@@ -63,11 +96,49 @@ interface Currency {
 }
 interface Item {
   id: string;
+  code?: string;
+  serial?: string;
+  arabicName?: string;
   units?: { unit?: { id: string } }[];
 }
 interface PartyPerson {
   id: string;
   arabicName: string;
+}
+
+type PurchaseReturnDraft = {
+  invoiceNumber: string;
+  description: string;
+  date: string;
+  supplierId: string;
+  warehouseId: string;
+  currencyId: string;
+  sourcePurchaseInvoiceId: string;
+  returnLines: ReturnLineForm[];
+  returnReason: string;
+  debitNoteNumber: string;
+  settlementMethod: string;
+  treasuryId: string;
+  cashPaid?: number;
+  delegateId: string;
+  driverId: string;
+  distributorId: string;
+  internalNotes: InternalNoteEntry[];
+};
+
+function isPurchaseReturnDraftEmpty(draft: PurchaseReturnDraft) {
+  const hasLine = (draft.returnLines ?? []).some((line) => Boolean(line.itemId?.trim()));
+  return (
+    !draft.supplierId?.trim() &&
+    !draft.description?.trim() &&
+    !draft.sourcePurchaseInvoiceId?.trim() &&
+    !draft.returnReason?.trim() &&
+    !draft.invoiceNumber?.trim() &&
+    !draft.debitNoteNumber?.trim() &&
+    !hasLine &&
+    (draft.settlementMethod || 'credit') === 'credit' &&
+    !draft.treasuryId?.trim()
+  );
 }
 
 export default function PurchaseReturnsPage() {
@@ -77,6 +148,8 @@ export default function PurchaseReturnsPage() {
   const fromInvoiceParam = searchParams.get('fromInvoice');
   const invoiceIdParam = searchParams.get('invoiceId');
   const prefillApplied = useRef(false);
+  const returnableHydratedRef = useRef<string | null>(null);
+  const lastHydrateKeyRef = useRef<string | null>(null);
 
   const invalidateQuery = useInvalidateQuery();
   const [selectedReturnId, setSelectedReturnId] = useState<string | null>(
@@ -84,7 +157,8 @@ export default function PurchaseReturnsPage() {
   );
   const appliedInvoiceIdRef = useRef(invoiceIdParam?.trim() || '');
   const [isPosted, setIsPosted] = useState(false);
-  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
+  const [restorePending, setRestorePending] = useState(false);
+  const [cancelPending, setCancelPending] = useState(false);
   const [showList, setShowList] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -99,7 +173,16 @@ export default function PurchaseReturnsPage() {
   const [sourcePurchaseInvoiceId, setSourcePurchaseInvoiceId] = useState('');
   const [sourceBarKey, setSourceBarKey] = useState(0);
   const [returnLines, setReturnLines] = useState<ReturnLineForm[]>([]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const {
+    invoiceExtras,
+    setInvoiceExtras,
+    extrasOpen,
+    setExtrasOpen,
+    loadAdjustments,
+    resetExtras,
+    getExtrasPayload,
+    validateExtras,
+  } = useInvoiceExtras();
   const [returnReason, setReturnReason] = useState('');
   const [debitNoteNumber, setDebitNoteNumber] = useState('');
   const [settlementMethod, setSettlementMethod] = useState('credit');
@@ -111,6 +194,7 @@ export default function PurchaseReturnsPage() {
   const [delegateId, setDelegateId] = useState('');
   const [driverId, setDriverId] = useState('');
   const [distributorId, setDistributorId] = useState('');
+  const [internalNotes, setInternalNotes] = useState<InternalNoteEntry[]>([]);
 
   const { data: safesResponse } = useSafesQuery();
   const defaultSafeId = pickDefaultSafeId(safesResponse?.data);
@@ -120,8 +204,12 @@ export default function PurchaseReturnsPage() {
     '/transaction-settings/PURCHASE_RETURN'
   );
   const txSettings = txSettingsRes?.data;
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost(
+    txSettings?.autoPostOnSave
+  );
   const allowStandalone = txSettings?.allowStandaloneReturns !== false;
   const enforceOriginalPrice = txSettings?.enforceOriginalPrice !== false;
+  const lockLoadedSource = shouldLockLoadedSource(txSettings, sourcePurchaseInvoiceId);
 
   const { data: invoiceResponse } = useApiQuery<Record<string, unknown>>(
     ['invoice', selectedReturnId],
@@ -130,6 +218,38 @@ export default function PurchaseReturnsPage() {
     { enabled: !!selectedReturnId, staleTime: 0, refetchOnMount: 'always' }
   );
   const selectedInvoice = invoiceResponse?.data;
+
+  const { data: settlementsResponse } = useApiQuery<InvoiceCashSettlement[]>(
+    ['invoice-settlements', selectedReturnId],
+    `/invoices/${selectedReturnId}/settlements`,
+    undefined,
+    { enabled: !!selectedReturnId }
+  );
+  const { data: settlementHistoryResponse } = useApiQuery<InvoiceCashSettlement[]>(
+    ['invoice-settlements-history', selectedReturnId],
+    `/invoices/${selectedReturnId}/settlements/history`,
+    undefined,
+    { enabled: !!selectedReturnId }
+  );
+  const { data: chequesResponse } = useApiQuery<InvoiceChequesPayload>(
+    ['invoice-settlements-cheques', selectedReturnId],
+    `/invoices/${selectedReturnId}/settlements/cheques`,
+    undefined,
+    { enabled: !!selectedReturnId }
+  );
+  const settlements = settlementsResponse?.data || [];
+  const settlementHistory = settlementHistoryResponse?.data || [];
+  const { cheques: settlementCheques } = unwrapInvoiceCheques(chequesResponse?.data);
+
+  const refreshSettlementQueries = useCallback(
+    (id: string) => {
+      invalidateQuery(['invoice', id]);
+      invalidateQuery(['invoice-settlements', id]);
+      invalidateQuery(['invoice-settlements-history', id]);
+      invalidateQuery(['invoice-settlements-cheques', id]);
+    },
+    [invalidateQuery]
+  );
 
   const { data: itemsResponse } = useApiQuery<Item[]>(
     ['items'],
@@ -229,12 +349,15 @@ export default function PurchaseReturnsPage() {
 
   useEffect(() => {
     if (!selectedReturnId || !selectedInvoice) return;
+    const hydrateKey = savedInvoiceHydrateKey(selectedInvoice);
+    if (hydrateKey && lastHydrateKeyRef.current === hydrateKey) return;
+    lastHydrateKeyRef.current = hydrateKey;
     setInvoiceNumber(String(selectedInvoice.invoiceNumber ?? ''));
     setDescription(String(selectedInvoice.description ?? ''));
     setDate(
       selectedInvoice.date
         ? new Date(String(selectedInvoice.date)).toISOString().split('T')[0]
-        : date
+        : new Date().toISOString().split('T')[0]
     );
     setSupplierId(String(selectedInvoice.supplierId ?? ''));
     setWarehouseId(String(selectedInvoice.warehouseId ?? ''));
@@ -264,7 +387,10 @@ export default function PurchaseReturnsPage() {
       })
     );
     setReturnLines(lines ?? []);
-  }, [selectedReturnId, selectedInvoice, currencyId, date]);
+    const rawNotes = (selectedInvoice as { internalNotes?: InternalNoteEntry[] }).internalNotes;
+    setInternalNotes(Array.isArray(rawNotes) ? rawNotes : []);
+    loadAdjustments((selectedInvoice as { adjustments?: InvoiceAdjustmentApiRow[] }).adjustments);
+  }, [selectedReturnId, selectedInvoice, loadAdjustments]);
 
   useEffect(() => {
     const inv = sourcePurchaseResponse?.data;
@@ -289,6 +415,8 @@ export default function PurchaseReturnsPage() {
   useEffect(() => {
     const snap = returnableRes?.data;
     if (!snap || !sourcePurchaseInvoiceId || selectedReturnId) return;
+    if (returnableHydratedRef.current === sourcePurchaseInvoiceId) return;
+    returnableHydratedRef.current = sourcePurchaseInvoiceId;
     setSupplierId(snap.supplierId || '');
     if (snap.warehouseId) setWarehouseId(snap.warehouseId);
     const refNo = snap.originalInvoiceNumber || sourcePurchaseInvoiceId;
@@ -329,7 +457,82 @@ export default function PurchaseReturnsPage() {
     });
   };
 
+  const draftSnapshot = useMemo(
+    (): PurchaseReturnDraft => ({
+      invoiceNumber,
+      description,
+      date,
+      supplierId,
+      warehouseId,
+      currencyId,
+      sourcePurchaseInvoiceId,
+      returnLines,
+      returnReason,
+      debitNoteNumber,
+      settlementMethod,
+      treasuryId,
+      cashPaid,
+      delegateId,
+      driverId,
+      distributorId,
+      internalNotes,
+    }),
+    [
+      invoiceNumber,
+      description,
+      date,
+      supplierId,
+      warehouseId,
+      currencyId,
+      sourcePurchaseInvoiceId,
+      returnLines,
+      returnReason,
+      debitNoteNumber,
+      settlementMethod,
+      treasuryId,
+      cashPaid,
+      delegateId,
+      driverId,
+      distributorId,
+      internalNotes,
+    ]
+  );
+
+  const applyPurchaseReturnDraft = useCallback((payload: PurchaseReturnDraft) => {
+    returnableHydratedRef.current = payload.sourcePurchaseInvoiceId?.trim() || null;
+    setInvoiceNumber(payload.invoiceNumber ?? '');
+    setDescription(payload.description ?? '');
+    setDate(payload.date || new Date().toISOString().split('T')[0]);
+    setSupplierId(payload.supplierId ?? '');
+    setWarehouseId(payload.warehouseId ?? '');
+    setCurrencyId(payload.currencyId ?? '');
+    setSourcePurchaseInvoiceId(payload.sourcePurchaseInvoiceId ?? '');
+    setReturnLines(Array.isArray(payload.returnLines) ? payload.returnLines : []);
+    setReturnReason(payload.returnReason ?? '');
+    setDebitNoteNumber(payload.debitNoteNumber ?? '');
+    setSettlementMethod(payload.settlementMethod === 'cash' ? 'cash' : 'credit');
+    setCashPaid(Number(payload.cashPaid) || 0);
+    setTreasuryId(payload.treasuryId ?? '');
+    setDelegateId(payload.delegateId ?? '');
+    setDriverId(payload.driverId ?? '');
+    setDistributorId(payload.distributorId ?? '');
+    setInternalNotes(Array.isArray(payload.internalNotes) ? payload.internalNotes : []);
+  }, []);
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'purchase-return',
+    mode: selectedReturnId ? 'edit' : 'new',
+    documentId: selectedReturnId,
+    value: draftSnapshot,
+    enabled: !isPosted,
+    isEmpty: isPurchaseReturnDraftEmpty,
+    restoreMessage: 'يوجد مسودة مردود مشتريات غير محفوظة',
+  });
+
   const resetForm = useCallback(() => {
+    clearDraft();
+    returnableHydratedRef.current = null;
+    lastHydrateKeyRef.current = null;
     resetKeepPosted();
     setSelectedReturnId(null);
     replaceQuery((params) => {
@@ -350,13 +553,16 @@ export default function PurchaseReturnsPage() {
     setDelegateId('');
     setDriverId('');
     setDistributorId('');
+    setInternalNotes([]);
     setDate(new Date().toISOString().split('T')[0]);
     setSourceBarKey((k) => k + 1);
-  }, [replaceQuery, resetKeepPosted, txSettings?.defaultWarehouseId]);
+    resetExtras();
+  }, [clearDraft, replaceQuery, resetExtras, resetKeepPosted, txSettings?.defaultWarehouseId]);
 
   const handleReturnSourceHydrate = useCallback(
     (payload: SourceHydratePayload) => {
       if (selectedReturnId || isPosted) return;
+      returnableHydratedRef.current = null;
       if (payload.supplierId) setSupplierId(payload.supplierId);
       if (payload.warehouseId) setWarehouseId(payload.warehouseId);
       if (payload.currencyId) setCurrencyId(payload.currencyId);
@@ -370,6 +576,17 @@ export default function PurchaseReturnsPage() {
     const ref = purchaseInvoices.find((i) => i.id === sourcePurchaseInvoiceId);
     return ref?.invoiceNumber || returnableRes?.data?.originalInvoiceNumber || sourcePurchaseInvoiceId;
   };
+
+  const summary = useMemo(() => {
+    const base = computeInvoiceFinancialSummary(returnLines, { applyTax: true });
+    const { gross, commercialDiscount } = computeInvoiceGrossDiscount(returnLines);
+    const extrasNet = sumPartyInvoiceExtras(invoiceExtras, gross - commercialDiscount, 1);
+    if (!extrasNet) return base;
+    return computeInvoiceFinancialSummary(returnLines, {
+      applyTax: true,
+      additionsAndDiscounts: extrasNet,
+    });
+  }, [returnLines, invoiceExtras]);
 
   const buildPayload = () => {
     if (!warehouseId) throw new Error('يرجى اختيار المخزن');
@@ -393,7 +610,7 @@ export default function PurchaseReturnsPage() {
     if (sourcePurchaseInvoiceId) {
       desc = desc ? `${desc} — مرجع: ${refLabel}` : `مرجع: ${refLabel}`;
     }
-    const netAmount = computeInvoiceFinancialSummary(returnLines, { applyTax: true }).netAmount;
+    const netAmount = summary.netAmount;
     const entered = settlementMethod === 'cash' && cashPaid <= 0.009 ? netAmount : cashPaid;
     const collected = sumPaymentSplits(returnSplits.filter((line) => line.type !== 'ON_ACCOUNT'));
     const paymentMethod = collected > 0.009 ? 'split' : paymentMethodForCashPaid(entered, netAmount);
@@ -428,7 +645,9 @@ export default function PurchaseReturnsPage() {
         delegateId: delegateId || undefined,
         driverId: driverId || undefined,
         distributorId: distributorId || undefined,
+        internalNotes,
         lines: returnLines,
+        adjustments: getExtrasPayload(),
       },
       { invoiceKind: 'PURCHASE_RETURN', currencies, items }
     );
@@ -465,25 +684,37 @@ export default function PurchaseReturnsPage() {
     }
   );
 
-  const postMutation = useApiMutation<unknown, Record<string, never>>(
-    selectedReturnId ? `/invoices/${selectedReturnId}/post` : '/invoices',
+  const postMutation = useApiMutation<unknown, Record<string, unknown>>(
+    `/invoices/${selectedReturnId || '_'}/post`,
     'POST',
     {
       onSuccess: () => {
         setIsPosted(true);
         setSuccess('تم ترحيل المردود');
+        if (selectedReturnId) refreshSettlementQueries(selectedReturnId);
         invalidateInvoiceReturnCaches(invalidateQuery, sourcePurchaseInvoiceId, selectedReturnId);
         invalidateStockViews(invalidateQuery);
+        invalidateQuery(['journal-entry']);
       },
-      onError: (error: ApiError) => {
+      onError: (error: ApiError, variables) => {
+        if (
+          retryIfNegativeStockConfirm(
+            error,
+            variables,
+            (body) => postMutation.mutate(body),
+            'confirmNegativeStockPost'
+          )
+        ) {
+          return;
+        }
         setIsPosted(false);
         setError(error.message || 'فشل الترحيل');
       },
     }
   );
 
-  const unpostMutation = useApiMutation<unknown, Record<string, never>>(
-    selectedReturnId ? `/invoices/${selectedReturnId}/unpost` : '/invoices',
+  const unpostMutation = useApiMutation<unknown, Record<string, unknown>>(
+    `/invoices/${selectedReturnId || '_'}/unpost`,
     'POST',
     {
       onSuccess: () => {
@@ -492,8 +723,35 @@ export default function PurchaseReturnsPage() {
         setSuccess('تم فك ترحيل المردود');
         invalidateInvoiceReturnCaches(invalidateQuery, sourcePurchaseInvoiceId, selectedReturnId);
         invalidateStockViews(invalidateQuery);
+        invalidateQuery(['journal-entry']);
       },
-      onError: (error: ApiError) => setError(error.message || 'فشل فك الترحيل'),
+      onError: (error: ApiError, variables) => {
+        if (
+          retryIfNegativeStockConfirm(error, variables, (body) => unpostMutation.mutate(body))
+        ) {
+          return;
+        }
+        setError(error.message || 'فشل فك الترحيل');
+      },
+    }
+  );
+
+  const cancelReturnMutation = useApiMutation<unknown, Record<string, never>>(
+    selectedReturnId ? `/invoices/${selectedReturnId}/cancel` : '/invoices',
+    'POST',
+    {
+      showSuccessToast: false,
+      onSuccess: () => {
+        toast.success('تم إلغاء المردود');
+        invalidateInvoiceReturnCaches(invalidateQuery, sourcePurchaseInvoiceId, selectedReturnId);
+        invalidateStockViews(invalidateQuery);
+        setIsPosted(false);
+        setCancelPending(false);
+      },
+      onError: (error: ApiError) => {
+        setCancelPending(false);
+        setError(error.message || 'تعذر الإلغاء');
+      },
     }
   );
 
@@ -501,13 +759,56 @@ export default function PurchaseReturnsPage() {
     createMutation.isPending ||
     updateMutation.isPending ||
     postMutation.isPending ||
-    unpostMutation.isPending;
+    unpostMutation.isPending ||
+    cancelReturnMutation.isPending ||
+    cancelPending;
+
+  const handleVoidReturn = async () => {
+    if (!selectedReturnId || financialBusy) return;
+    if (!(await confirmAction('إلغاء المستند؟ يمكن استعادته من قائمة (...).'))) return;
+    setCancelPending(true);
+    cancelReturnMutation.mutate({});
+  };
+
+  const handleRestoreCancelledReturn = async () => {
+    if (!selectedReturnId || restorePending) return;
+    setRestorePending(true);
+    try {
+      await restoreCancelledDocument({
+        restorePath: `/invoices/${selectedReturnId}/restore`,
+        postPath: `/invoices/${selectedReturnId}/post`,
+        kind: 'invoice',
+        autoPostOnSave: txSettings?.autoPostOnSave,
+      });
+      invalidateInvoiceReturnCaches(invalidateQuery, sourcePurchaseInvoiceId, selectedReturnId);
+      invalidateStockViews(invalidateQuery);
+      setSuccess(
+        txSettings?.autoPostOnSave ? 'تمت الاستعادة والترحيل' : 'تمت الاستعادة — المستند غير مرحّل'
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'تعذر الاستعادة');
+    } finally {
+      setRestorePending(false);
+    }
+  };
 
   const handleSave = async (andPost = false) => {
     if (financialBusy || isPosted) return;
     setError('');
+    const extrasValidation = validateExtras();
+    if (extrasValidation) {
+      setError(extrasValidation);
+      setExtrasOpen(true);
+      return;
+    }
     try {
       const body = buildPayload();
+      const netAmount = summary.netAmount;
+      const savedPaid = Number((selectedInvoice as { paidAmount?: number } | undefined)?.paidAmount ?? 0);
+      const confirmNetBelowCollections =
+        selectedReturnId &&
+        savedPaid > 0.009 &&
+        !invoiceNetCoversCollections(netAmount, savedPaid);
       let id = selectedReturnId;
       let alreadyPosted = false;
       let number = invoiceNumber;
@@ -529,6 +830,7 @@ export default function PurchaseReturnsPage() {
               driverId: driverId || undefined,
               distributorId: distributorId || undefined,
               lines: returnLines,
+              adjustments: getExtrasPayload(),
             },
             {
               invoiceKind: 'PURCHASE_RETURN',
@@ -536,6 +838,8 @@ export default function PurchaseReturnsPage() {
               items,
               expectedVersion:
                 typeof selectedInvoice?.version === 'number' ? selectedInvoice.version : undefined,
+              lockPaymentTenders: savedPaid > 0.009,
+              confirmNetBelowCollections: confirmNetBelowCollections ? true : undefined,
             }
           )
         );
@@ -550,13 +854,18 @@ export default function PurchaseReturnsPage() {
         number = created?.invoiceNumber || number;
       }
       if (!id) return;
+      clearDraft();
       let posted = alreadyPosted;
       if (andPost || consumeShouldRepost()) {
         await postInvoiceAfterSave(id);
         posted = true;
       }
+      refreshSettlementQueries(id);
       invalidateInvoiceReturnCaches(invalidateQuery, sourcePurchaseInvoiceId, id);
       invalidateStockViews(invalidateQuery);
+      if (txSettings?.autoPrintOnSave) {
+        dispatchAutoPrintAfterSave();
+      }
       finishDocumentSave({
         label: 'مردود مشتريات',
         number,
@@ -570,32 +879,38 @@ export default function PurchaseReturnsPage() {
     }
   };
 
-  const summary = useMemo(
-    () => computeInvoiceFinancialSummary(returnLines, { applyTax: true }),
-    [returnLines]
-  );
+  const paymentUiEnabled = !invoicePaymentButtonDisabled('sales-invoice', {
+    isPosted,
+    isReadOnly: isPosted,
+  });
 
   return (
     <ErpDocumentLayout className={ERP_INVOICE_DOCUMENT_LAYOUT_CLASS}>
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
+      <PageDraftRestoreGate<PurchaseReturnDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedReturnId)}
+        message="يوجد مسودة مردود مشتريات غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyPurchaseReturnDraft(payload);
+          setSuccess('تم استعادة مسودة مردود المشتريات');
+        }}
+      />
+
       <SalesInvoicePageHeader
         title="مردود مشتريات"
         breadcrumbLabel="مردودات المشتريات"
         invoiceKind="PURCHASE_RETURN"
-        toolbarLeading={
-          <DocumentSourceLoadBar
-            key={sourceBarKey}
-            hasExistingLines={returnLines.some((l) => Boolean(l.itemId))}
-            disabled={isPosted || Boolean(selectedReturnId)}
-            allowedTypes={PURCHASE_RETURN_SOURCE_TYPES}
-            onHydrate={handleReturnSourceHydrate}
-          />
-        }
         invoiceNumber={invoiceNumber}
-        statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحّل' : unpostedDocumentStatusLabel(Boolean(selectedReturnId))}
+        lifecycle={{
+          documentId: selectedReturnId,
+          isPosted,
+          isCancelled: Boolean((selectedInvoice as { isCancelled?: boolean } | undefined)?.isCancelled),
+        }}
         savePending={financialBusy}
         postPending={postMutation.isPending || unpostMutation.isPending}
         canPost={!!selectedReturnId && !isPosted && !financialBusy}
@@ -625,25 +940,26 @@ export default function PurchaseReturnsPage() {
           invoiceKind: 'PURCHASE_RETURN',
           supplierId,
           warehouseId,
-          lines: returnLines,
+          lines: returnLines.map((line) => {
+            const it = items.find((item) => item.id === line.itemId);
+            return {
+              ...line,
+              taxRate: line.taxRate,
+              item: it
+                ? { code: it.code, serial: it.serial, arabicName: it.arabicName }
+                : undefined,
+            };
+          }),
         }}
         onUnpost={() => {
           if (selectedReturnId) unpostMutation.mutate({});
         }}
-        onDelete={() => {
-          void (async () => {
-            if (!selectedReturnId || isPosted || financialBusy) return;
-            if (!(await confirmAction('حذف مردود المشتريات غير المرحّل؟'))) return;
-            try {
-              await apiClient.delete(`/invoices/${selectedReturnId}`);
-              invalidateInvoiceReturnCaches(invalidateQuery, sourcePurchaseInvoiceId, selectedReturnId);
-              resetForm();
-              setSuccess('تم حذف المسودة');
-            } catch (error) {
-              setError(error instanceof Error ? error.message : 'تعذر حذف المردود');
-            }
-          })();
-        }}
+        onDelete={() => void handleVoidReturn()}
+        isPosted={isPosted}
+        isCancelled={Boolean((selectedInvoice as { isCancelled?: boolean } | undefined)?.isCancelled)}
+        onRestore={() => void handleRestoreCancelledReturn()}
+        restorePending={restorePending}
+        deletePending={cancelReturnMutation.isPending || cancelPending}
         onOpenJournal={() => {
           if (!selectedReturnId) return;
           router.push(destinationAppTabHref(`/accounting/operations/journal-entry?ref=invoice&id=${selectedReturnId}`));
@@ -653,14 +969,11 @@ export default function PurchaseReturnsPage() {
         onEdit={() => {
           if (isPosted) setError('فك الترحيل أولاً حتى يمكن التعديل');
         }}
-        extraMenuItems={[{ id: 'settings', label: 'خيارات إضافية', onClick: () => setSettingsOpen(true) }]}
+        transactionSettingsDocumentType="PURCHASE_RETURN"
+        onTransactionSettingsSaved={() =>
+          invalidateAfterTransactionSettingsSave(invalidateQuery, 'PURCHASE_RETURN')
+        }
         journalEntryId={(selectedInvoice as { journalEntryId?: string | null } | undefined)?.journalEntryId}
-      />
-
-      <TransactionSettingsDrawer
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        documentType="PURCHASE_RETURN"
       />
 
       <DocumentBrowseDrawer
@@ -684,18 +997,44 @@ export default function PurchaseReturnsPage() {
 
       <ReturnInvoiceFormHeader
         variant="purchase"
+        disabled={isPosted}
+        includeAllAccounts={shouldShowAllAccountsInPartyField(txSettings)}
+        sourceActions={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={returnLines.some((l) => Boolean(l.itemId))}
+            disabled={isPosted || Boolean(selectedReturnId) || lockLoadedSource}
+            sourceRole="purchase-return"
+            onHydrate={handleReturnSourceHydrate}
+          />
+        }
+        headerActions={
+          <InternalNotesScratchpad
+            notes={internalNotes}
+            onChange={setInternalNotes}
+            disabled={isPosted}
+            className="inline-flex"
+          />
+        }
         partyId={supplierId}
         onPartyId={setSupplierId}
         warehouseId={warehouseId}
-        onWarehouseId={setWarehouseId}
+        onWarehouseId={(id) => {
+          setWarehouseId(id);
+          setReturnLines((prev) => prev.map((line) => ({ ...line, warehouseId: id })));
+        }}
         date={date}
         onDate={setDate}
         invoiceNumber={invoiceNumber}
         onInvoiceNumber={setInvoiceNumber}
+        serialAutomatic={isTransactionSerialAutomatic(txSettings?.numberingMode)}
+        hasSavedDocument={Boolean(selectedReturnId)}
         sourceInvoiceId={sourcePurchaseInvoiceId}
         onSourceInvoiceId={(id) => {
+          if (id !== sourcePurchaseInvoiceId) returnableHydratedRef.current = null;
           setSourcePurchaseInvoiceId(id);
           if (!id) {
+            returnableHydratedRef.current = null;
             setReturnLines((prev) =>
               prev.map((l) => ({
                 ...l,
@@ -746,11 +1085,33 @@ export default function PurchaseReturnsPage() {
           lines={returnLines}
           onChange={setReturnLines}
           warehouseId={warehouseId}
-          lockUnitPrice={Boolean(sourcePurchaseInvoiceId) && enforceOriginalPrice}
-          allowAddLines={allowStandalone}
+          readOnly={isPosted}
+          lockUnitPrice={Boolean(sourcePurchaseInvoiceId)}
+          allowAddLines={!isPosted && allowStandalone && !sourcePurchaseInvoiceId}
+          addLineBlockedMessage={
+            sourcePurchaseInvoiceId
+              ? 'لا يمكن إضافة سطر بعد تحميل فاتورة من القسم — عدّل الكميات على البنود المحمّلة فقط.'
+              : !allowStandalone
+                ? 'يجب تحميل بنود المردود من فاتورة أصلية (القسم والرقم).'
+                : undefined
+          }
           headerDescription={description}
         />
       </div>
+
+      <InvoiceExtrasPanel
+        open={extrasOpen}
+        onToggle={() => setExtrasOpen((v) => !v)}
+        rows={invoiceExtras}
+        onChange={setInvoiceExtras}
+        currencies={currencies}
+        defaultCurrency={currencies.find((c) => c.id === currencyId)?.code ?? 'EGP'}
+        defaultExchangeRate={1}
+        defaultCostCenterId=""
+        disabled={isPosted}
+        count={getExtrasPayload().length}
+        headerDescription={description}
+      />
 
       <PurchaseInvoiceBottomSplit
         stockSign={-1}
@@ -764,6 +1125,7 @@ export default function PurchaseReturnsPage() {
           selectedReturnId && Array.isArray((selectedInvoice as { lines?: unknown[] } | undefined)?.lines)
             ? ((selectedInvoice as { lines: Record<string, unknown>[] }).lines).map((line) => ({
                 itemId: String(line.itemId ?? ''),
+                itemName: readInvoiceLineItemName(line),
                 quantity: Number(line.quantity) || 0,
                 baseQuantity: Number(line.baseQuantity ?? line.quantity) || 0,
                 unitPrice: Number(line.price ?? line.unitPrice) || 0,
@@ -775,31 +1137,70 @@ export default function PurchaseReturnsPage() {
         journalEntryId={(selectedInvoice as { journalEntryId?: string | null })?.journalEntryId}
         selectedInvoiceId={selectedReturnId}
         isPosted={isPosted}
+        settlements={settlements}
+        settlementHistory={settlementHistory}
+        cheques={settlementCheques}
+        paidAmount={Number((selectedInvoice as { paidAmount?: number } | undefined)?.paidAmount) || 0}
+        remainingAmount={
+          invoiceRemainingForCollect(selectedInvoice as Record<string, unknown> | undefined) ?? 0
+        }
         cashPayment={{
-          paidAmount:
-            sumPaymentSplits(returnSplits.filter((line) => line.type !== 'ON_ACCOUNT')) || cashPaid,
+          paidAmount: invoiceCashPaidDisplayAmount({
+            isPosted,
+            savedPaidAmount:
+              Number((selectedInvoice as { paidAmount?: number } | undefined)?.paidAmount) || 0,
+            paymentMethod: returnSplits.some((line) => line.type !== 'ON_ACCOUNT')
+              ? 'split'
+              : settlementMethod === 'cash'
+                ? 'cash'
+                : 'credit',
+            advancePaidAmount: cashPaid,
+            splitTenderPaid: sumPaymentSplits(returnSplits.filter((line) => line.type !== 'ON_ACCOUNT')),
+            netAmount: summary.netAmount,
+          }),
           method: returnSplits.some((line) => line.type !== 'ON_ACCOUNT')
             ? 'split'
             : settlementMethod === 'cash'
               ? 'cash'
               : 'credit',
-          disabled: isPosted,
           onOpenSplit: () => setPayOpen(true),
+          disabled: !paymentUiEnabled,
         }}
       />
       {payOpen ? (
         <MultiPaymentSplitterModal
           open
           onClose={() => setPayOpen(false)}
-          grandTotal={summary.netAmount}
+          grandTotal={
+            isPosted
+              ? invoiceRemainingForCollect(selectedInvoice as Record<string, unknown> | undefined) ??
+                summary.netAmount
+              : summary.netAmount
+          }
           direction="RECEIPT"
-          initial={returnSplits}
+          initial={isPosted ? [] : returnSplits}
           onConfirm={(splits) => {
-            const paid = sumPaymentSplits(splits.filter((line) => line.type !== 'ON_ACCOUNT'));
-            setCashPaid(paid);
-            setSettlementMethod(paymentMethodForCashPaid(paid, summary.netAmount));
-            setReturnSplits(paid > 0.009 ? splits : []);
-            setPayOpen(false);
+            if (!isPosted) {
+              const paid = sumPaymentSplits(splits.filter((line) => line.type !== 'ON_ACCOUNT'));
+              setCashPaid(paid);
+              setSettlementMethod(paymentMethodForCashPaid(paid, summary.netAmount));
+              setReturnSplits(paid > 0.009 ? splits : []);
+              setPayOpen(false);
+              return;
+            }
+            if (!selectedReturnId) {
+              setPayOpen(false);
+              return;
+            }
+            void postInvoiceSettlementSplits(selectedReturnId, splits)
+              .then(() => {
+                setSuccess('تم تسجيل التحصيل');
+                setPayOpen(false);
+                refreshSettlementQueries(selectedReturnId);
+              })
+              .catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : 'تعذر تسجيل التحصيل');
+              });
           }}
         />
       ) : null}

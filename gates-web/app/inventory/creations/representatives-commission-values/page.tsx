@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Percent, Plus, Trash2 } from 'lucide-react';
 import {
   Button,
@@ -63,6 +65,23 @@ export default function RepresentativesCommissionValuesPage() {
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
 
+  type CommissionValuesDraft = { form: FormState; tiers: TierRow[] };
+  const draftSnapshot = useMemo<CommissionValuesDraft>(() => ({ form, tiers }), [form, tiers]);
+  const applyCommissionValuesDraft = useCallback((payload: CommissionValuesDraft) => {
+    setForm(payload.form);
+    setTiers(payload.tiers);
+    setSelectedId(null);
+    setError('');
+  }, []);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'representatives-commission-values',
+    editingId: selectedId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.form.name.trim() && !d.form.serial.trim(),
+    applyRestore: applyCommissionValuesDraft,
+    restoreMessage: 'يوجد مسودة سياسة عمولات قيم غير محفوظة',
+  });
+
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
 
   const applyRow = (row: CommissionValueRow) => {
@@ -83,6 +102,7 @@ export default function RepresentativesCommissionValuesPage() {
   };
 
   const handleNew = () => {
+    clearDraft();
     setSelectedId(null);
     setForm(emptyForm());
     setTiers([emptyTier(), emptyTier(), emptyTier()]);
@@ -120,6 +140,7 @@ export default function RepresentativesCommissionValuesPage() {
         );
       }
       invalidateQuery(['representatives-commissions-values']);
+      clearDraft();
       handleNew();
       setSuccess('تم حفظ سياسة العمولة — تقدر تضيف التالي');
     } catch (err: unknown) {
@@ -160,6 +181,14 @@ export default function RepresentativesCommissionValuesPage() {
       currentId={selectedId}
       favoriteHref="/inventory/creations/representatives-commission-values"
     >
+      <MasterCardDraftRestoreGate<CommissionValuesDraft>
+        editingId={selectedId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyCommissionValuesDraft}
+        message="يوجد مسودة سياسة عمولات قيم غير محفوظة."
+      />
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 

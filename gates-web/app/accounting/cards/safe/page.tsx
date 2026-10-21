@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { MasterCardShell } from '@/components/erp';
 import { useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
@@ -37,8 +39,24 @@ export default function SafeCardPage() {
     setValues((prev) => ({ ...prev, ...next }));
   }, []);
 
+  const draftSnapshot = useMemo(() => values, [values]);
+
+  const applySafeDraft = useCallback((payload: SafeCardValues) => {
+    setValues({ ...EMPTY_SAFE_CARD, ...payload });
+    setError('');
+  }, []);
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'safe-card',
+    value: draftSnapshot,
+    isEmpty: (v) => !v.arabicName.trim() && !v.code.trim() && !v.parentAccountId,
+    applyRestore: applySafeDraft,
+    restoreMessage: 'يوجد مسودة بطاقة خزنة غير محفوظة',
+  });
+
   const mutation = useApiMutation<SafeRow, Record<string, unknown>>('/accounting/safes', 'POST', {
     onSuccess: (res) => {
+      clearDraft();
       const created = res?.data;
       if (created?.id) {
         quickCreate.complete({
@@ -96,6 +114,13 @@ export default function SafeCardPage() {
     >
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+      <MasterCardDraftRestoreGate<SafeCardValues>
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applySafeDraft}
+        message="يوجد مسودة بطاقة خزنة غير محفوظة."
+      />
       <SafeCardFields values={values} onChange={patch} />
     </MasterCardShell>
   );

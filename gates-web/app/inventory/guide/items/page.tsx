@@ -31,7 +31,21 @@ import {
 import { isUngroupedCategory } from '@/lib/inventory/guide-visible-items';
 import { rememberCreatedItemCategory } from '@/lib/inventory/remember-item-category';
 
-export default function ItemsGuidePage() {
+type GuideCrumb = { href?: string; label: string };
+
+const INVENTORY_ITEMS_GUIDE_CRUMBS: GuideCrumb[] = [
+  { href: '/inventory', label: 'المخازن' },
+  { label: 'الدليل' },
+  { label: 'الأصناف' },
+];
+
+export function ItemsGuideScreen({
+  breadcrumbs = INVENTORY_ITEMS_GUIDE_CRUMBS,
+  favoriteHref = '/inventory/guide/items',
+}: {
+  breadcrumbs?: GuideCrumb[];
+  favoriteHref?: string;
+} = {}) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const invalidate = useInvalidateQuery();
@@ -333,11 +347,7 @@ export default function ItemsGuidePage() {
       <ErpDocumentPageHeader
         compact
         lockWhenPosted={false}
-        breadcrumbs={[
-          { href: '/inventory', label: 'المخازن' },
-          { label: 'الدليل' },
-          { label: 'الأصناف' },
-        ]}
+        breadcrumbs={breadcrumbs}
         title="دليل الأصناف"
         showDocumentRef={false}
         statusTone="info"
@@ -345,7 +355,7 @@ export default function ItemsGuidePage() {
         hideStandalonePost
         hideBrowseList
         hideActionMenu
-        favoriteHref="/inventory/guide/items"
+        favoriteHref={favoriteHref}
         favoriteLabel="دليل الأصناف"
         extraActions={
           <Link href="/inventory/guide/items/import">
@@ -530,4 +540,8 @@ export default function ItemsGuidePage() {
       />
     </ErpDocumentLayout>
   );
+}
+
+export default function ItemsGuidePage() {
+  return <ItemsGuideScreen />;
 }

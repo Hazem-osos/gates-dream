@@ -2,7 +2,7 @@
 
 import { Controller, useWatch, type Control, type FieldErrors, type UseFormRegister, type UseFormSetValue } from 'react-hook-form';
 import dynamic from 'next/dynamic';
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { CustomerSelect } from '@/components/form/PartySelect';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
@@ -26,10 +26,10 @@ import { useFollowCurrencyCardRate } from '@/lib/hooks/useFollowCurrencyCardRate
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
+import { WarehouseItemScopeToggle } from '@/components/form/WarehouseItemScopeToggle';
 import { MultiStockPermitLoadControl } from '@/components/invoices/MultiStockPermitLoadControl';
 import { type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import type { MultiStockPermitHydrateRequest } from '@/lib/invoices/multi-source-hydrate';
-import { salesInvoiceSourceTypes } from '@/lib/transaction-settings/affect-stock';
 import { formatUserDisplayName } from '@/lib/user/profile';
 import type { CashTenderKind, InvoiceChequeDraft } from '@/lib/invoices/cash-tender';
 import type { PaymentSplitLine } from '@/lib/invoices/payment-split.types';
@@ -124,6 +124,8 @@ type Props = {
   splitCollectMode?: boolean;
   /** من إعدادات المستند: التأثير على أرصدة المخازن */
   affectsStock?: boolean;
+  serialAutomatic?: boolean;
+  hasSavedDocument?: boolean;
 };
 
 export function SalesInvoiceFormHeader({
@@ -161,6 +163,8 @@ export function SalesInvoiceFormHeader({
   onMultiStockPermitHydrate,
   includeAllAccounts = false,
   affectsStock = true,
+  serialAutomatic = false,
+  hasSavedDocument = false,
 }: Props) {
   const mounted = useClientMounted();
   const { code: companyBase } = useCompanyBaseCurrency();
@@ -208,7 +212,12 @@ export function SalesInvoiceFormHeader({
     <>
       <div>
         <label className={erpLabelClass}>رقم الفاتورة</label>
-        <input className={erpInputClass} placeholder="اختياري" {...register('invoiceNumber')} />
+        <input
+          className={erpInputClass}
+          placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل الرقم يدوياً'}
+          readOnly={serialAutomatic && !hasSavedDocument}
+          {...register('invoiceNumber')}
+        />
       </div>
       <div>
         <DatePickerWithHijri
@@ -258,31 +267,30 @@ export function SalesInvoiceFormHeader({
         <label className={erpLabelClass}>البيان / الشرح</label>
         <input className={erpInputClass} placeholder="ملاحظات مختصرة" {...register('description')} />
       </div>
-      {affectsStock ? (
-        <div>
-          <label className={erpLabelClass}>
-            المخزن الافتراضي
-            <RequiredDot hint="يُستخدم كمخزن افتراضي لكل سطر — يمكن تغيير المخزن على مستوى الصنف" />
-          </label>
-          <Controller
-            name="warehouseId"
-            control={control}
-            render={({ field }) => (
-              <WarehouseSelect
-                value={field.value}
-                onChange={field.onChange}
-                disabled={lockWarehouse}
-                className={`${erpInputClass} ${err(!!errors.warehouseId)}`}
-              />
-            )}
-          />
-          <ErpFieldError message={errors.warehouseId?.message} show={showValidationErrors} />
-        </div>
-      ) : null}
+      <div>
+        <label className={erpLabelClass}>
+          المخزن الافتراضي
+          {affectsStock ? (
+            <RequiredDot hint="مطلوب عند التأثير على المخزن — يُستخدم كافتراضي لكل سطر" />
+          ) : null}
+        </label>
+        <Controller
+          name="warehouseId"
+          control={control}
+          render={({ field }) => (
+            <WarehouseSelect
+              value={field.value}
+              onChange={field.onChange}
+              disabled={lockWarehouse}
+              className={`${erpInputClass} ${err(!!errors.warehouseId)}`}
+            />
+          )}
+        />
+        <ErpFieldError message={errors.warehouseId?.message} show={showValidationErrors} />
+        <WarehouseItemScopeToggle />
+      </div>
     </>
   );
-
-  const salesSourceTypes = useMemo(() => salesInvoiceSourceTypes(affectsStock), [affectsStock]);
 
   const sourceLoadControl =
     onSourceHydrate ? (
@@ -292,7 +300,7 @@ export function SalesInvoiceFormHeader({
         sourceNumber={sourceNumber ?? ''}
         hasExistingLines={hasExistingLines}
         disabled={sourceDisabled}
-        allowedTypes={salesSourceTypes}
+        currentAffectsStock={affectsStock}
         onTypeChange={(type) => {
           setValue('sourceType', type || 'NONE', { shouldDirty: true });
           setValue('sourceId', '', { shouldDirty: true });
@@ -442,10 +450,19 @@ export function SalesInvoiceFormHeader({
         </select>
       </div>
       <label className="flex items-end gap-2 pb-2 text-sm text-slate-700 cursor-pointer">
-        <input
-          type="checkbox"
-          className="rounded border-slate-300 text-[#0E78AA] focus:ring-[#0E78AA]"
-          {...register('allowReturn')}
+        <Controller
+          name="allowReturn"
+          control={control}
+          render={({ field }) => (
+            <input
+              type="checkbox"
+              className="rounded border-slate-300 text-[#0E78AA] focus:ring-[#0E78AA]"
+              checked={field.value !== false}
+              onBlur={field.onBlur}
+              ref={field.ref}
+              onChange={(e) => field.onChange(e.target.checked)}
+            />
+          )}
         />
         السماح بالإرجاع
       </label>
@@ -601,20 +618,20 @@ export function SalesInvoiceFormHeader({
       extras={extras}
       extrasOpen={headerExtrasOpen}
       onExtrasOpenChange={onHeaderExtrasOpenChange}
-      headerActions={
+      sourceActions={
         <>
           {sourceLoadControl}
           {onMultiStockPermitHydrate ? (
             <MultiStockPermitLoadControl
-              permitTypes={['DELIVERY_NOTE']}
+              permitTypes={affectsStock ? ['DELIVERY_NOTE'] : ['DELIVERY_NOTE', 'GOODS_RECEIPT']}
               hasExistingLines={hasExistingLines}
               disabled={sourceDisabled}
               onApply={onMultiStockPermitHydrate}
             />
           ) : null}
-          {headerActions}
         </>
       }
+      headerActions={headerActions}
       fieldsDisabled={fieldsDisabled}
     />
   );

@@ -373,11 +373,14 @@ export function ReportFilterItemSelect({
   value,
   onChange,
   emptyLabel = 'كل الأصناف',
+  itemStockKind,
 }: {
   label: string;
   value: string;
   onChange: (id: string) => void;
   emptyLabel?: string;
+  /** حركة الأصناف: narrow picker to مخزنية / غير مخزنية when set. */
+  itemStockKind?: 'stock' | 'service' | 'both';
 }) {
   return (
     <ReportFilterField label={label}>
@@ -390,6 +393,7 @@ export function ReportFilterItemSelect({
         portaled
         allowEmpty
         menuPlacement="auto"
+        itemStockKind={itemStockKind}
       />
     </ReportFilterField>
   );

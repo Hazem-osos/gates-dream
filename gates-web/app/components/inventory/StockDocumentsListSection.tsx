@@ -8,11 +8,8 @@ import {
   Button,
 } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
-import { useQueryClient } from '@tanstack/react-query';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
-import { toast } from '@/lib/feedback/toast';
-import { confirmAction } from '@/lib/feedback/confirm';
-import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
+import { savedDocumentRowStatus } from '@/lib/documents/document-status-labels';
 import { BrowseDateRangeFilters, BrowseStatusFilter } from '@/components/erp/BrowseListFilters';
 import {
   rowMatchesDateRange,
@@ -27,6 +24,7 @@ type DocRow = {
   serial?: string | null;
   date?: string;
   isPosted?: boolean;
+  isCancelled?: boolean;
   warehouse?: { arabicName?: string };
   fromWarehouse?: { arabicName?: string };
   toWarehouse?: { arabicName?: string };
@@ -48,17 +46,15 @@ export function StockDocumentsListSection({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }) {
-  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [postedFilter, setPostedFilter] = useState<BrowsePostedStatus>('all');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const hasLocalFilters = Boolean(search.trim() || startDate || endDate || postedFilter !== 'all');
 
-  const draftActions = (r: DocRow) => (
+  const rowActions = (r: DocRow) => (
     <div className="flex flex-wrap items-center justify-center gap-1.5">
       <Button
         variant="secondary"
@@ -70,29 +66,6 @@ export function StockDocumentsListSection({
       >
         فتح
       </Button>
-      {!r.isPosted ? (
-        <Button
-          variant="danger"
-          size="sm"
-          disabled={deletingId === r.id}
-          onClick={async (e) => {
-            e.stopPropagation();
-            if (!(await confirmAction('حذف هذه المسودة؟'))) return;
-            setDeletingId(r.id);
-            try {
-              await deleteDraftDocument(apiPath, r.id);
-              toast.success('تم حذف المسودة');
-              await queryClient.invalidateQueries({ queryKey: [listKey] });
-            } catch (error) {
-              toast.error(error instanceof Error ? error.message : 'تعذر حذف المسودة');
-            } finally {
-              setDeletingId(null);
-            }
-          }}
-        >
-          حذف المسودة
-        </Button>
-      ) : null}
     </div>
   );
 
@@ -158,8 +131,8 @@ export function StockDocumentsListSection({
             cell: (r: DocRow) => (
               <StatusBadge
                 compact
-                variant={r.isPosted ? 'success' : 'warning'}
-                label={r.isPosted ? 'مرحّل' : 'مسودة'}
+                variant={savedDocumentRowStatus(r).tone}
+                label={savedDocumentRowStatus(r).label}
               />
             ),
           },
@@ -167,7 +140,7 @@ export function StockDocumentsListSection({
             id: 'actions',
             header: '',
             align: 'center' as const,
-            cell: (r: DocRow) => draftActions(r),
+            cell: (r: DocRow) => rowActions(r),
           },
         ]
       : [
@@ -196,8 +169,8 @@ export function StockDocumentsListSection({
             cell: (r: DocRow) => (
               <StatusBadge
                 compact
-                variant={r.isPosted ? 'success' : 'warning'}
-                label={r.isPosted ? 'مرحّل' : 'مسودة'}
+                variant={savedDocumentRowStatus(r).tone}
+                label={savedDocumentRowStatus(r).label}
               />
             ),
           },
@@ -205,7 +178,7 @@ export function StockDocumentsListSection({
             id: 'actions',
             header: '',
             align: 'center' as const,
-            cell: (r: DocRow) => draftActions(r),
+            cell: (r: DocRow) => rowActions(r),
           },
         ];
 
@@ -220,7 +193,7 @@ export function StockDocumentsListSection({
           },
           { id: 'from', header: 'من مخزن', getValue: (r) => r.fromWarehouse?.arabicName || '' },
           { id: 'to', header: 'إلى مخزن', getValue: (r) => r.toWarehouse?.arabicName || '' },
-          { id: 'status', header: 'الحالة', getValue: (r) => (r.isPosted ? 'مرحّل' : 'مسودة') },
+          { id: 'status', header: 'الحالة', getValue: (r) => savedDocumentRowStatus(r).label },
         ]
       : [
           { id: 'serial', header: 'المسلسل', getValue: (r) => r.serialNumber || r.serial || r.id },
@@ -230,7 +203,7 @@ export function StockDocumentsListSection({
             getValue: (r) => (r.date ? new Date(r.date).toLocaleDateString('ar-EG') : ''),
           },
           { id: 'wh', header: 'المخزن', getValue: (r) => r.warehouse?.arabicName || '' },
-          { id: 'status', header: 'الحالة', getValue: (r) => (r.isPosted ? 'مرحّل' : 'مسودة') },
+          { id: 'status', header: 'الحالة', getValue: (r) => savedDocumentRowStatus(r).label },
         ];
 
   return (
@@ -270,7 +243,8 @@ export function StockDocumentsListSection({
           options={[
             { value: 'all', label: 'كل الحالات' },
             { value: 'posted', label: 'مرحّل' },
-            { value: 'draft', label: 'مسودة' },
+            { value: 'draft', label: 'غير مرحّل' },
+            { value: 'cancelled', label: 'ملغي' },
           ]}
         />
       </FilterToolbar>

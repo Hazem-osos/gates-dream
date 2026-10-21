@@ -1,4 +1,5 @@
 'use client';
+import { AccountingSettingsPageHeader } from '@/components/accounting-settings';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 
 import OuterCard from '@/components/OuterCard';
@@ -134,13 +135,8 @@ export default function IncomeStatementSettingsPage() {
   );
 
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen" style={{ direction: 'rtl' }}>
-      <div className="mb-8">
-        <div className="text-right">
-          <h1 className="text-2xl font-bold text-[#0E78AA] mb-3">إعدادات قائمة الدخل</h1>
-          <div className="h-1 bg-[#0E78AA] rounded-full w-full shadow-sm"></div>
-        </div>
-      </div>
+    <>
+      <AccountingSettingsPageHeader title="إعدادات قائمة الدخل" />
       <OuterCard>
         <InnerCard>
           <div className="p-4">
@@ -160,6 +156,6 @@ export default function IncomeStatementSettingsPage() {
 
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-    </div>
+    </>
   );
 }

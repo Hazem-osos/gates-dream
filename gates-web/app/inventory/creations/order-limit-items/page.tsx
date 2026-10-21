@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Package } from 'lucide-react';
 import { Button, CompactFormField, FormSectionCard, AppTable, FilterToolbar, compactControlClass } from '@/components/ui';
 import { MasterCardShell } from '@/components/erp';
@@ -121,9 +123,31 @@ export default function OrderLimitItemsPage() {
   const [saving, setSaving] = useState(false);
   const [sheetBusy, setSheetBusy] = useState(false);
   const sheetRef = useRef<HTMLInputElement>(null);
+  const hydrateKeyRef = useRef('');
+
+  type OrderLimitDraft = { form: FormState; lines: LimitLine[] };
+  const draftSnapshot = useMemo<OrderLimitDraft>(() => ({ form, lines }), [form, lines]);
+  const applyOrderLimitDraft = useCallback((payload: OrderLimitDraft) => {
+    hydrateKeyRef.current = '';
+    setForm(payload.form);
+    setLines(payload.lines);
+    setSelectedId(null);
+    setError('');
+  }, []);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'order-limit-items',
+    editingId: selectedId,
+    value: draftSnapshot,
+    isEmpty: (d) =>
+      !d.form.warehouseId &&
+      !d.form.code.trim() &&
+      !d.form.description.trim() &&
+      !d.lines.some((l) => l.orderLimit.trim() || l.lowerLimit.trim() || l.upperLimit.trim()),
+    applyRestore: applyOrderLimitDraft,
+    restoreMessage: 'يوجد مسودة حد طلب أصناف غير محفوظة',
+  });
 
   const warehouseId = form.warehouseId;
-  const hydrateKeyRef = useRef('');
   const { data: itemsRes, isLoading: itemsLoading } = useApiQuery<CatalogItem[]>(
     ['items', 'order-limits'],
     '/inventory/items',
@@ -239,6 +263,7 @@ export default function OrderLimitItemsPage() {
   }, [warehouseId, qtyRes?.data]);
 
   const handleNew = () => {
+    clearDraft();
     hydrateKeyRef.current = '';
     setSelectedId(null);
     setForm(emptyForm());
@@ -348,6 +373,7 @@ export default function OrderLimitItemsPage() {
       const id = res.data?.id ?? (targetId || null);
       invalidateStockViews(invalidateQuery);
       invalidateQuery(['item-order-limits']);
+      clearDraft();
       if (wasUpdate) {
         if (id) setSelectedId(id);
         finishDocumentSave({
@@ -408,6 +434,14 @@ export default function OrderLimitItemsPage() {
       currentId={selectedId}
       favoriteHref="/inventory/creations/order-limit-items"
     >
+      <MasterCardDraftRestoreGate<OrderLimitDraft>
+        editingId={selectedId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyOrderLimitDraft}
+        message="يوجد مسودة حد طلب أصناف غير محفوظة."
+      />
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 

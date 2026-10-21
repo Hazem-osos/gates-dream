@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,12 +20,15 @@ import {
   loadOpenTabs,
   persistOpenTabs,
   pinCurrentWindowHref,
-  recalledTabHref,
+  pickTabReturnHref,
   rememberTabHref,
   rememberTabSearch,
   rememberFreshPage,
   resolveAppTabHref,
+  noteOpenDocumentSettingsHref,
   splitTabHref,
+  stripEphemeralTabHref,
+  TAB_QUERY_PINNED_EVENT,
   type PersistedAppTab,
 } from '@/lib/navigation/tab-memory';
 import { tabHrefFromRoute } from '@/lib/navigation/tab-route-sync';
@@ -53,7 +57,7 @@ export { splitTabHref };
 
 function toTab(input: string): AppTab {
   const { path, href } = splitTabHref(input);
-  return { path, href, label: resolveTabLabel(path) };
+  return { path, href: stripEphemeralTabHref(href), label: resolveTabLabel(path) };
 }
 
 /**
@@ -93,32 +97,31 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
   const [tabs, setTabs] = useState<AppTab[]>([]);
   const [justOpenedPath, setJustOpenedPath] = useState<string | null>(null);
   const [freshNonceByPath, setFreshNonceByPath] = useState<Record<string, number>>({});
-  const pathnameRef = useRef(pathname);
-  pathnameRef.current = pathname;
-  const hydratedRef = useRef(false);
+  const restoredTabsRef = useRef(false);
 
-  useEffect(() => {
-    if (hydratedRef.current) return;
-    hydratedRef.current = true;
+  /** Restore before TabRouteSync's useEffect — otherwise upsert wins and stored tabs are dropped on reload. */
+  useLayoutEffect(() => {
+    if (restoredTabsRef.current) return;
+    restoredTabsRef.current = true;
     const stored = loadOpenTabs();
     if (stored.length) {
-      setTabs((prev) => (prev.length ? prev : stored.slice(0, MAX_OPEN_TABS)));
+      setTabs(stored.slice(0, MAX_OPEN_TABS));
     }
   }, []);
 
-  const upsertTab = useCallback((input: string, opts?: { background?: boolean; fresh?: boolean }) => {
+  const upsertTab = useCallback(
+    (input: string, opts?: { background?: boolean; fresh?: boolean; pinned?: boolean }) => {
     const next = toTab(input);
-    const activePath = pathnameRef.current ? normalizeAppPath(pathnameRef.current) : '';
-    rememberTabHref(next.path, next.href);
-    if (next.href.includes('?')) {
-      rememberTabSearch(next.path, next.href.slice(next.href.indexOf('?') + 1));
-    } else if (opts?.fresh) {
-      rememberTabSearch(next.path, '');
-    }
     probeCount('tab state updates');
     setTabs((prev) => {
       const index = prev.findIndex((tab) => tab.path === next.path);
       if (index === -1) {
+        rememberTabHref(next.path, next.href);
+        if (next.href.includes('?')) {
+          rememberTabSearch(next.path, next.href.slice(next.href.indexOf('?') + 1));
+        } else if (opts?.fresh) {
+          rememberTabSearch(next.path, '');
+        }
         const row = { ...next };
         if (prev.length >= MAX_OPEN_TABS) {
           return [...prev.slice(1), row];
@@ -128,17 +131,36 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
       const current = prev[index];
       const incomingBare = next.href === next.path;
       const existingHasDoc = current.href !== current.path;
+      // Next searchParams often lag behind replaceState after save. Do not
+      // let a bare route-sync wipe ?id= unless this is an explicit pin/fresh.
       const keepExistingHref =
         !opts?.fresh &&
-        (opts?.background || next.path !== activePath) &&
+        !opts?.pinned &&
         incomingBare &&
         existingHasDoc;
       const href = keepExistingHref ? current.href : next.href;
-      if (!keepExistingHref) rememberTabHref(next.path, href);
+      rememberTabHref(next.path, href);
+      if (href.includes('?')) {
+        rememberTabSearch(next.path, href.slice(href.indexOf('?') + 1));
+      } else if (opts?.fresh || opts?.pinned) {
+        rememberTabSearch(next.path, '');
+      }
       if (current.label === next.label && current.href === href) return prev;
       return prev.map((tab, i) => (i === index ? { ...next, href } : tab));
     });
-  }, []);
+  },
+  []
+);
+
+  useEffect(() => {
+    const onPinned = (event: Event) => {
+      const detail = (event as CustomEvent<{ path?: string; href?: string }>).detail;
+      if (!detail?.path || !detail.href) return;
+      upsertTab(detail.href, { pinned: true, fresh: detail.href === detail.path });
+    };
+    window.addEventListener(TAB_QUERY_PINNED_EVENT, onPinned);
+    return () => window.removeEventListener(TAB_QUERY_PINNED_EVENT, onPinned);
+  }, [upsertTab]);
 
   const addBackgroundTab = useCallback(
     (path: string) => {
@@ -161,9 +183,8 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
   const hrefForTab = useCallback(
     (path: string) => {
       const normalized = normalizeAppPath(path);
-      return tabs.find((tab) => tab.path === normalized)?.href
-        ?? recalledTabHref(normalized)
-        ?? normalized;
+      const tabHref = tabs.find((tab) => tab.path === normalized)?.href;
+      return pickTabReturnHref(normalized, tabHref);
     },
     [tabs]
   );
@@ -180,6 +201,7 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
 
   const primeTabNavigation = useCallback(
     (href: string) => {
+      noteOpenDocumentSettingsHref(href);
       const dest = resolveAppTabHref(href);
       upsertTab(dest);
     },
@@ -189,6 +211,7 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
   const openAppTab = useCallback(
     (href: string) => {
       probeCount('openAppTab', { href });
+      noteOpenDocumentSettingsHref(href);
       flushPageDrafts();
       pinCurrentTab();
       const dest = resolveAppTabHref(href);
@@ -213,6 +236,7 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
   const openFreshPage = useCallback(
     (href: string) => {
       probeCount('openFreshPage', { href });
+      noteOpenDocumentSettingsHref(href);
       flushPageDrafts();
       pinCurrentTab();
       const dest = resolveAppTabHref(href);

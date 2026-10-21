@@ -4,7 +4,14 @@ import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { useForm, type Resolver, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
+import { ErpDocumentLayout, ErpDocumentPageHeader, PageDraftRestoreGate } from '@/components/erp';
+import {
+  DocumentFormLock,
+  DocumentModeProvider,
+  DocumentReadOnlyBanner,
+  useDocumentMode,
+} from '@/components/common/document-shell';
+import { confirmAction } from '@/lib/feedback/confirm';
 import {
   FormSectionCard,
   CompactFormField,
@@ -23,12 +30,16 @@ import {
 import { Plus, Trash2 } from 'lucide-react';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
-import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
+import { StocktakingGlAccountsDrawer } from '@/components/inventory/stock/StocktakingGlAccountsDrawer';
 import { ItemGroupSelect } from '@/app/components/form/ItemGroupSelect';
+import { ColumnResizeHandle } from '@/components/grid/ColumnResizeHandle';
+import { ResizableColGroup } from '@/components/grid/ResizableColGroup';
+import { useResizableColumns } from '@/components/grid/useResizableColumns';
 import { useStockMovementPanel } from '@/lib/inventory/use-stock-movement-panel';
 import { resolvePriceListPurchasePrice } from '@/lib/inventory/pricing-engine';
 import {
@@ -59,10 +70,71 @@ import {
   mapSourcePayloadToStocktakingLines,
   stockHeaderFieldsFromSource,
 } from '@/lib/inventory/apply-source-to-stock-document';
-import { STOCK_LINE_COPY_SOURCE_TYPES, type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { toast } from '@/lib/feedback/toast';
 
 import { formatMoneyAr } from '@/lib/formatMoney';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { isUnsetOrDefaultWarehouse } from '@/lib/drafts/form-lines-draft';
+import { pinDocumentTabQuery } from '@/lib/navigation/tab-memory';
+import { printStockDocument } from '@/lib/print/printStockDocument';
+import { maybePrintStockDocumentAfterSave } from '@/lib/inventory/stock-document-print-after-save';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
+import {
+  useApplyDefaultWarehouseFromTransactionSettings,
+  useTransactionDocumentSettings,
+} from '@/lib/transaction-settings/use-transaction-document-settings';
+import {
+  applyAsOfAverageCosts,
+  applyLiveBookBalances,
+  diffBookFromWarehouse,
+  fetchWarehouseBalanceMap,
+  formatStocktakingDriftMessage,
+  STOCKTAKING_QTY_EPS,
+  warehouseBalanceMapFromRows,
+} from '@/lib/inventory/stocktaking-balance-sync';
+import { datetimeLocalToIso, toDatetimeLocalValue } from '@/lib/datetime/local-datetime';
+
+/** قيمة حقل «تسعير الزيادة» — فارغ = متوسط التكلفة */
+const STOCKTAKING_SURPLUS_PRICING_ITEM_PURCHASE = '__item_purchase__';
+
+const STOCKTAKING_LINE_COLUMN_IDS = [
+  'seq',
+  'item',
+  'bookQty',
+  'actualQty',
+  'shortage',
+  'surplus',
+  'avgCost',
+  'shortageVal',
+  'surplusVal',
+  'actions',
+] as const;
+
+const STOCKTAKING_LINE_DEFAULT_WIDTHS: Record<string, number> = {
+  seq: 44,
+  item: 220,
+  bookQty: 92,
+  actualQty: 92,
+  shortage: 72,
+  surplus: 72,
+  avgCost: 100,
+  shortageVal: 100,
+  surplusVal: 100,
+  actions: 52,
+};
+
+type StocktakingPricingCatalogItem = {
+  id: string;
+  averageCost?: number | string | null;
+  lastPurchasePrice?: number | string | null;
+  itemPrices?: Array<{
+    purchasePrice?: number | string | null;
+    retailPrice?: number | string | null;
+    price?: number | string | null;
+    priceList?: { id?: string; priceMode?: string | null; isActive?: boolean | null };
+  }>;
+};
 
 function stocktakingUnitCost(row: {
   averageCost?: number | string | null;
@@ -86,11 +158,11 @@ interface StocktakingLine {
   unitPrice: number;
 }
 
-function emptyStocktakingDefaults(today: string): InventoryStocktakingPageFormInput {
+function emptyStocktakingDefaults(): InventoryStocktakingPageFormInput {
   return {
     serialNumber: '',
     description: '',
-    date: today,
+    date: toDatetimeLocalValue(),
     hijriDate: '',
     warehouseId: '',
     isPosted: false,
@@ -122,6 +194,27 @@ function lineFromQuantities(
   };
 }
 
+type StocktakingDraft = {
+  form: InventoryStocktakingPageFormInput;
+  lines: StocktakingLine[];
+  surplusPricingMode: string;
+  filterItemGroupId: string;
+  filterItemId: string;
+};
+
+function isStocktakingDraftEmpty(
+  draft: StocktakingDraft,
+  defaultWarehouseId?: string | null,
+): boolean {
+  const form = draft.form;
+  const hasHeader =
+    Boolean(form.serialNumber?.trim()) ||
+    Boolean(form.description?.trim()) ||
+    !isUnsetOrDefaultWarehouse(form.warehouseId, defaultWarehouseId);
+  const hasLines = (draft.lines ?? []).some((line) => line.itemId);
+  return !hasHeader && !hasLines;
+}
+
 type StocktakingDetail = {
   id: string;
   serial?: string | null;
@@ -143,12 +236,22 @@ type StocktakingDetail = {
   }>;
 };
 
-export default function StocktakingPage() {
+function StocktakingPageContent() {
+  const { unlockForEdit, lockToView, isReadOnly } = useDocumentMode();
   const searchParams = useOwnTabSearchParams();
   const invalidateQuery = useInvalidateQuery();
-  const todayStr = new Date().toISOString().split('T')[0];
 
   const inputCls = compactControlClass;
+  const numInputCls = `${inputCls} w-full min-w-0 px-1.5 py-1 text-center text-xs`;
+  const { startResize: startStocktakingColResize, colGroup: stocktakingColGroup } = useResizableColumns(
+    [...STOCKTAKING_LINE_COLUMN_IDS],
+    {
+      storageKey: 'gates-cols:inventory-stocktaking-lines',
+      minWidth: 48,
+      defaultWidth: 88,
+      defaultWidths: STOCKTAKING_LINE_DEFAULT_WIDTHS,
+    }
+  );
   const labelCls = compactLabelClass;
 
   const {
@@ -161,7 +264,7 @@ export default function StocktakingPage() {
     formState: { errors },
   } = useForm<InventoryStocktakingPageFormInput>({
     resolver: zodResolver(inventoryStocktakingPageFormSchema) as Resolver<InventoryStocktakingPageFormInput>,
-    defaultValues: emptyStocktakingDefaults(todayStr),
+    defaultValues: emptyStocktakingDefaults(),
     mode: 'onTouched',
   });
 
@@ -175,20 +278,92 @@ export default function StocktakingPage() {
   );
   const [showList, setShowList] = useState(false);
   const [sourceBarKey, setSourceBarKey] = useState(0);
-  const openStocktaking = (id: string | null) => {
-    setDocumentId(id);
-    if (typeof window === 'undefined') return;
-    if (id) window.history.replaceState(null, '', `?id=${id}`);
-    else window.history.replaceState(null, '', window.location.pathname);
-  };
   const [refreshing, setRefreshing] = useState(false);
+  const [balancesBusy, setBalancesBusy] = useState(false);
   const [sheetBusy, setSheetBusy] = useState(false);
   const [filterItemGroupId, setFilterItemGroupId] = useState('');
   const [filterItemId, setFilterItemId] = useState('');
-  const [surplusPriceListId, setSurplusPriceListId] = useState('');
+  const [surplusPricingMode, setSurplusPricingMode] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [unpostPending, setUnpostPending] = useState(false);
+  const [cancelPending, setCancelPending] = useState(false);
+  const [restorePending, setRestorePending] = useState(false);
+  const skipServerHydrateRef = useRef(false);
+  const stocktakingLinesRef = useRef<StocktakingLine[]>([]);
+  stocktakingLinesRef.current = stocktakingLines;
+  const openStocktaking = useCallback((id: string | null) => {
+    setDocumentId(id);
+    pinDocumentTabQuery(id);
+  }, []);
+  const watchedForm = watch();
+  const draftSnapshot = useMemo<StocktakingDraft>(
+    () => ({
+      form: watchedForm,
+      lines: stocktakingLines,
+      surplusPricingMode,
+      filterItemGroupId,
+      filterItemId,
+    }),
+    [watchedForm, stocktakingLines, surplusPricingMode, filterItemGroupId, filterItemId]
+  );
+  const applyStocktakingDraft = useCallback((payload: StocktakingDraft) => {
+    skipServerHydrateRef.current = true;
+    reset({ ...emptyStocktakingDefaults(), ...payload.form });
+    setStocktakingLines(Array.isArray(payload.lines) ? payload.lines : []);
+    setSurplusPricingMode(payload.surplusPricingMode ?? '');
+    setFilterItemGroupId(payload.filterItemGroupId ?? '');
+    setFilterItemId(payload.filterItemId ?? '');
+  }, [reset]);
+  const {
+    autoPostOnSave,
+    autoPrintOnSave,
+    saveLabel: settingsSaveLabel,
+    defaultWarehouseId: txDefaultWarehouseId,
+  } = useTransactionDocumentSettings('STOCK_STOCKTAKING');
+  const {
+    restoreOffer,
+    acceptRestore,
+    dismissRestore,
+    clearDraft,
+  } = useDraftAutosave({
+    documentType: 'stocktaking',
+    mode: documentId ? 'edit' : 'new',
+    documentId,
+    value: draftSnapshot,
+    enabled: !isPosted,
+    applyRestore: applyStocktakingDraft,
+    isEmpty: (draft) => isStocktakingDraftEmpty(draft, txDefaultWarehouseId),
+    restoreMessage: 'تم استعادة مسودة تسوية الجرد',
+  });
+
+  useEffect(() => {
+    const id = searchParams.get('id')?.trim() || null;
+    setDocumentId((prev) => (prev === id ? prev : id));
+  }, [searchParams]);
   const excelInputRef = useRef<HTMLInputElement>(null);
   const warehouseId = watch('warehouseId');
+  const documentDate = watch('date');
   const loadScope = watch('loadScope');
+
+  const hasFilledLines = stocktakingLines.some((line) => line.itemId);
+  const { data: liveWarehouseQtyRes, refetch: refetchLiveWarehouseQty } = useApiQuery<
+    {
+      itemId?: string;
+      quantity?: number | string;
+      quantityOnHand?: number | string;
+      averageCost?: number | string;
+      item?: { averageCost?: unknown; lastPurchasePrice?: unknown };
+    }[]
+  >(
+    ['stocktaking-live-wh', warehouseId ?? 'none', documentDate ?? ''],
+    warehouseId ? `/inventory/item-quantities/warehouse/${warehouseId}` : '/inventory/item-quantities',
+    documentDate ? { date: String(documentDate).slice(0, 10) } : undefined,
+    { enabled: Boolean(warehouseId) && hasFilledLines, staleTime: 20_000 }
+  );
+  const liveBalanceByItem = useMemo(
+    () => warehouseBalanceMapFromRows(liveWarehouseQtyRes?.data ?? []),
+    [liveWarehouseQtyRes?.data]
+  );
 
   const setSerialNumber = useCallback(
     (value: string) =>
@@ -199,6 +374,15 @@ export default function StocktakingPage() {
     kind: 'stocktaking',
     enabled: !documentId,
     setSerial: setSerialNumber,
+  });
+
+  const stocktakingSaveLabel = autoPostOnSave ? 'حفظ وتسوية الجرد' : settingsSaveLabel;
+
+  useApplyDefaultWarehouseFromTransactionSettings({
+    selectedId: documentId,
+    warehouseId,
+    defaultWarehouseId: txDefaultWarehouseId,
+    setWarehouseId: (id) => setValue('warehouseId', id, { shouldDirty: false }),
   });
 
   const { data: stocktakingDetail } = useApiQuery<StocktakingDetail>(
@@ -235,19 +419,25 @@ export default function StocktakingPage() {
     hydratedIdRef.current = null;
   }, [documentId]);
   useEffect(() => {
+    if (skipServerHydrateRef.current) {
+      skipServerHydrateRef.current = false;
+      return;
+    }
     const row = stocktakingDetail?.data;
     if (!row || row.id !== documentId || hydratedIdRef.current === row.id) return;
     hydratedIdRef.current = row.id;
     reset({
-      ...emptyStocktakingDefaults(todayStr),
+      ...emptyStocktakingDefaults(),
       serialNumber: row.serial ?? '',
       description: row.description ?? '',
-      date: row.date ? String(row.date).slice(0, 10) : todayStr,
+      date: row.date ? toDatetimeLocalValue(String(row.date)) : toDatetimeLocalValue(),
       hijriDate: row.hijriDate ?? '',
       warehouseId: row.warehouseId ?? '',
       isPosted: Boolean(row.isPosted),
       isApproved: Boolean(row.isApproved),
     });
+    if (row.isPosted) lockToView();
+    else unlockForEdit();
     setStocktakingLines(
       (row.lines ?? []).map((line) => {
         const bookValue = Number(line.bookQuantity || 0);
@@ -256,7 +446,7 @@ export default function StocktakingPage() {
         return lineFromQuantities(line.itemId, bookValue, actualValue, unitPrice, unitPrice);
       })
     );
-  }, [stocktakingDetail, documentId, reset, todayStr]);
+  }, [stocktakingDetail, documentId, reset, lockToView, unlockForEdit]);
 
   const stockTotals = useMemo(() => {
     let surplus = 0;
@@ -270,6 +460,27 @@ export default function StocktakingPage() {
     return { surplus, shortage };
   }, [stocktakingLines]);
 
+  const stocktakingFinancialRows = useMemo(
+    () => [
+      {
+        label: 'زيادة المخزون',
+        value: stockTotals.surplus > 0 ? -stockTotals.surplus : 0,
+        show: stockTotals.surplus > 0,
+      },
+      {
+        label: 'عجز المخزون',
+        value: stockTotals.shortage,
+        show: stockTotals.shortage > 0,
+      },
+    ],
+    [stockTotals]
+  );
+
+  const stocktakingNetAmount = useMemo(
+    () => stockTotals.shortage - stockTotals.surplus,
+    [stockTotals]
+  );
+
   const postAfterSaveRef = useRef(false);
   const [postPending, setPostPending] = useState(false);
 
@@ -277,40 +488,53 @@ export default function StocktakingPage() {
     (res: ApiResponse<unknown>, savedId: string) => {
       setSuccess(postSuccessMessage(res));
       setValue('isPosted', true);
+      lockToView();
       stockPanel.onPosted(res);
       invalidateStockViews(invalidateQuery);
       invalidateQuery(['stocktaking', savedId]);
       hydratedIdRef.current = null;
     },
-    [invalidateQuery, setValue, stockPanel]
+    [invalidateQuery, setValue, stockPanel, lockToView]
   );
 
   const clearStocktakingForNext = () => {
+    clearDraft();
     openStocktaking(null);
     stockPanel.resetPanel();
     setStocktakingLines([]);
     setFilterItemGroupId('');
     setFilterItemId('');
-    setSurplusPriceListId('');
-    reset(emptyStocktakingDefaults(new Date().toISOString().split('T')[0]));
+    setSurplusPricingMode('');
+    reset(emptyStocktakingDefaults());
     setSourceBarKey((k) => k + 1);
   };
 
   const finishSavedStocktaking = useCallback(
     (args: { number?: string; savedId?: string; posted?: boolean }) => {
+      maybePrintStockDocumentAfterSave(autoPrintOnSave, {
+        title: 'تسوية الجرد المخزني',
+        number: args.number || watch('serialNumber'),
+        date: watch('date'),
+        rows: stocktakingLines
+          .filter((line) => line.itemId)
+          .map((line) => ({
+            item: line.itemId,
+            quantity: line.actualValue,
+            price: line.unitPrice,
+          })),
+      });
       finishDocumentSave({
         label: 'تسوية الجرد المخزني',
         number: args.number,
         posted: args.posted,
         savedId: args.savedId,
-        cleared: false,
         onOpen: (saved) => openStocktaking(saved),
         onSavedOpen: (saved) => invalidateQuery(['stocktaking', saved]),
         reset: clearStocktakingForNext,
       });
       dispatchAcademyTrigger('API_SUCCESS', 'stocktaking.save-success');
     },
-    [invalidateQuery]
+    [autoPrintOnSave, invalidateQuery, stocktakingLines, watch]
   );
 
   const handleSourceHydrate = (payload: SourceHydratePayload) => {
@@ -372,8 +596,8 @@ export default function StocktakingPage() {
   const loading = stocktakingMutation.isPending || updatePending || postPending;
 
   useEffect(() => {
-    reset((prev) => ({ ...prev, date: prev.date || todayStr }));
-  }, [todayStr, reset]);
+    reset((prev) => ({ ...prev, date: prev.date || toDatetimeLocalValue() }));
+  }, [reset]);
 
   const handleNew = () => {
     setError('');
@@ -381,24 +605,76 @@ export default function StocktakingPage() {
     clearStocktakingForNext();
   };
 
-  const handleUnpost = () => {
+  const handleUnpost = async () => {
     if (!documentId) {
-      setError('احفظ الجرد أولاً');
+      setError('احفظ التسوية أولاً');
       return;
     }
     setError('');
-    void apiClient
-      .post(`/inventory/stocktaking/${documentId}/unpost`)
-      .then(() => {
-        setValue('isPosted', false);
-        setSuccess('تم إلغاء التسوية');
-        stockPanel.resetPanel();
-        invalidateQuery(['stocktaking', documentId]);
-        invalidateStockViews(invalidateQuery);
-      })
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : 'تعذر إلغاء الترحيل');
+    setUnpostPending(true);
+    try {
+      await apiClient.post(`/inventory/stocktaking/${documentId}/unpost`);
+      setValue('isPosted', false);
+      setSuccess('تم فك التسوية — يمكنك التعديل أو الإلغاء');
+      stockPanel.resetPanel();
+      unlockForEdit();
+      invalidateQuery(['stocktaking', documentId]);
+      invalidateStockViews(invalidateQuery);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر فك التسوية');
+    } finally {
+      setUnpostPending(false);
+    }
+  };
+
+  const handleCancelStocktaking = async () => {
+    if (!documentId) {
+      handleNew();
+      return;
+    }
+    if (isPosted) {
+      setError('فك التسوية أولاً قبل الإلغاء');
+      return;
+    }
+    if (!(await confirmAction('إلغاء تسوية الجرد هذه؟'))) return;
+    setCancelPending(true);
+    setError('');
+    try {
+      await apiClient.post(`/inventory/stocktaking/${documentId}/cancel`, {});
+      setSuccess('تم إلغاء التسوية');
+      invalidateQuery(['stocktaking', documentId]);
+      invalidateQuery(['stocktaking-list']);
+      lockToView();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر إلغاء التسوية');
+    } finally {
+      setCancelPending(false);
+    }
+  };
+
+  const handleRestoreStocktaking = async () => {
+    if (!documentId || restorePending) return;
+    setRestorePending(true);
+    setError('');
+    try {
+      await restoreCancelledDocument({
+        restorePath: `/inventory/stocktaking/${documentId}/restore`,
+        postPath: `/inventory/stocktaking/${documentId}/post`,
+        kind: 'named',
+        autoPostOnSave,
       });
+      setSuccess(
+        autoPostOnSave ? 'تمت الاستعادة والتسوية' : 'تمت الاستعادة — المستند غير مرحّل'
+      );
+      invalidateQuery(['stocktaking', documentId]);
+      invalidateQuery(['stocktaking-list']);
+      if (autoPostOnSave) lockToView();
+      else unlockForEdit();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر الاستعادة');
+    } finally {
+      setRestorePending(false);
+    }
   };
 
   const applyWarehouseBookToLine = useCallback(
@@ -408,7 +684,10 @@ export default function StocktakingPage() {
         const res = await apiClient.get<{
           quantityOnHand?: number;
           averageCost?: number;
-        }>(`/inventory/items/${itemId}/stock-balance`, { warehouseId });
+        }>(`/inventory/items/${itemId}/stock-balance`, {
+          warehouseId,
+          ...(documentDate ? { date: String(documentDate).slice(0, 10) } : {}),
+        });
         const bookValue = Number(res.data?.quantityOnHand) || 0;
         const unitPrice = Number(res.data?.averageCost) || 0;
         setStocktakingLines((prev) => {
@@ -425,48 +704,139 @@ export default function StocktakingPage() {
         /* balance row may not exist yet */
       }
     },
-    [warehouseId]
+    [warehouseId, documentDate]
   );
 
-  const applySurplusUnitPricesFromList = useCallback(
-    async (listId: string, lines: StocktakingLine[]) => {
-      if (!listId.trim()) {
-        return lines.map((line) => ({
-          ...line,
-          unitPrice: line.averageUnitCost || line.unitPrice,
-        }));
+  useEffect(() => {
+    if (!warehouseId || isPosted || isReadOnly) return;
+    const rows = stocktakingLinesRef.current.filter((line) => line.itemId);
+    if (!rows.length) return;
+    let cancelled = false;
+    void fetchWarehouseBalanceMap(warehouseId, documentDate).then((liveMap) => {
+      if (cancelled) return;
+      setStocktakingLines((prev) => applyAsOfAverageCosts(prev, liveMap));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouseId, documentDate, isPosted, isReadOnly]);
+
+  const applySurplusPricing = useCallback(async (mode: string, lines: StocktakingLine[]) => {
+    const useAverage = !mode.trim();
+    const catalog: StocktakingPricingCatalogItem[] = useAverage
+      ? []
+      : ((await apiClient.get<StocktakingPricingCatalogItem[]>('/inventory/items', {
+          limit: 2000,
+          isActive: true,
+        })).data ?? []);
+
+    return lines.map((line) => {
+      const fallback = line.averageUnitCost || line.unitPrice;
+      if (!line.itemId || line.surplus <= 0) {
+        return { ...line, unitPrice: fallback };
       }
-      const res = await apiClient.get<
-        {
-          id: string;
-          averageCost?: number | string;
-          lastPurchasePrice?: number | string;
-          itemPrices?: Array<{
-            purchasePrice?: number | string | null;
-            retailPrice?: number | string | null;
-            price?: number | string | null;
-            priceList?: { id?: string; priceMode?: string | null; isActive?: boolean | null };
-          }>;
-        }[]
-      >('/inventory/items', { limit: 2000, isActive: true });
-      const catalog = res.data ?? [];
-      return lines.map((line) => {
-        if (!line.itemId || line.surplus <= 0) {
-          return { ...line, unitPrice: line.averageUnitCost || line.unitPrice };
-        }
-        const item = catalog.find((row) => row.id === line.itemId);
-        const listPrice = item
-          ? resolvePriceListPurchasePrice(
-              item as Parameters<typeof resolvePriceListPurchasePrice>[0],
-              listId
-            )
-          : 0;
-        const price = listPrice > 0 ? listPrice : line.averageUnitCost || line.unitPrice;
-        return { ...line, unitPrice: price };
+      if (useAverage) {
+        return { ...line, unitPrice: fallback };
+      }
+      const item = catalog.find((row) => row.id === line.itemId);
+      if (mode === STOCKTAKING_SURPLUS_PRICING_ITEM_PURCHASE) {
+        const purchase = Number(item?.lastPurchasePrice ?? 0);
+        return { ...line, unitPrice: purchase > 0 ? purchase : fallback };
+      }
+      const listPrice = item
+        ? resolvePriceListPurchasePrice(
+            item as Parameters<typeof resolvePriceListPurchasePrice>[0],
+            mode
+          )
+        : 0;
+      return { ...line, unitPrice: listPrice > 0 ? listPrice : fallback };
+    });
+  }, []);
+
+  const loadItemCatalogForLabels = useCallback(async () => {
+    const res = await apiClient.get<
+      { id: string; code?: string; serial?: string; arabicName?: string }[]
+    >('/inventory/items', { limit: 2000, isActive: true });
+    return res.data ?? [];
+  }, []);
+
+  const handleUpdateBookBalances = async () => {
+    setError('');
+    setSuccess('');
+    if (!warehouseId) {
+      setError('يرجى اختيار المخزن أولاً');
+      return;
+    }
+    const filled = stocktakingLines.filter((line) => line.itemId);
+    if (!filled.length) {
+      setError('لا توجد أصناف لتحديث أرصدتها');
+      return;
+    }
+    setBalancesBusy(true);
+    try {
+      const liveMap = await fetchWarehouseBalanceMap(warehouseId, documentDate);
+      const driftsBefore = diffBookFromWarehouse(filled, liveMap);
+      const { lines: synced, updatedCount } = applyLiveBookBalances(stocktakingLines, liveMap, {
+        keepActual: true,
       });
-    },
-    []
-  );
+      const next = await applySurplusPricing(surplusPricingMode, synced);
+      setStocktakingLines(next);
+      void refetchLiveWarehouseQty();
+      if (driftsBefore.length === 0) {
+        setSuccess('الرصيد الدفتري على الشاشة مطابق لرصيد المخزن');
+        return;
+      }
+      const catalog = await loadItemCatalogForLabels();
+      const detail = formatStocktakingDriftMessage(driftsBefore, catalog, 8);
+      setSuccess(
+        updatedCount > 0
+          ? `تم تحديث الرصيد الدفتري لـ ${updatedCount} صنف من المخزن الحالي`
+          : 'تمت المزامنة'
+      );
+      toast.warning(`تم تصحيح فروق سابقة بين الدفتري والمخزن:\n${detail}`, {
+        duration: 10_000,
+      });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر تحديث الأرصدة من المخزن');
+    } finally {
+      setBalancesBusy(false);
+    }
+  };
+
+  const handleVerifyBookBalances = async () => {
+    setError('');
+    setSuccess('');
+    if (!warehouseId) {
+      setError('يرجى اختيار المخزن أولاً');
+      return;
+    }
+    const filled = stocktakingLines.filter((line) => line.itemId);
+    if (!filled.length) {
+      setError('لا توجد أصناف للفحص');
+      return;
+    }
+    setBalancesBusy(true);
+    try {
+      const liveMap =
+        liveBalanceByItem.size > 0
+          ? liveBalanceByItem
+          : await fetchWarehouseBalanceMap(warehouseId, documentDate);
+      const drifts = diffBookFromWarehouse(filled, liveMap);
+      if (!drifts.length) {
+        setSuccess('كل الأرصدة الدفترية مطابقة للموجود بالمخزن');
+        return;
+      }
+      const catalog = await loadItemCatalogForLabels();
+      const msg = formatStocktakingDriftMessage(drifts, catalog);
+      setError(
+        `الرصيد الدفتري على الشاشة لا يطابق المخزن في ${drifts.length} صنف:\n${msg}\nاستخدم «تحديث الأرصدة» لمزامنة الدفتري من المخزن قبل الحفظ.`
+      );
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر فحص مطابقة الأرصدة');
+    } finally {
+      setBalancesBusy(false);
+    }
+  };
 
   const handleRefreshStock = async () => {
     setError('');
@@ -477,7 +847,10 @@ export default function StocktakingPage() {
     }
     setRefreshing(true);
     try {
-      const query = filterItemId ? `?itemId=${encodeURIComponent(filterItemId)}` : '';
+      const qtyParams = new URLSearchParams();
+      if (filterItemId) qtyParams.set('itemId', filterItemId);
+      if (documentDate) qtyParams.set('date', String(documentDate).slice(0, 10));
+      const query = qtyParams.toString() ? `?${qtyParams.toString()}` : '';
       const res = await apiClient.get<
         {
           itemId?: string;
@@ -511,7 +884,7 @@ export default function StocktakingPage() {
       } else if (loadScope === 'negativeOnly') {
         next = next.filter((line) => line.bookValue < 0);
       }
-      next = await applySurplusUnitPricesFromList(surplusPriceListId, next);
+      next = await applySurplusPricing(surplusPricingMode, next);
       setStocktakingLines(next);
       if (!next.length) {
         setError('لا توجد أصناف مطابقة للفلتر في هذا المخزن');
@@ -593,7 +966,7 @@ export default function StocktakingPage() {
         draft
       );
       let next = lines as StocktakingLine[];
-      next = await applySurplusUnitPricesFromList(surplusPriceListId, next);
+      next = await applySurplusPricing(surplusPricingMode, next);
       setStocktakingLines(next);
       setSuccess(
         missed
@@ -608,7 +981,7 @@ export default function StocktakingPage() {
   };
 
   const handleSave = () =>
-    void handleSubmit((values) => {
+    void handleSubmit(async (values) => {
       setError('');
       setSuccess('');
       if (values.isPosted) {
@@ -616,19 +989,55 @@ export default function StocktakingPage() {
         setError('لا يمكن تعديل جرد مرحّل');
         return;
       }
-      const filled = stocktakingLines.filter((line) => line.itemId);
-      if (filled.length === 0) {
+      if (!values.warehouseId) {
+        postAfterSaveRef.current = false;
+        setError('يرجى اختيار المخزن');
+        return;
+      }
+      let linesForSave = stocktakingLines.filter((line) => line.itemId);
+      if (linesForSave.length === 0) {
         postAfterSaveRef.current = false;
         setError('يرجى إضافة أصناف لتسوية الجرد');
         return;
       }
+
+      const liveMap = await fetchWarehouseBalanceMap(values.warehouseId, values.date);
+      const drifts = diffBookFromWarehouse(linesForSave, liveMap);
+      if (drifts.length > 0) {
+        const catalog = await loadItemCatalogForLabels();
+        const driftMsg = formatStocktakingDriftMessage(drifts, catalog);
+        const syncAndSave = await confirmAction({
+          title: 'فرق بين الدفتري والمخزن',
+          message:
+            `لا يمكن الحفظ والرصيد الدفتري على الشاشة لا يطابق المخزن الحالي:\n\n${driftMsg}\n\nتحديث الأرصدة من المخزن (مع الإبقاء على الكمية الفعلية) ثم الحفظ؟`,
+          confirmLabel: 'تحديث الأرصدة وحفظ',
+          cancelLabel: 'إلغاء',
+          tone: 'warning',
+        });
+        if (!syncAndSave) {
+          postAfterSaveRef.current = false;
+          setError(
+            `تم إلغاء الحفظ — راجع الأصناف التالية أو اضغط «تحديث الأرصدة»:\n${driftMsg}`
+          );
+          return;
+        }
+        const { lines: synced } = applyLiveBookBalances(stocktakingLines, liveMap, {
+          keepActual: true,
+        });
+        linesForSave = (await applySurplusPricing(surplusPricingMode, synced)).filter(
+          (line) => line.itemId
+        );
+        setStocktakingLines(linesForSave);
+        void refetchLiveWarehouseQty();
+      }
+
       const payload = {
         serial: values.serialNumber || undefined,
         description: values.description,
-        date: new Date(values.date).toISOString(),
+        date: datetimeLocalToIso(values.date),
         hijriDate: values.hijriDate || undefined,
         warehouseId: values.warehouseId,
-        lines: filled.map((line) => ({
+        lines: linesForSave.map((line) => ({
           itemId: line.itemId,
           warehouseId: values.warehouseId,
           bookQuantity: line.bookValue,
@@ -676,6 +1085,17 @@ export default function StocktakingPage() {
     <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+      <PageDraftRestoreGate<StocktakingDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(documentId)}
+        message="يوجد مسودة تسوية جرد غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyStocktakingDraft(payload);
+          setSuccess('تم استعادة مسودة التسوية');
+        }}
+      />
 
       <ErpDocumentPageHeader
         compact
@@ -686,15 +1106,20 @@ export default function StocktakingPage() {
         ]}
         title="تسوية الجرد المخزني"
         docNumber={watch('serialNumber') || ''}
-        statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحّل' : STORE_DOCUMENT_UNPOSTED_LABEL}
-        saveLabel="حفظ"
+        lifecycle={{
+          documentId,
+          isPosted,
+          isCancelled: Boolean(
+            (stocktakingDetail?.data as { isCancelled?: boolean } | undefined)?.isCancelled
+          ),
+        }}
+        saveLabel={stocktakingSaveLabel}
         onSaveDraft={() => {
-          postAfterSaveRef.current = false;
+          postAfterSaveRef.current = autoPostOnSave;
           handleSave();
         }}
         savePending={loading}
-        canSave={!loading && !isPosted}
+        canSave={!loading && !isPosted && !isReadOnly}
         postLabel="تسوية الجرد"
         postPending={postPending}
         canPost={!loading && !isPosted && stocktakingLines.some((l) => l.itemId)}
@@ -707,24 +1132,66 @@ export default function StocktakingPage() {
         browseListLabel="السابق"
         favoriteHref="/inventory/operations/stocktaking"
         standardActions={{
-          hasDocument: Boolean(documentId) || stocktakingLines.some((l) => l.itemId),
+          hasDocument: Boolean(documentId),
           isPosted: Boolean(isPosted),
-          hidePostActions: true,
-          onUnpost: handleUnpost,
-          unpostLabel: 'إلغاء التسوية',
+          isCancelled: Boolean(
+            (stocktakingDetail?.data as { isCancelled?: boolean } | undefined)?.isCancelled
+          ),
+          onRestore: () => void handleRestoreStocktaking(),
+          restoreLabel: 'استعادة',
+          restorePending,
+          onPost: () => {
+            postAfterSaveRef.current = true;
+            handleSave();
+          },
+          postLabel: 'تسوية الجرد',
+          postPending,
+          onUnpost: () => void handleUnpost(),
+          unpostLabel: 'فك التسوية',
+          unpostPending,
+          onEdit: () => {
+            if (isPosted) {
+              setError('فك التسوية أولاً من قائمة (...) ثم عدّل');
+              return;
+            }
+            unlockForEdit();
+          },
+          onVoid: () => void handleCancelStocktaking(),
+          voidLabel: 'إلغاء التسوية',
+          voidPending: cancelPending,
+          voidLockedHint: 'فك التسوية أولاً ثم ألغِ المستند من قائمة (...)',
           onNew: handleNew,
           newLabel: 'جديد',
+          transactionSettingsDocumentType: 'STOCK_STOCKTAKING',
+          onTransactionSettingsSaved: () => {
+            invalidateAfterTransactionSettingsSave(invalidateQuery, 'STOCK_STOCKTAKING');
+            void invalidateNextSerial();
+          },
+          onPrint: () =>
+            printStockDocument({
+              title: 'تسوية الجرد المخزني',
+              number: watch('serialNumber'),
+              date: watch('date'),
+              rows: stocktakingLines
+                .filter((line) => line.itemId)
+                .map((line) => ({
+                  item: line.itemId,
+                  quantity: line.actualValue,
+                  price: line.unitPrice,
+                })),
+            }),
+          printLabel: 'طباعة',
+          extraItems: [
+            {
+              id: 'stocktaking-gl-settings',
+              label: 'إعدادات حسابات التسوية',
+              onClick: () => setSettingsOpen(true),
+            },
+          ],
         }}
-        extraActions={
-          <DocumentSourceLoadBar
-            key={sourceBarKey}
-            hasExistingLines={stocktakingLines.some((l) => Boolean(l.itemId))}
-            disabled={Boolean(isPosted)}
-            allowedTypes={STOCK_LINE_COPY_SOURCE_TYPES}
-            onHydrate={handleSourceHydrate}
-          />
-        }
       />
+      <DocumentReadOnlyBanner />
+      <StocktakingGlAccountsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="تسويات الجرد السابقة">
         <div className="divide-y">
           {(stocktakingList?.data ?? []).map((row) => (
@@ -743,7 +1210,20 @@ export default function StocktakingPage() {
           ))}
         </div>
       </DocumentBrowseDrawer>
-      <FormSectionCard title="بيانات التسوية" subtitle="المخزن والتاريخ والفلاتر">
+      <DocumentFormLock>
+      <FormSectionCard
+        title="بيانات التسوية"
+        subtitle="المخزن والتاريخ والفلاتر"
+        sourceActions={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={stocktakingLines.some((l) => Boolean(l.itemId))}
+            disabled={Boolean(isPosted)}
+            currentAffectsStock
+            onHydrate={handleSourceHydrate}
+          />
+        }
+      >
           <CompactFormField
             label="المسلسل"
             placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل رقم المسلسل'}
@@ -752,7 +1232,8 @@ export default function StocktakingPage() {
           />
           <CompactFormField
             label="التاريخ"
-            type="date"
+            type="datetime-local"
+            step="1"
             error={errors.date?.message}
             {...register('date')}
           />
@@ -830,13 +1311,35 @@ export default function StocktakingPage() {
               className="h-9 px-4 rounded-lg border border-[#0E78AA] bg-[#0E78AA] text-sm font-semibold text-white disabled:opacity-50"
               data-tour-id="stocktaking-save-btn"
             >
-              {refreshing ? 'جاري التحميل…' : 'تحديث الجرد'}
+              {refreshing ? 'جاري التحميل…' : 'تحميل أصناف المخزن'}
             </button>
           </div>
       </FormSectionCard>
 
-      <FormSectionCard title="فروقات الجرد" subtitle="جدول إدخال — الكمية الفعلية تُحسب منها العجز/الزيادة وتُرسل مع الحفظ" bodyClassName="space-y-3">
-          <div className="flex justify-end">
+      <FormSectionCard
+        title="فروقات الجرد"
+        subtitle="الدفتري = أساس التسوية (حدّثه من «تحديث الأرصدة») · الفعلي = العدّ — العجز/الزيادة تُحسب تلقائياً"
+        bodyClassName="space-y-3"
+      >
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={balancesBusy || isPosted || !warehouseId}
+              onClick={() => void handleVerifyBookBalances()}
+            >
+              {balancesBusy ? 'جاري الفحص…' : 'فحص مطابقة الأرصدة'}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={balancesBusy || isPosted || !warehouseId}
+              onClick={() => void handleUpdateBookBalances()}
+            >
+              {balancesBusy ? 'جاري التحديث…' : 'تحديث الأرصدة'}
+            </Button>
             <Button
               type="button"
               variant="primary"
@@ -854,34 +1357,55 @@ export default function StocktakingPage() {
             </Button>
           </div>
           <div className={denseTableWrapClass} data-tour-id="stocktaking-items-table">
-            <table className={denseTableClass}>
+            <table className={`${denseTableClass} w-full table-fixed`}>
+              <ResizableColGroup columns={stocktakingColGroup} />
               <thead className={denseTheadClass}>
                 <tr>
-                  <th className={denseThClass}>م</th>
-                  <th className={denseThClass}>الصنف</th>
-                  <th className={denseThClass}>الموجود بالمخزن</th>
-                  <th className={denseThClass}>القيمة الدفترية</th>
-                  <th className={denseThClass}>الكمية الفعلية</th>
-                  <th className={denseThClass}>العجز</th>
-                  <th className={denseThClass}>الزيادة</th>
-                  <th className={denseThClass}>متوسط التكلفة</th>
-                  <th className={denseThClass}>قيمة العجز</th>
-                  <th className={denseThClass}>قيمة الزيادة</th>
-                  <th className={denseThClass}> </th>
+                  {(
+                    [
+                      ['seq', 'م'],
+                      ['item', 'الصنف'],
+                      ['bookQty', 'الكمية الدفترية'],
+                      ['actualQty', 'الكمية الفعلية'],
+                      ['shortage', 'العجز'],
+                      ['surplus', 'الزيادة'],
+                      ['avgCost', 'متوسط التكلفة'],
+                      ['shortageVal', 'قيمة العجز'],
+                      ['surplusVal', 'قيمة الزيادة'],
+                      ['actions', ''],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <th key={id} className={`${denseThClass} relative`}>
+                      {label}
+                      <ColumnResizeHandle
+                        onMouseDown={(event) => startStocktakingColResize(id, event)}
+                      />
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {stocktakingLines.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="py-6 text-sm text-slate-500">
+                    <td colSpan={STOCKTAKING_LINE_COLUMN_IDS.length} className="py-6 text-sm text-slate-500">
                       لا توجد بنود جرد — أضف صنفاً وأدخل الكمية الفعلية قبل الحفظ.
                     </td>
                   </tr>
                 ) : (
-                  stocktakingLines.map((line, i) => (
+                  stocktakingLines.map((line, i) => {
+                    const liveQty = line.itemId
+                      ? liveBalanceByItem.get(line.itemId)?.quantityOnHand
+                      : undefined;
+                    const bookDrift =
+                      line.itemId &&
+                      liveQty != null &&
+                      Math.abs(line.bookValue - liveQty) > STOCKTAKING_QTY_EPS;
+                    return (
                     <tr key={`st-${i}`} className={i % 2 === 0 ? 'bg-[#F6FBFD]' : 'bg-white'}>
-                      <td className="py-1.5 px-2 border-x border-[#D6EAF3]">{i + 1}</td>
-                      <td className="min-w-[12rem] py-1.5 px-2 border-x border-[#D6EAF3]">
+                      <td className="py-1.5 px-1 border-x border-[#D6EAF3] text-center text-xs">
+                        {i + 1}
+                      </td>
+                      <td className="py-1.5 px-2 border-x border-[#D6EAF3] overflow-hidden">
                         <ItemSelect
                           value={line.itemId}
                           onChange={(id) => {
@@ -892,16 +1416,14 @@ export default function StocktakingPage() {
                           }}
                         />
                       </td>
-                      <td className="py-1.5 px-2 border-x border-[#D6EAF3] text-center">
-                        <InvoiceLineStockBalanceCell
-                          itemId={line.itemId}
-                          warehouseId={warehouseId}
-                          displayMode="onHand"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2 border-x border-[#D6EAF3]">
+                      <td className="py-1.5 px-1 border-x border-[#D6EAF3]">
+                        {bookDrift ? (
+                          <p className="mb-0.5 text-[10px] font-semibold leading-tight text-amber-800">
+                            ≠ المخزن
+                          </p>
+                        ) : null}
                         <TableNumberInput
-                          className={inputCls}
+                          className={`${numInputCls}${bookDrift ? ' border-amber-400 ring-1 ring-amber-200' : ''}`}
                           value={line.bookValue}
                           onValueCommit={(bookValue) => {
                             const actualValue = stocktakingLines[i].actualValue;
@@ -913,15 +1435,15 @@ export default function StocktakingPage() {
                               next[i].averageUnitCost,
                               next[i].unitPrice
                             );
-                            void applySurplusUnitPricesFromList(surplusPriceListId, next).then(
+                            void applySurplusPricing(surplusPricingMode, next).then(
                               setStocktakingLines
                             );
                           }}
                         />
                       </td>
-                      <td className="py-1.5 px-2 border-x border-[#D6EAF3]">
+                      <td className="py-1.5 px-1 border-x border-[#D6EAF3]">
                         <TableNumberInput
-                          className={inputCls}
+                          className={numInputCls}
                           value={line.actualValue}
                           onValueCommit={(actualValue) => {
                             const bookValue = stocktakingLines[i].bookValue;
@@ -933,41 +1455,41 @@ export default function StocktakingPage() {
                               next[i].averageUnitCost,
                               next[i].unitPrice
                             );
-                            void applySurplusUnitPricesFromList(surplusPriceListId, next).then(
+                            void applySurplusPricing(surplusPricingMode, next).then(
                               setStocktakingLines
                             );
                           }}
                         />
                       </td>
-                      <td className="py-1.5 px-2 border-x border-[#D6EAF3]">
-                        <input className={inputCls} value={line.shortage} readOnly />
+                      <td className="py-1.5 px-1 border-x border-[#D6EAF3]">
+                        <input className={numInputCls} value={line.shortage} readOnly />
                       </td>
-                      <td className="py-1.5 px-2 border-x border-[#D6EAF3]">
-                        <input className={inputCls} value={line.surplus} readOnly />
+                      <td className="py-1.5 px-1 border-x border-[#D6EAF3]">
+                        <input className={numInputCls} value={line.surplus} readOnly />
                       </td>
-                      <td className="py-1.5 px-2 border-x border-[#D6EAF3]">
+                      <td className="py-1.5 px-1 border-x border-[#D6EAF3]">
                         <input
-                          className={`${inputCls} bg-slate-50 text-slate-600`}
+                          className={`${numInputCls} bg-slate-50 text-slate-600`}
                           value={formatMoneyAr(line.averageUnitCost || line.unitPrice)}
                           readOnly
                           title="متوسط التكلفة من رصيد المخزن"
                         />
                       </td>
-                      <td className="py-1.5 px-2 border-x border-[#D6EAF3]">
+                      <td className="py-1.5 px-1 border-x border-[#D6EAF3]">
                         <input
-                          className={inputCls}
+                          className={numInputCls}
                           value={formatMoneyAr(line.shortage * (line.averageUnitCost || line.unitPrice))}
                           readOnly
                         />
                       </td>
-                      <td className="py-1.5 px-2 border-x border-[#D6EAF3]">
+                      <td className="py-1.5 px-1 border-x border-[#D6EAF3]">
                         <input
-                          className={inputCls}
+                          className={numInputCls}
                           value={formatMoneyAr(line.surplus * line.unitPrice)}
                           readOnly
                         />
                       </td>
-                      <td className="py-1.5 px-2 border-x border-[#D6EAF3]">
+                      <td className="py-1.5 px-1 border-x border-[#D6EAF3] text-center">
                         <IconButton
                           icon={Trash2}
                           label="حذف السطر"
@@ -976,7 +1498,8 @@ export default function StocktakingPage() {
                         />
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -989,21 +1512,26 @@ export default function StocktakingPage() {
           <CompactFormField label="تسعير الزيادة">
             <select
               className={inputCls}
-              value={surplusPriceListId}
+              value={surplusPricingMode}
               disabled={isPosted}
               onChange={(e) => {
-                const id = e.target.value;
-                setSurplusPriceListId(id);
-                void applySurplusUnitPricesFromList(id, stocktakingLines).then(setStocktakingLines);
+                const mode = e.target.value;
+                setSurplusPricingMode(mode);
+                void applySurplusPricing(mode, stocktakingLines).then(setStocktakingLines);
               }}
             >
               <option value="">متوسط التكلفة (افتراضي)</option>
-              {priceLists.map((pl) => (
-                <option key={pl.id} value={pl.id}>
-                  {pl.code ? `${pl.code} — ` : ''}
-                  {pl.arabicName}
-                </option>
-              ))}
+              <option value={STOCKTAKING_SURPLUS_PRICING_ITEM_PURCHASE}>سعر شراء الصنف</option>
+              {priceLists.length ? (
+                <optgroup label="سعر شراء من قوائم الأسعار">
+                  {priceLists.map((pl) => (
+                    <option key={pl.id} value={pl.id}>
+                      {pl.code ? `${pl.code} · ` : ''}
+                      {pl.arabicName}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
             </select>
           </CompactFormField>
           <div className="flex flex-wrap items-end gap-2">
@@ -1038,16 +1566,27 @@ export default function StocktakingPage() {
             </Button>
           </div>
       </FormSectionCard>
+      </DocumentFormLock>
 
       <FormStickyFooter
         status={`${stocktakingLines.length} بند · زيادة ${formatMoneyAr(stockTotals.surplus)} · عجز ${formatMoneyAr(stockTotals.shortage)}`}
       />
 
       <StockMovementBottomSplit
-        totalAmount={stockTotals.surplus + stockTotals.shortage}
+        totalAmount={stocktakingNetAmount}
+        netLabel="صافي التسوية"
+        financialRows={stocktakingFinancialRows}
         lineCount={stocktakingLines.filter((l) => l.itemId).length}
         {...stockPanel.bottomSplitProps}
       />
     </ErpDocumentLayout>
+  );
+}
+
+export default function StocktakingPage() {
+  return (
+    <DocumentModeProvider initialMode="create">
+      <StocktakingPageContent />
+    </DocumentModeProvider>
   );
 }

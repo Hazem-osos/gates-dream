@@ -109,8 +109,14 @@ async function printTaxInvoice(data: TaxInvoiceMock, chosen?: DocumentLayoutConf
   }
 }
 
-export async function printOperationalDocument(input: OperationalPrintInput): Promise<void> {
-  const config = await pickSavedDocumentLayout('TAX_INVOICE');
+export async function printOperationalDocument(
+  input: OperationalPrintInput,
+  opts?: { silentLayout?: boolean }
+): Promise<void> {
+  const config = await pickSavedDocumentLayout(
+    'TAX_INVOICE',
+    opts?.silentLayout ? { silent: true } : undefined
+  );
   if (!config) return;
   await printTaxInvoice(toTaxInvoice(input, config), config);
 }

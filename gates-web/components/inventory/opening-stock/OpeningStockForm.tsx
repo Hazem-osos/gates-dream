@@ -13,10 +13,13 @@ import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
-import { resolvePostedFlag } from '@/lib/documents/posting-trust';
+import { resolvePostedFlag, trustPostingState } from '@/lib/documents/posting-trust';
 import { printHtml } from '@/lib/print/printHtml';
+import { maybeAutoPrintAfterSave } from '@/lib/printer/print-prefs';
 import { useWarehousesQuery, type ItemOption, type WarehouseOption } from '@/lib/hooks/useMasterDataQueries';
-import { useOpeningStockDraft } from '@/lib/hooks/useOpeningStockDraft';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { isUnsetOrDefaultWarehouse } from '@/lib/drafts/form-lines-draft';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { apiClient } from '@/lib/api/client';
 import { exportRowsToExcel } from '@/lib/export/export-utils';
 import { OPENING_STOCK_SHEET_HEADERS, applyOpeningStockSheet, parseOpeningStockSheet } from '@/lib/inventory/opening-stock-sheet';
@@ -34,12 +37,17 @@ import { finishDocumentSave } from '@/lib/documents/finish-save';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
 import { stockHeaderFieldsFromSource } from '@/lib/inventory/apply-source-to-stock-document';
-import { STOCK_LINE_COPY_SOURCE_TYPES, type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { toast } from '@/lib/feedback/toast';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
+import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
+import {
+  useApplyDefaultWarehouseFromTransactionSettings,
+  useTransactionDocumentSettings,
+} from '@/lib/transaction-settings/use-transaction-document-settings';
 import { OpeningStockHeader } from './OpeningStockHeader';
 import { OpeningStockLinesTable } from './OpeningStockLinesTable';
 import { OpeningStockStickyFooter } from './OpeningStockStickyFooter';
-import { OpeningStockDraftBanner } from './OpeningStockDraftBanner';
 import {
   emptyOpeningStockLine,
   formatMoney,
@@ -120,6 +128,23 @@ function itemToLine(item: ItemOption, warehouseId: string): OpeningStockLineForm
   };
 }
 
+type OpeningStockDraft = {
+  header: InventoryOpeningStockHeaderFormInput;
+  lines: OpeningStockLineForm[];
+};
+
+function isOpeningStockDraftEmpty(
+  draft: OpeningStockDraft,
+  defaultWarehouseId?: string | null,
+): boolean {
+  const h = draft.header;
+  const hasHeader =
+    !isUnsetOrDefaultWarehouse(h.warehouseId, defaultWarehouseId) ||
+    Boolean(h.description?.trim());
+  const hasLines = (draft.lines ?? []).some(isEnteredOpeningStockLine);
+  return !hasHeader && !hasLines;
+}
+
 function recordToLines(record: OpeningStockRecord): OpeningStockLineForm[] {
   const mapped = (record.lines ?? []).map((line) => ({
     itemId: line.itemId || '',
@@ -150,6 +175,15 @@ function OpeningStockFormInner() {
   const [sourceBarKey, setSourceBarKey] = useState(0);
   const sheetRef = useRef<HTMLInputElement>(null);
 
+  const {
+    autoPostOnSave,
+    autoPrintOnSave,
+    serialAutomatic,
+    saveLabel: openingStockSaveLabel,
+    defaultWarehouseId: settingsDefaultWarehouseId,
+  } = useTransactionDocumentSettings('OPENING_STOCK');
+  const [draftSerial, setDraftSerial] = useState('');
+
   useEffect(() => {
     const sync = () => setTenant(getTenantContext());
     window.addEventListener(TENANT_CONTEXT_READY_EVENT, sync);
@@ -157,20 +191,7 @@ function OpeningStockFormInner() {
     return () => window.removeEventListener(TENANT_CONTEXT_READY_EVENT, sync);
   }, []);
 
-  const {
-    data: lines,
-    setData: setLines,
-    hasDraft,
-    draftLineCount,
-    restoreDraft,
-    clearDraft,
-    lastSaved,
-  } = useOpeningStockDraft<OpeningStockLineForm>(
-    tenant.companyId || '',
-    tenant.fiscalYearId || '',
-    [emptyOpeningStockLine()],
-    { enabled: !selectedId }
-  );
+  const [lines, setLines] = useState<OpeningStockLineForm[]>([emptyOpeningStockLine()]);
 
   const { data: warehousesResponse } = useWarehousesQuery(1000, { leafOnly: true });
   const warehouses = useMemo(() => warehousesResponse?.data ?? [], [warehousesResponse?.data]);
@@ -224,7 +245,56 @@ function OpeningStockFormInner() {
 
   const date = watch('date');
   const warehouseId = watch('warehouseId');
+  const description = watch('description');
   const defaultWarehouseId = String(warehouseId || '').trim();
+
+  const draftSnapshot = useMemo<OpeningStockDraft>(
+    () => ({
+      header: { date: date || '', description: description || '', warehouseId: warehouseId || '' },
+      lines,
+    }),
+    [date, description, lines, warehouseId]
+  );
+
+  const applyOpeningStockDraft = useCallback(
+    (payload: OpeningStockDraft) => {
+      reset({
+        date: payload.header?.date || lockedOpeningDate || todayIso(),
+        description: payload.header?.description || '',
+        warehouseId: payload.header?.warehouseId || '',
+      });
+      setLines(
+        Array.isArray(payload.lines) && payload.lines.length
+          ? payload.lines
+          : [emptyOpeningStockLine()]
+      );
+      setSelectedId(null);
+      setLoaded(null);
+      setMode('create');
+      setError('');
+    },
+    [lockedOpeningDate, reset, setMode]
+  );
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'opening-stock',
+    variantId: tenant.fiscalYearId || undefined,
+    companyId: tenant.companyId || undefined,
+    mode: selectedId ? 'edit' : 'new',
+    documentId: selectedId,
+    value: draftSnapshot,
+    enabled: !selectedId,
+    applyRestore: applyOpeningStockDraft,
+    isEmpty: (draft) => isOpeningStockDraftEmpty(draft, settingsDefaultWarehouseId),
+    restoreMessage: 'يوجد مسودة بضاعة أول المدة غير محفوظة',
+  });
+
+  useApplyDefaultWarehouseFromTransactionSettings({
+    selectedId,
+    warehouseId: defaultWarehouseId,
+    defaultWarehouseId: settingsDefaultWarehouseId,
+    setWarehouseId: (id) => setValue('warehouseId', id, { shouldDirty: false }),
+  });
   const operationalWarehouseIds = useMemo(
     () => new Set(warehouses.map((warehouse) => warehouse.id)),
     [warehouses]
@@ -281,7 +351,8 @@ function OpeningStockFormInner() {
     !isPosted &&
     !isReadOnly &&
     lines.some((line) => Boolean(line.itemId || line.itemCode || Number(line.quantity) > 0));
-  const docNumber = loaded?.serial || `OS-${(date || todayIso()).slice(0, 4)}`;
+  const docNumber =
+    loaded?.serial || draftSerial.trim() || (serialAutomatic ? `OS-${(date || todayIso()).slice(0, 4)}` : '');
 
   const findCatalogItem = useCallback(
     (codeOrName?: string) => {
@@ -329,6 +400,7 @@ function OpeningStockFormInner() {
     );
     setSelectedId(record.id);
     setLoaded(record);
+    setDraftSerial(record.serial ?? '');
     if (record.isCancelled || !record.isPosted) unlockForEdit();
     else lockToView();
   };
@@ -392,6 +464,11 @@ function OpeningStockFormInner() {
       setError('اختر المخزن أولاً. كل مخزن له كشف بضاعة أول المدة لوحده.');
       return null;
     }
+    const typedSerial = draftSerial.trim();
+    if (!serialAutomatic && !selectedId && !typedSerial) {
+      setError('رقم الكشف مطلوب — الترقيم يدوي في إعدادات بضاعة أول المدة');
+      return null;
+    }
     if (ready.some((line) => line.warehouseId !== documentWarehouseId)) {
       setError('الكشف لمخزن واحد. لو عندك مخزن تاني اعمل كشف جديد له من «جديد».');
       return null;
@@ -406,6 +483,7 @@ function OpeningStockFormInner() {
     const payload = {
       description: values.description?.trim() || 'بضاعة أول المدة',
       date: payloadDate.toISOString(),
+      ...(typedSerial ? { serial: typedSerial } : {}),
       lines: ready.map((line) => ({
         itemId: line.itemId,
         warehouseId: line.warehouseId,
@@ -436,65 +514,56 @@ function OpeningStockFormInner() {
     }
   };
 
+  const loadRecord = async (id: string) => {
+    try {
+      const res = await apiClient.get<OpeningStockRecord>(`/inventory/opening-stock/${id}`);
+      if (res.data) applyRecord(res.data);
+    } catch (err) {
+      setError(localizeUnknownError(err) || 'تعذر فتح الكشف');
+    }
+  };
+
+  const reopenSavedRecord = (id: string) => {
+    void loadRecord(id);
+  };
+
   const onSave = () => {
     void handleSubmit(async () => {
       const saved = await persistDraft();
       if (!saved) return;
-      if (!isPosted && !isCancelled) {
+      const shouldPostAfterSave = !isPosted && !isCancelled && autoPostOnSave;
+      if (shouldPostAfterSave) {
         setLifecyclePending(true);
         try {
-          const res = await apiClient.post<OpeningStockRecord>(
-            `/inventory/opening-stock/${saved.id}/post`
-          );
+          await apiClient.post<OpeningStockRecord>(`/inventory/opening-stock/${saved.id}/post`);
           invalidateStockViews(invalidateQuery);
           setLoaded((prev) => ({
-            ...(prev ?? res.data ?? { id: saved.id }),
-            ...(res.data ?? {}),
+            ...(prev ?? { id: saved.id }),
             isPosted: true,
           }));
           lockToView();
           setSuccess(
             'تم حفظ وترحيل الكشف: دخلت الكميات للمخزون. راجع قيد الرصيد الافتتاحي في المحاسبة إن لزم.'
           );
+          maybeAutoPrintAfterSave(autoPrintOnSave, handlePrint);
           finishDocumentSave({
             label: 'رصيد افتتاحي',
             number: saved.serial,
             posted: true,
             savedId: saved.id,
             clearDraft,
-            onOpen: (id) => {
-              void (async () => {
-                try {
-                  const detail = await apiClient.get<OpeningStockRecord>(
-                    `/inventory/opening-stock/${id}`
-                  );
-                  if (detail.data) applyRecord(detail.data);
-                } catch {
-                  /* ignore reopen errors */
-                }
-              })();
-            },
+            onOpen: reopenSavedRecord,
             reset: () => resetNew(),
           });
         } catch (err) {
-          setError(err instanceof Error ? err.message : 'تم الحفظ وتعذر الترحيل');
+          setError(localizeUnknownError(err) || 'تم الحفظ وتعذر الترحيل');
+          maybeAutoPrintAfterSave(autoPrintOnSave, handlePrint);
           finishDocumentSave({
             label: 'رصيد افتتاحي',
             number: saved.serial,
             savedId: saved.id,
             clearDraft,
-            onOpen: (id) => {
-              void (async () => {
-                try {
-                  const detail = await apiClient.get<OpeningStockRecord>(
-                    `/inventory/opening-stock/${id}`
-                  );
-                  if (detail.data) applyRecord(detail.data);
-                } catch {
-                  /* ignore */
-                }
-              })();
-            },
+            onOpen: reopenSavedRecord,
             reset: () => resetNew(),
           });
         } finally {
@@ -502,21 +571,15 @@ function OpeningStockFormInner() {
         }
         return;
       }
+      unlockForEdit();
+      setSuccess('تم حفظ كشف بضاعة أول المدة');
+      maybeAutoPrintAfterSave(autoPrintOnSave, handlePrint);
       finishDocumentSave({
         label: 'رصيد افتتاحي',
         number: saved.serial,
         savedId: saved.id,
         clearDraft,
-        onOpen: (id) => {
-          void (async () => {
-            try {
-              const res = await apiClient.get<OpeningStockRecord>(`/inventory/opening-stock/${id}`);
-              if (res.data) applyRecord(res.data);
-            } catch {
-              /* ignore reopen errors */
-            }
-          })();
-        },
+        onOpen: reopenSavedRecord,
         reset: () => resetNew(),
       });
     }, onFieldErrors(setError))();
@@ -634,13 +697,14 @@ function OpeningStockFormInner() {
       if (!id) return;
       const res = await apiClient.post<OpeningStockRecord>(`/inventory/opening-stock/${id}/post`);
       invalidateStockViews(invalidateQuery);
+      trustPostingState(id, (res.data as { version?: number } | undefined)?.version, true);
       setLoaded((prev) => ({ ...(prev ?? res.data ?? { id }), ...(res.data ?? {}), isPosted: true }));
       lockToView();
       setSuccess(
         'تم ترحيل الكشف: دخلت الكميات للمخزون. إن وُجدت مسودة قيد افتتاحي أُضيفت بنود المخزون إليها؛ وإلا يمكن جلبها من الرصيد الافتتاحي لاحقاً.'
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذر ترحيل الكشف');
+      setError(localizeUnknownError(err) || 'تعذر ترحيل الكشف');
     } finally {
       setLifecyclePending(false);
     }
@@ -653,10 +717,13 @@ function OpeningStockFormInner() {
     try {
       await apiClient.post(`/inventory/opening-stock/${selectedId}/unpost`);
       invalidateStockViews(invalidateQuery);
-      setLoaded((prev) => (prev ? { ...prev, isPosted: false } : prev));
+      trustPostingState(selectedId, undefined, false);
+      setLoaded((prev) => (prev ? { ...prev, isPosted: false, postedAt: null } : prev));
+      unlockForEdit();
+      await loadRecord(selectedId);
       setSuccess('تم فك ترحيل بضاعة أول المدة');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذر فك الترحيل');
+      setError(localizeUnknownError(err) || 'تعذر فك الترحيل');
     } finally {
       setLifecyclePending(false);
     }
@@ -680,10 +747,12 @@ function OpeningStockFormInner() {
   };
 
   const resetNew = () => {
+    clearDraft();
     reset({ date: lockedOpeningDate || todayIso(), description: '', warehouseId: '' });
     setLines([emptyOpeningStockLine()]);
     setSelectedId(null);
     setLoaded(null);
+    setDraftSerial('');
     setError('');
     setSuccess('');
     setMode('create');
@@ -718,7 +787,7 @@ function OpeningStockFormInner() {
     clearDraft();
   };
 
-  const handlePrint = () => {
+  function handlePrint() {
     const rows = lines
       .filter((line) => line.itemId || line.itemCode)
       .map(
@@ -747,7 +816,7 @@ function OpeningStockFormInner() {
         th{background:#f3f4f6}
       </style></head><body>
         <h1>كشف بضاعة أول المدة ${docNumber}</h1>
-        <div>التاريخ: ${date || ''} — الحالة: ${isCancelled ? 'ملغي' : isPosted ? 'مرحل ومثبت' : 'مسودة'}</div>
+        <div>التاريخ: ${date || ''} — الحالة: ${isCancelled ? 'ملغي' : isPosted ? 'مرحل ومثبت' : 'غير مرحّل'}</div>
         <table>
           <thead><tr>
             <th>#</th><th>كود الصنف</th><th>اسم الصنف</th><th>الوحدة</th><th>المخزن</th>
@@ -758,7 +827,7 @@ function OpeningStockFormInner() {
         <p>عدد الأصناف: ${itemCount} — إجمالي الكميات: ${totalQuantity} — القيمة: ${formatMoney(totalValue)} ج.م</p>
       </body></html>
     `);
-  };
+  }
 
   const handleExportExcel = async () => {
     const rows = lines
@@ -870,34 +939,26 @@ function OpeningStockFormInner() {
     if (!(await confirmAction('استعادة كشف بضاعة أول المدة الملغي؟'))) return;
     setLifecyclePending(true);
     try {
-      await apiClient.post(`/inventory/opening-stock/${selectedId}/restore`);
+      await restoreCancelledDocument({
+        restorePath: `/inventory/opening-stock/${selectedId}/restore`,
+        postPath: `/inventory/opening-stock/${selectedId}/post`,
+        kind: 'named',
+        autoPostOnSave,
+      });
       invalidateQuery(['opening-stock']);
       invalidateQuery(['opening-stock-browse']);
-      setLoaded((prev) => (prev ? { ...prev, isCancelled: false } : prev));
-      unlockForEdit();
-      setSuccess('تم استعادة نفس كشف بضاعة أول المدة');
+      await loadRecord(selectedId);
+      if (autoPostOnSave) lockToView();
+      else unlockForEdit();
+      setSuccess(
+        autoPostOnSave
+          ? 'تمت الاستعادة وترحيل الكشف'
+          : 'تم استعادة نفس كشف بضاعة أول المدة — غير مرحّل'
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر استعادة الكشف');
     } finally {
       setLifecyclePending(false);
-    }
-  };
-
-  const handleRestoreDraft = () => {
-    restoreDraft();
-    setSuccess(
-      draftLineCount > 0
-        ? `تم استرجاع مسودة غير محفوظة تحتوي على ${draftLineCount} صنف`
-        : 'تم استرجاع المسودة المحلية'
-    );
-  };
-
-  const loadRecord = async (id: string) => {
-    try {
-      const res = await apiClient.get<OpeningStockRecord>(`/inventory/opening-stock/${id}`);
-      if (res.data) applyRecord(res.data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذر فتح الكشف');
     }
   };
 
@@ -911,6 +972,7 @@ function OpeningStockFormInner() {
           isPosted={isPosted}
           isReadOnly={isReadOnly}
           hasDocument={hasDocument}
+          documentId={selectedId}
           canPost={canPost}
           date={lockedOpeningDate || date}
           dateError={Boolean(errors.date)}
@@ -919,6 +981,7 @@ function OpeningStockFormInner() {
           canSave={canSave}
           loadPending={loadPending}
           onSave={onSave}
+          saveLabel={autoPostOnSave ? STORE_SAVE_AND_POST_LABEL : openingStockSaveLabel}
           onBrowseList={() => setBrowseOpen(true)}
           onLoadItems={() => void handleLoadItems()}
           onPost={() => void handlePost()}
@@ -936,15 +999,6 @@ function OpeningStockFormInner() {
           onVoid={() => void handleVoid()}
           onRestore={() => void handleRestore()}
           isCancelled={isCancelled}
-          sourceLoadBar={
-            <DocumentSourceLoadBar
-              key={sourceBarKey}
-              hasExistingLines={lines.some((l) => isEnteredOpeningStockLine(l))}
-              disabled={gridLocked}
-              allowedTypes={STOCK_LINE_COPY_SOURCE_TYPES}
-              onHydrate={handleSourceHydrate}
-            />
-          }
         />
 
         <input
@@ -959,7 +1013,14 @@ function OpeningStockFormInner() {
           }}
         />
 
-        <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+          <CompactFormField
+            label="المسلسل"
+            placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل رقم الكشف'}
+            readOnly={serialAutomatic || gridLocked}
+            value={serialAutomatic && !draftSerial ? '' : draftSerial}
+            onChange={(e) => setDraftSerial(e.target.value)}
+          />
           <CompactFormField label="المخزن">
             <WarehouseSelect
               value={warehouseId || ''}
@@ -982,14 +1043,27 @@ function OpeningStockFormInner() {
             />
           </CompactFormField>
         </div>
-
-        {hasDraft ? (
-          <OpeningStockDraftBanner
-            count={draftLineCount}
-            onRestore={handleRestoreDraft}
-            onDismiss={clearDraft}
+        <div className="mb-3 flex justify-end">
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={lines.some((l) => isEnteredOpeningStockLine(l))}
+            disabled={gridLocked}
+            currentAffectsStock
+            onHydrate={handleSourceHydrate}
           />
-        ) : null}
+        </div>
+
+        <PageDraftRestoreGate<OpeningStockDraft>
+          restoreOffer={restoreOffer}
+          hide={Boolean(selectedId)}
+          message="يوجد مسودة بضاعة أول المدة غير محفوظة."
+          acceptRestore={acceptRestore}
+          dismissRestore={dismissRestore}
+          onRestored={(payload) => {
+            applyOpeningStockDraft(payload);
+            setSuccess('تم استعادة مسودة بضاعة أول المدة');
+          }}
+        />
 
         {isCancelled ? (
           <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800">
@@ -1045,7 +1119,7 @@ function OpeningStockFormInner() {
           itemCount={itemCount}
           totalQuantity={totalQuantity}
           totalValue={totalValue}
-          lastSaved={lastSaved}
+          lastSaved={null}
           isPosted={isPosted}
           savePending={saving}
           canSave={canSave}
@@ -1092,13 +1166,6 @@ function OpeningStockFormInner() {
                 getValue: (row) => formatMoney(toNumber(row.totalAmount)),
               },
             ]}
-            resolveStatus={(row) =>
-              row.isCancelled
-                ? { variant: 'danger', label: 'ملغي' }
-                : row.isPosted
-                  ? { variant: 'success', label: 'مرحل' }
-                  : { variant: 'warning', label: 'مسودة' }
-            }
             onSelect={(id) => {
               setBrowseOpen(false);
               void loadRecord(id);

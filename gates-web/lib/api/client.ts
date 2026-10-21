@@ -29,6 +29,7 @@ import {
 } from '../auth/reset-auth-session';
 import { jwtSubject } from '../auth/jwt-client';
 import {
+  isNegativeStockConfirmNotification,
   localizeApiErrorMessage,
   notifyApiError,
   shouldBroadcastApiError,
@@ -332,7 +333,9 @@ class ApiClient {
         stage: typeof bodyRecord?.stage === 'string' ? bodyRecord.stage : undefined,
         originalCode: typeof bodyRecord?.originalCode === 'string' ? bodyRecord.originalCode : undefined,
         originalStatusCode:
-          typeof bodyRecord?.originalStatusCode === 'number' ? bodyRecord.originalStatusCode : undefined,
+          typeof bodyRecord?.originalStatusCode === 'number'
+            ? bodyRecord.originalStatusCode
+            : response.status,
         etaHttpStatus: typeof bodyRecord?.etaHttpStatus === 'number' ? bodyRecord.etaHttpStatus : undefined,
         etaBodyPreview: typeof bodyRecord?.etaBodyPreview === 'string' ? bodyRecord.etaBodyPreview : undefined,
         signingSessionId: typeof bodyRecord?.signingSessionId === 'string' ? bodyRecord.signingSessionId : undefined,
@@ -382,12 +385,18 @@ class ApiClient {
   private broadcastFinalError(error: unknown, url?: string): void {
     if (isAbortError(error) || isRateLimitError(error)) return;
     if (!isApiError(error)) return;
-    const httpStatus = Number.parseInt(error.code ?? '', 10);
+    if (isNegativeStockConfirmNotification({ ...error, url })) return;
+    const httpStatus =
+      typeof error.originalStatusCode === 'number'
+        ? error.originalStatusCode
+        : Number.parseInt(error.code ?? '', 10);
     if (Number.isNaN(httpStatus) || !shouldBroadcastApiError(httpStatus)) return;
     const rawMessage = (error.message ?? '').toLowerCase();
     if (
       httpStatus === 404 ||
       error.code === 'DOCUMENT_OCCUPIED' ||
+      error.code === 'CONFIRM_NEGATIVE_STOCK_UNPOST' ||
+      error.code === 'CONFIRM_NEGATIVE_STOCK_POST' ||
       rawMessage === 'journal entry not found' ||
       rawMessage === 'error getting journal entry' ||
       rawMessage === 'failed to get journal entry' ||
@@ -711,6 +720,7 @@ class ApiClient {
       this.broadcastSuccess(url, { method: 'POST', skipSuccessNotify: false }, parsed);
       return parsed;
     } catch (error) {
+      this.broadcastFinalError(error, url);
       throw normalizeFetchFailure(error);
     }
   }
@@ -759,6 +769,7 @@ function isSilentSuccessUrl(url: string): boolean {
   if (/\/ai\/insights\/[^/]+\/dismiss$/.test(path)) return true;
   if (/\/ai\/actions\/[^/]+\/acknowledge$/.test(path)) return true;
   if (/\/growth\/[^/]+\/(dismiss|review)$/.test(path)) return true;
+  if (path === '/migration-engine' || path.startsWith('/migration-engine/')) return true;
   return false;
 }
 

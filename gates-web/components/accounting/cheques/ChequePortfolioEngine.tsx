@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { useSearchParams } from 'next/navigation';
 import { CustomerSelect, SupplierSelect } from '@/app/components/form/PartySelect';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
@@ -82,8 +84,23 @@ function emptyForm() {
   };
 }
 
+type ChequeFormDraft = ReturnType<typeof emptyForm>;
+
+function isChequeFormDraftEmpty(form: ChequeFormDraft): boolean {
+  return (
+    !form.chequeNumber.trim() &&
+    !form.amount.trim() &&
+    !form.bankName.trim() &&
+    !form.dueDate.trim() &&
+    !form.partyId &&
+    !form.bankAccountId &&
+    !form.description.trim()
+  );
+}
+
 export function ChequePortfolioEngine({ direction }: Props) {
   const inward = direction === 'INWARD';
+  const settingsDocumentType = inward ? 'CHEQUE_RECEIPT' : 'CHEQUE_PAYMENT';
   const title = inward ? 'أوراق القبض (الشيكات الواردة)' : 'أوراق الدفع (الشيكات الصادرة)';
   const listKey = inward ? 'treasury-cheques-inward' : 'treasury-cheques-outward';
   const favoriteHref = inward ? '/accounting/cheques/incoming' : '/accounting/cheques/outgoing';
@@ -103,6 +120,27 @@ export function ChequePortfolioEngine({ direction }: Props) {
   const [modalError, setModalError] = useState('');
   const [editing, setEditing] = useState(true);
   const [form, setForm] = useState(emptyForm);
+
+  const draftSnapshot = useMemo(() => form, [form]);
+
+  const applyChequeDraft = useCallback((payload: ChequeFormDraft) => {
+    setSelectedId(null);
+    setActive(null);
+    setForm({ ...emptyForm(), ...payload });
+    setEditing(true);
+    setError('');
+  }, []);
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: inward ? 'cheque-inward' : 'cheque-outward',
+    mode: selectedId ? 'edit' : 'new',
+    documentId: selectedId,
+    value: draftSnapshot,
+    enabled: !selectedId,
+    applyRestore: applyChequeDraft,
+    isEmpty: isChequeFormDraftEmpty,
+    restoreMessage: inward ? 'يوجد مسودة شيك وارد غير محفوظة' : 'يوجد مسودة شيك صادر غير محفوظ',
+  });
 
   const extraParams = useMemo(
     () => ({
@@ -171,6 +209,7 @@ export function ChequePortfolioEngine({ direction }: Props) {
   };
 
   const resetNew = () => {
+    clearDraft();
     setSelectedId(null);
     setActive(null);
     setForm(emptyForm());
@@ -269,6 +308,7 @@ export function ChequePortfolioEngine({ direction }: Props) {
     {
       onSuccess: (res) => {
         const cheque = res.data;
+        clearDraft();
         setSuccess(inward ? 'تم تسجيل شيك وارد' : 'تم إصدار شيك صادر');
         refresh();
         if (cheque?.id) void loadCheque(cheque.id, false);
@@ -320,7 +360,7 @@ export function ChequePortfolioEngine({ direction }: Props) {
     if (!form.chequeNumber && !active) return;
     void printOperationalDocument({
       title: inward ? 'ورقة قبض / شيك وارد' : 'ورقة دفع / شيك صادر',
-      documentNo: form.chequeNumber || 'مسودة',
+      documentNo: form.chequeNumber || 'جديد',
       documentDate: form.dueDate || new Date().toISOString().slice(0, 10),
       buyerName: active ? chequePartyName(active) : undefined,
       currency: selectedCurrency?.code || companyBaseCurrency,
@@ -333,15 +373,6 @@ export function ChequePortfolioEngine({ direction }: Props) {
         },
       ],
     });
-  };
-
-  const handleDuplicate = () => {
-    if (!active && !form.chequeNumber) return;
-    setSelectedId(null);
-    setActive(null);
-    setForm((prev) => ({ ...prev, chequeNumber: '' }));
-    setEditing(true);
-    setSuccess('تم تجهيز نسخة جديدة من الشيك');
   };
 
   const handleVoid = () => {
@@ -463,7 +494,6 @@ export function ChequePortfolioEngine({ direction }: Props) {
         }}
         searchPlaceholder="بحث برقم الشيك أو اسم البنك…"
         printTitle={title}
-        allowDeleteDraft={false}
         resolveStatus={(row) => {
           const rowStatus = asCheque(row).status;
           if (!isChequeStatus(rowStatus)) return { variant: 'neutral', label: String(rowStatus || '—') };
@@ -475,6 +505,17 @@ export function ChequePortfolioEngine({ direction }: Props) {
 
   return (
     <ErpDocumentLayout>
+      <PageDraftRestoreGate<ChequeFormDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedId)}
+        message={inward ? 'يوجد مسودة شيك وارد غير محفوظة.' : 'يوجد مسودة شيك صادر غير محفوظ.'}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyChequeDraft(payload);
+          setSuccess('تم استعادة مسودة الشيك');
+        }}
+      />
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
@@ -515,11 +556,11 @@ export function ChequePortfolioEngine({ direction }: Props) {
             setEditing(true);
           },
           onPrint: handlePrint,
-          onDuplicate: handleDuplicate,
           onVoid: handleVoid,
           voidPending: pending,
           voidLabel: 'إلغاء الشيك',
           extraItems,
+          transactionSettingsDocumentType: settingsDocumentType,
         }}
       />
 

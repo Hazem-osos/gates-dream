@@ -31,6 +31,11 @@ import { printPageContent } from '@/lib/print/printHtml';
 import { withItemCodeHierarchy } from '@/lib/contracting/boq-hierarchy';
 import { mapExtractContractError, wave3ExtractSaveLines } from '@/lib/contracting/mostakhlasat-contracts';
 
+function qtyShare(part: number, contract: number): string {
+  if (!(contract > 0)) return '—';
+  return `${((part / contract) * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+}
+
 type ProjectOption = {
   id: string;
   projectCode: string;
@@ -437,22 +442,26 @@ export default function ContractExtractEditorPage() {
                     <th className={denseThClass}>كود البند</th>
                     <th className={denseThClass}>بيان الأعمال</th>
                     <th className={denseThClass}>الوحدة</th>
-                    <th className={denseThClass}>سعر الفئة</th>
+                    <th className={denseThClass}>الفئة</th>
                     <th className={denseThClass}>كمية سابقة</th>
                     <th className={denseThClass}>كمية حالية</th>
                     <th className={denseThClass}>كمية إجمالية</th>
-                    <th className={denseThClass}>% إنجاز</th>
-                    <th className={denseThClass}>إجمالي القيمة</th>
+                    <th className={denseThClass}>متبقي</th>
+                    <th className={denseThClass}>النسبة السابقة</th>
+                    <th className={denseThClass}>النسبة الحالية</th>
+                    <th className={denseThClass}>النسبة الإجمالية</th>
+                    <th className={denseThClass}>قيمة السابق</th>
+                    <th className={denseThClass}>قيمة الفترة</th>
+                    <th className={denseThClass}>قيمة التراكمي</th>
                   </tr>
                 </thead>
                 <tbody>
                   {withItemCodeHierarchy(lineDrafts, (row) => row.itemNumber).map((line) => {
                     const cum = line.previousQuantity + line.currentQuantity;
+                    const remaining = Math.max(0, line.contractQuantity - cum);
+                    const previousAmount = line.previousQuantity * line.unitPrice;
                     const lineTotal = line.currentQuantity * line.unitPrice;
-                    const pct =
-                      line.contractQuantity > 0
-                        ? Math.min(100, (cum / line.contractQuantity) * 100)
-                        : 0;
+                    const cumulativeAmount = cum * line.unitPrice;
                     return (
                       <tr key={line.boqItemId} className={denseTrClass}>
                         <td className={denseTdClass}>
@@ -490,10 +499,25 @@ export default function ContractExtractEditorPage() {
                           {line.__isParent ? '—' : cum.toLocaleString()}
                         </td>
                         <td className={denseTdClass}>
-                          {line.__isParent ? '—' : `${pct.toLocaleString()}%`}
+                          {line.__isParent ? '—' : remaining.toLocaleString()}
+                        </td>
+                        <td className={denseTdClass}>
+                          {line.__isParent ? '—' : qtyShare(line.previousQuantity, line.contractQuantity)}
+                        </td>
+                        <td className={denseTdClass}>
+                          {line.__isParent ? '—' : qtyShare(line.currentQuantity, line.contractQuantity)}
+                        </td>
+                        <td className={denseTdClass}>
+                          {line.__isParent ? '—' : qtyShare(cum, line.contractQuantity)}
+                        </td>
+                        <td className={denseTdClass}>
+                          {line.__isParent ? '—' : fmtMoney(previousAmount)}
                         </td>
                         <td className={`${denseTdClass} font-medium`}>
                           {line.__isParent ? '—' : fmtMoney(lineTotal)}
+                        </td>
+                        <td className={denseTdClass}>
+                          {line.__isParent ? '—' : fmtMoney(cumulativeAmount)}
                         </td>
                       </tr>
                     );

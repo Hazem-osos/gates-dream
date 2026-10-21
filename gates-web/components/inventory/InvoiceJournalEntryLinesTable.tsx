@@ -3,6 +3,12 @@
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { savedDocumentRowStatus } from '@/lib/documents/document-status-labels';
+import {
+  LINKED_JOURNAL_EMPTY_SAVED,
+  resolveLinkedJournalId,
+} from '@/lib/documents/linked-journal-preview';
 
 type JournalLine = {
   lineOrder?: number;
@@ -17,6 +23,8 @@ type JournalLine = {
 
 type JournalEntryPayload = {
   currencyCode?: string;
+  isPosted?: boolean;
+  isCancelled?: boolean;
   lines?: JournalLine[];
 };
 
@@ -28,25 +36,28 @@ function fmtAmount(v: number | string | undefined): string {
 
 export type InvoiceJournalEntryLinesTableProps = {
   journalEntryId: string | null | undefined;
+  /** Source document id — keeps معاينة القيد after unpost/cancel even if the FK is missing. */
+  sourceDocumentId?: string | null;
   title?: string;
   compact?: boolean;
   emptyTitle?: string;
 };
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isJournalEntryId(value: string | null | undefined): value is string {
-  return Boolean(value && UUID_RE.test(value));
-}
-
 export function InvoiceJournalEntryLinesTable({
   journalEntryId,
+  sourceDocumentId,
   title = 'القيد',
   compact = false,
-  emptyTitle = 'لا يوجد قيد محاسبي بعد.',
+  emptyTitle = LINKED_JOURNAL_EMPTY_SAVED,
 }: InvoiceJournalEntryLinesTableProps) {
-  const validId = isJournalEntryId(journalEntryId) ? journalEntryId : null;
+  const sourceId = sourceDocumentId?.trim() || null;
+  const { data: sourceResponse } = useApiQuery<Array<{ id?: string | null }>>(
+    ['journal-entries-by-source', sourceId],
+    '/accounting/journal-entries',
+    { sourceId, limit: 5, sortBy: 'createdAt', sortDir: 'desc' },
+    { enabled: Boolean(sourceId), retry: false, skipErrorNotify: true }
+  );
+  const validId = resolveLinkedJournalId(journalEntryId, sourceResponse?.data);
   const { data: response, isLoading } = useApiQuery<JournalEntryPayload>(
     ['journal-entry', validId],
     `/accounting/journal-entries/${validId}`,
@@ -56,6 +67,7 @@ export function InvoiceJournalEntryLinesTable({
 
   const lines = response?.data?.lines ?? [];
   const currency = response?.data?.currencyCode ?? '—';
+  const journalStatus = response?.data ? savedDocumentRowStatus(response.data) : null;
 
   const cell = compact ? 'py-1.5 px-1.5 text-[11px]' : 'py-3 px-2';
 
@@ -64,6 +76,12 @@ export function InvoiceJournalEntryLinesTable({
       {title ? (
         <div className={`text-[#0E78AA] font-bold border-b border-[#D6EAF3] bg-white ${compact ? 'px-3 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
           {title}
+        </div>
+      ) : null}
+      {journalStatus ? (
+        <div className="flex items-center gap-2 border-b border-[#D6EAF3] px-3 py-1.5 text-xs text-[#094C6B]">
+          <span className="font-semibold">حالة القيد</span>
+          <StatusBadge variant={journalStatus.tone} label={journalStatus.label} compact />
         </div>
       ) : null}
       <table className={`w-full text-center border-separate border-spacing-0 ${compact ? 'text-[11px]' : ''}`}>

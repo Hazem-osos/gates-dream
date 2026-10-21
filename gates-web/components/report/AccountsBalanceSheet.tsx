@@ -8,8 +8,11 @@ import {
   type FiscalYearOption,
 } from '@/lib/reports/compareFiscalYear';
 import { buildLegalFinancialPosition } from '@/lib/reports/legalFinancialPosition';
+import { AccountLedgerLink } from '@/components/report/AccountLedgerLink';
+import { BalanceAnalysisProvider, BalanceRowEye } from '@/components/report/BalanceAnalysisProvider';
 
 type SheetRow = {
+  accountId?: string;
   code: string;
   arabicName: string;
   amount: number;
@@ -41,7 +44,7 @@ type NoteBlock = {
   title: string;
   opening: number;
   current: number;
-  rows: { name: string; opening: number; current: number }[];
+  rows: { name: string; opening: number; current: number; accountId?: string }[];
 };
 
 function money(value: number | undefined, wrapped = false) {
@@ -159,6 +162,7 @@ export function AccountsBalanceSheet({ query }: { query: Record<string, string> 
     : COMPARISON_BALANCE_HEADER;
 
   return (
+    <BalanceAnalysisProvider query={{ ...query, asOfDate: positionDate }}>
     <div className="space-y-4" dir="rtl">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-right">
@@ -184,6 +188,7 @@ export function AccountsBalanceSheet({ query }: { query: Record<string, string> 
           positionLabel={positionColumnLabel}
           comparisonLabel={comparisonColumnLabel}
           showComparison={showComparisonColumn}
+          query={{ ...query, asOfDate: positionDate }}
         />
       ) : (
         <StatementTable
@@ -194,6 +199,7 @@ export function AccountsBalanceSheet({ query }: { query: Record<string, string> 
         />
       )}
     </div>
+    </BalanceAnalysisProvider>
   );
 }
 
@@ -256,11 +262,13 @@ function NotesView({
   positionLabel,
   comparisonLabel,
   showComparison,
+  query,
 }: {
   notes: NoteBlock[];
   positionLabel: string;
   comparisonLabel: string;
   showComparison: boolean;
+  query: Record<string, string>;
 }) {
   return (
     <div className="space-y-10 rounded-xl border border-[#D6EAF3] bg-white px-6 py-8">
@@ -288,10 +296,25 @@ function NotesView({
             <tbody>
               {block.rows.map((row) => (
                 <tr key={row.name}>
-                  <td className="px-3 py-1 text-right">{row.name}</td>
-                  <td className="px-3 py-1 text-center tabular-nums">{money(row.current, true)}</td>
+                  <td className="px-3 py-1 text-right">
+                    <span className="inline-flex items-center gap-1">
+                      <BalanceRowEye accountId={row.accountId} label={row.name} query={query} />
+                      <AccountLedgerLink accountId={row.accountId} query={query} showIcon={false}>
+                        {row.name}
+                      </AccountLedgerLink>
+                    </span>
+                  </td>
+                  <td className="px-3 py-1 text-center tabular-nums">
+                    <AccountLedgerLink accountId={row.accountId} query={query} showIcon={false}>
+                      {money(row.current, true)}
+                    </AccountLedgerLink>
+                  </td>
                   {showComparison ? (
-                    <td className="px-3 py-1 text-center tabular-nums">{money(row.opening, true)}</td>
+                    <td className="px-3 py-1 text-center tabular-nums">
+                      <AccountLedgerLink accountId={row.accountId} query={query} showIcon={false}>
+                        {money(row.opening, true)}
+                      </AccountLedgerLink>
+                    </td>
                   ) : null}
                 </tr>
               ))}

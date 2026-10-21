@@ -167,7 +167,7 @@ export function QuickCreateItemModal({
 
   return (
     <div
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[15000] flex items-center justify-center bg-black/40 p-4"
       style={{ direction: 'rtl' }}
       role="dialog"
       aria-modal="true"

@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Landmark } from 'lucide-react';
 import { CompactFormField, FormSectionCard, compactControlClass } from '@/components/ui';
 import { MasterCardShell } from '@/components/erp';
@@ -26,6 +28,26 @@ export default function BankAccountCardPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
+
+  type BankAccountCardDraft = { arabicName: string; bankId: string; newBankName: string };
+  const draftSnapshot = useMemo<BankAccountCardDraft>(
+    () => ({ arabicName, bankId, newBankName }),
+    [arabicName, bankId, newBankName]
+  );
+  const applyBankAccountDraft = useCallback((payload: BankAccountCardDraft) => {
+    setArabicName(payload.arabicName);
+    setBankId(payload.bankId);
+    setNewBankName(payload.newBankName);
+    setError('');
+  }, []);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'bank-account-card',
+    editingId: null,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.arabicName.trim() && !d.bankId && !d.newBankName.trim(),
+    applyRestore: applyBankAccountDraft,
+    restoreMessage: 'يوجد مسودة حساب بنكي غير محفوظة',
+  });
 
   const { data: banksRes } = useApiQuery<BankRow[]>(
     ['banks', { limit: 100 }],
@@ -88,6 +110,7 @@ export default function BankAccountCardPage() {
         arabicName: row.arabicName || arabicName.trim(),
         code: row.code,
       });
+      clearDraft();
       setSuccess('تم حفظ الحساب البنكي');
       setArabicName('');
       setBankId('');
@@ -114,6 +137,14 @@ export default function BankAccountCardPage() {
       canSave={!saving}
       favoriteHref="/accounting/cards/bank-account"
     >
+      <MasterCardDraftRestoreGate<BankAccountCardDraft>
+        editingId={null}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyBankAccountDraft}
+        message="يوجد مسودة حساب بنكي غير محفوظة."
+      />
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
       <FormSectionCard title="البيانات الأساسية" icon={Landmark}>

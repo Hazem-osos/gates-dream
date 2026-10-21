@@ -15,7 +15,11 @@ export function useAccountingSettingsQuery() {
     ACCOUNTING_SETTINGS_QUERY_KEY,
     '/accounting/settings',
     undefined,
-    { staleTime: staleTimes.masterMs, requireFullTenant: false }
+    {
+      staleTime: staleTimes.masterMs,
+      requireFullTenant: false,
+      retry: 1,
+    }
   );
 }
 

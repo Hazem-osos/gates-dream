@@ -69,6 +69,7 @@ export function AccountFormModal({
   onSaved,
   onCreatedAccount,
   onError,
+  overlayZClass = 'z-[10050]',
 }: {
   open: boolean;
   mode: AccountFormModalMode;
@@ -88,6 +89,8 @@ export function AccountFormModal({
   onSaved: (accountId?: string) => void;
   onCreatedAccount?: (account: { id: string; code: string; arabicName: string }) => void;
   onError: (msg: string) => void;
+  /** Raise when opened above payment modals (z-[12000]). */
+  overlayZClass?: string;
 }) {
   const [form, setForm] = useState<AccountFormPayload>(emptyForm);
   const [parentTouched, setParentTouched] = useState(false);
@@ -324,7 +327,13 @@ export function AccountFormModal({
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <CenteredOverlay open={open} onClose={onClose} width="lg" labelledBy="account-form-title">
+    <CenteredOverlay
+      open={open}
+      onClose={onClose}
+      width="lg"
+      zClass={overlayZClass}
+      labelledBy="account-form-title"
+    >
       <div className="erp-field-wide flex min-h-0 w-full min-w-0 flex-1 flex-col" dir="rtl">
         <div className="min-w-0 flex-1 overflow-y-auto p-6 pb-2">
           <h2 id="account-form-title" className="mb-1 text-xl font-bold text-[#0E78AA]">

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActionButtons, Button, FormSectionCard, compactControlClass } from '@/components/ui';
+import { CustomerSelect, SupplierSelect } from '@/components/form/PartySelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { parseDecimal } from '@/lib/money/parseDecimal';
 
@@ -41,6 +42,7 @@ interface PaymentsDistributionModalProps {
   onSuccess?: (message: string) => void;
   /** Collect allocations on the voucher before save (no reconcile API). */
   draftMode?: boolean;
+  initialAllocations?: { invoiceId: string; allocatedAmount: number }[];
   onApplyDraft?: (allocations: { invoiceId: string; allocatedAmount: number }[]) => void;
   onPartyChange?: (partyId: string) => void;
 }
@@ -66,12 +68,20 @@ export default function PaymentsDistributionModal({
   onError,
   onSuccess,
   draftMode = false,
+  initialAllocations = [],
   onApplyDraft,
+  onPartyChange,
 }: PaymentsDistributionModalProps) {
   const invalidateQuery = useInvalidateQuery();
   const [rows, setRows] = useState<AllocationRow[]>([]);
+  const [pickedPartyId, setPickedPartyId] = useState(partyId || customerId || '');
 
-  const effectivePartyId = partyId || customerId || '';
+  useEffect(() => {
+    if (!isOpen) return;
+    setPickedPartyId(partyId || customerId || '');
+  }, [isOpen, partyId, customerId]);
+
+  const effectivePartyId = pickedPartyId || partyId || customerId || '';
   const effectiveAccountId = accountId || '';
   const effectiveCustomerId = side === 'receivable' ? effectivePartyId || null : null;
   const effectiveSupplierId = side === 'payable' ? effectivePartyId || null : null;
@@ -110,19 +120,27 @@ export default function PaymentsDistributionModal({
       return;
     }
     const list = openResponse?.data ?? [];
-    setRows(
-      list.map((inv) => ({
-        invoiceId: inv.id,
-        invoiceNumber: inv.invoiceNumber,
-        date: inv.date,
-        remainingAmount: parseDecimal(inv.remainingAmount),
-        netAmount: parseDecimal(inv.netAmount),
-        paidAmount: parseDecimal(inv.paidAmount),
-        selected: false,
-        payAmount: '',
-      }))
+    const initialByInvoice = new Map(
+      initialAllocations
+        .filter((row) => row.invoiceId && Number(row.allocatedAmount) > 0)
+        .map((row) => [row.invoiceId, Number(row.allocatedAmount)])
     );
-  }, [openResponse, hasScreenAccount]);
+    setRows(
+      list.map((inv) => {
+        const pay = initialByInvoice.get(inv.id);
+        return {
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoiceNumber,
+          date: inv.date,
+          remainingAmount: parseDecimal(inv.remainingAmount),
+          netAmount: parseDecimal(inv.netAmount),
+          paidAmount: parseDecimal(inv.paidAmount),
+          selected: pay != null,
+          payAmount: pay != null ? String(pay) : '',
+        };
+      })
+    );
+  }, [openResponse, hasScreenAccount, initialAllocations]);
 
   const selectedTotal = rows.reduce((sum, r) => {
     if (!r.selected) return sum;
@@ -233,14 +251,40 @@ export default function PaymentsDistributionModal({
           <div className="shrink-0 border-b border-[#E6F0F7] bg-white p-5 text-center">
             <h2 className="text-lg font-bold text-[#0A3D5E]">توزيع السدادات على الفواتير</h2>
             <p className="mt-1 text-xs text-[#5A7A8A]">
-              الفواتير تظهر بعد اختيار الحساب في بنود السند، وبعدين توزّع القيمة هنا.
+              اختر العميل أو المورد لتظهر فواتيره المفتوحة، ثم وزّع مبلغ السند عليها.
             </p>
           </div>
 
           <div className="flex-1 overflow-y-auto p-5 pt-4">
             <FormSectionCard className="mb-0" bodyClassName="grid-cols-1 sm:grid-cols-1 lg:grid-cols-1">
+              <div className="mb-3">
+                <label className="mb-1 block text-xs font-semibold text-[#0A3D5E]">
+                  {side === 'payable' ? 'المورد' : 'العميل'}
+                </label>
+                {side === 'payable' ? (
+                  <SupplierSelect
+                    value={effectivePartyId}
+                    onChange={(id) => {
+                      setPickedPartyId(id);
+                      onPartyChange?.(id);
+                    }}
+                    disabled={isPosted && !draftMode}
+                    emptyLabel="اختر المورد لتظهر فواتيره"
+                  />
+                ) : (
+                  <CustomerSelect
+                    value={effectivePartyId}
+                    onChange={(id) => {
+                      setPickedPartyId(id);
+                      onPartyChange?.(id);
+                    }}
+                    disabled={isPosted && !draftMode}
+                    emptyLabel="اختر العميل لتظهر فواتيره"
+                  />
+                )}
+              </div>
               {!hasScreenAccount ? (
-                <p className="text-center text-gray-600">اختَر حساباً في بنود السند عشان تظهر فواتيره.</p>
+                <p className="text-center text-gray-600">اختر العميل أو المورد لتظهر الفواتير المفتوحة.</p>
               ) : isLoading ? (
                 <p className="text-center text-gray-600">جاري تحميل الفواتير...</p>
               ) : rows.length === 0 ? (

@@ -41,7 +41,7 @@ import type { ApiError } from '@/lib/api/types';
 import { apiClient } from '@/lib/api/client';
 import { toHijriDate } from '@/lib/hijri-date';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
-import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import {
@@ -57,9 +57,12 @@ import type { JournalPrintModel } from '@/lib/print/types';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { impliedJournalLineRate, pickCurrencyByCode, resolveJournalLineCurrencyId, toBaseAmount } from '@/lib/accounting/fx-base';
 import {
+  journalShouldAutoPostOnSave,
   postJournalAfterSave,
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
+import type { TransactionSettings } from '@/lib/transaction-settings/types';
+import { useAccountingSettings } from '@/lib/hooks/useAccountingSettings';
 import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
@@ -163,18 +166,14 @@ function todayIso() {
   return new Date().toISOString().split('T')[0];
 }
 
-const OPENING_ENTRY_NUMBER_PLACEHOLDER = '00000001';
+const OPENING_ENTRY_NUMBER = '00000000';
 
-function defaultEntryNumber(nextFromApi?: string | null) {
-  const trimmed = nextFromApi?.trim();
-  if (trimmed && /^\d+$/.test(trimmed)) return trimmed.padStart(8, '0').slice(-8);
-  return OPENING_ENTRY_NUMBER_PLACEHOLDER;
+function defaultEntryNumber(_nextFromApi?: string | null) {
+  return OPENING_ENTRY_NUMBER;
 }
 
-function openingVoucherNumberForSave(entryNumber: string | undefined): string | undefined {
-  const trimmed = entryNumber?.trim() ?? '';
-  if (!/^\d+$/.test(trimmed)) return undefined;
-  return trimmed.padStart(8, '0').slice(-8);
+function openingVoucherNumberForSave(_entryNumber?: string): string {
+  return OPENING_ENTRY_NUMBER;
 }
 
 function isInventoryOpeningAccount(
@@ -296,8 +295,17 @@ function OpeningBalancePageInner() {
   const [isCancelled, setIsCancelled] = useState(false);
   const [loadedVersion, setLoadedVersion] = useState<number | undefined>(undefined);
   const postAfterSaveRef = useRef(false);
-  const draftSaveRef = useRef(false);
-  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
+  const { data: openingTxSettingsRes } = useApiQuery<TransactionSettings>(
+    ['transaction-settings', 'OPENING_BALANCE'],
+    '/transaction-settings/OPENING_BALANCE'
+  );
+  const { data: accountingSettingsRes } = useAccountingSettings();
+  const openingAutoPostOnSave = journalShouldAutoPostOnSave(
+    openingTxSettingsRes?.data,
+    accountingSettingsRes?.data?.general?.autoPostGl
+  );
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } =
+    useRepostAfterUnpost(openingAutoPostOnSave);
 
   const {
     handleSubmit,
@@ -433,8 +441,8 @@ function OpeningBalancePageInner() {
   useEffect(() => {
     if (savedJournalEntryId || !openingMeta?.nextEntryNumber) return;
     const current = getValues('entryNumber')?.trim() ?? '';
-    if (!current || /^OB-/i.test(current)) {
-      setValue('entryNumber', defaultEntryNumber(openingMeta.nextEntryNumber), { shouldDirty: false });
+    if (!current || current !== OPENING_ENTRY_NUMBER || /^OB-/i.test(current)) {
+      setValue('entryNumber', OPENING_ENTRY_NUMBER, { shouldDirty: false });
     }
   }, [getValues, openingMeta?.nextEntryNumber, savedJournalEntryId, setValue]);
 
@@ -460,10 +468,7 @@ function OpeningBalancePageInner() {
     const locked = openingMeta?.openingDate;
     reset({
       isPosted: posted,
-      entryNumber:
-        loadedJournalEntry.voucherNumber ||
-        loadedJournalEntry.legacyGlNum ||
-        defaultEntryNumber(openingMeta?.nextEntryNumber),
+      entryNumber: OPENING_ENTRY_NUMBER,
       description: loadedJournalEntry.description || '',
       currency: 'جنية مصري',
       date: locked || todayIso(),
@@ -539,19 +544,11 @@ function OpeningBalancePageInner() {
       successMessage: 'تم حفظ القيد الافتتاحي',
       onSuccess: (res) => {
         const id = res?.data?.id;
-        const savedNumber = res?.data?.voucherNumber || res?.data?.legacyGlNum;
-        if (savedNumber) {
-          setValue('entryNumber', String(savedNumber), { shouldDirty: false });
-        }
+        setValue('entryNumber', OPENING_ENTRY_NUMBER, { shouldDirty: false });
         invalidateQuery(['journal-entries']);
         invalidateQuery(['opening-balance-meta']);
         clearDraft();
         if (id) openEntry(id);
-        if (draftSaveRef.current) {
-          draftSaveRef.current = false;
-          setSuccess('تم حفظ القيد الافتتاحي كمسودة. تقدر تكمل وبعدين تحفظه عادياً.');
-          return;
-        }
         if (postAfterSaveRef.current && id) {
           postAfterSaveRef.current = false;
           apiClient
@@ -565,10 +562,29 @@ function OpeningBalancePageInner() {
             .catch((err: ApiError) => setError(err.message || 'حدث خطأ أثناء الترحيل'));
           return;
         }
+        if (openingAutoPostOnSave && id) {
+          void postJournalAfterSave(id)
+            .then((result) => {
+              invalidateQuery(['journal-entries']);
+              invalidateQuery(['opening-balance-meta']);
+              invalidateQuery(['journal-entry', id]);
+              invalidateTreasuryFundBalances(invalidateQuery);
+              if (result === 'posted') {
+                setIsPosted(true);
+                lockToView();
+                setSuccess('تم حفظ وترحيل قيد الرصيد الافتتاحي');
+                return;
+              }
+              setSuccess('تم حفظ القيد الافتتاحي');
+            })
+            .catch((err: ApiError) =>
+              setError(err.message || 'تم الحفظ لكن تعذر الترحيل')
+            );
+          return;
+        }
         setSuccess('تم حفظ القيد الافتتاحي');
       },
       onError: (err: ApiError) => {
-        draftSaveRef.current = false;
         postAfterSaveRef.current = false;
         setError(err.message || 'حدث خطأ أثناء الحفظ');
       },
@@ -587,11 +603,6 @@ function OpeningBalancePageInner() {
         invalidateQuery(['opening-balance-meta']);
         invalidateQuery(['journal-entry', savedJournalEntryId]);
         const id = savedJournalEntryId;
-        if (draftSaveRef.current) {
-          draftSaveRef.current = false;
-          setSuccess('تم حفظ القيد الافتتاحي كمسودة. تقدر تكمل وبعدين تحفظه عادياً.');
-          return;
-        }
         if (consumeShouldRepost() && id) {
           void postJournalAfterSave(id)
             .then((result) => {
@@ -616,7 +627,19 @@ function OpeningBalancePageInner() {
         setSuccess('تم حفظ تعديلات الرصيد الافتتاحي');
       },
       onError: (err: ApiError) => {
-        draftSaveRef.current = false;
+        const missing =
+          err.code === '404' ||
+          err.message?.includes('غير موجود') ||
+          err.message?.toLowerCase().includes('not found');
+        if (missing && savedJournalEntryId) {
+          setSavedJournalEntryId(null);
+          lastHydratedKeyRef.current = null;
+          skipUrlHydrateRef.current = true;
+          openEntry(null);
+          setError('لم يُعثر على القيد المحفوظ — تم تجهيز قيد افتتاحي جديد. احفظ مرة أخرى.');
+          invalidateQuery(['opening-balance-meta']);
+          return;
+        }
         setError(err.message || 'حدث خطأ أثناء التحديث');
       },
     }
@@ -728,26 +751,9 @@ function OpeningBalancePageInner() {
       return Boolean(line.accountId) && (debit > 0) !== (credit > 0);
     });
 
-  const validateDraftLines = () => {
-    const filled = usableLines();
-    if (filled.length < 1) {
-      setError('أدخل سطراً واحداً على الأقل بحساب ومبلغ، ثم احفظ المسودة');
-      return false;
-    }
-    for (let i = 0; i < filled.length; i += 1) {
-      const parsed = journalLineSchema.safeParse(filled[i]);
-      if (!parsed.success) {
-        setError(`سطر ${i + 1}: ${parsed.error.issues[0]?.message || 'بيانات غير مكتملة'}`);
-        return false;
-      }
-    }
-    return true;
-  };
-
   const onSave: SubmitHandler<OpeningBalanceHeaderInput> = (values) => {
     setError('');
     setSuccess('');
-    draftSaveRef.current = false;
     if (isPosted) {
       postAfterSaveRef.current = false;
       setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
@@ -758,43 +764,6 @@ function OpeningBalancePageInner() {
       return;
     }
     const body = buildRequestBody(values);
-    if (savedJournalEntryId) {
-      journalUpdateMutation.mutate({ ...body, expectedVersion: loadedVersion });
-      return;
-    }
-    journalMutation.mutate(body);
-  };
-
-  const onSaveAsDraft: SubmitHandler<OpeningBalanceHeaderInput> = (values) => {
-    setError('');
-    setSuccess('');
-    postAfterSaveRef.current = false;
-    if (isPosted) {
-      draftSaveRef.current = false;
-      setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
-      return;
-    }
-    if (!validateDraftLines()) {
-      draftSaveRef.current = false;
-      return;
-    }
-    draftSaveRef.current = true;
-    const body = {
-      ...buildRequestBody(values),
-      lines: usableLines().map((line, index) => ({
-        accountId: line.accountId,
-        description: line.description || undefined,
-        debit: line.debit || 0,
-        credit: line.credit || 0,
-        lineOrder: index + 1,
-        exchangeRate: line.exchangeRate || 1,
-        currencyCode: currencies.find((c) => c.id === line.currencyId)?.code,
-        debitBase: toBaseAmount(line.debit, line.exchangeRate),
-        creditBase: toBaseAmount(line.credit, line.exchangeRate),
-        costCenterId: line.costCenterId || undefined,
-      })),
-      saveAsDraft: true,
-    };
     if (savedJournalEntryId) {
       journalUpdateMutation.mutate({ ...body, expectedVersion: loadedVersion });
       return;
@@ -865,22 +834,6 @@ function OpeningBalancePageInner() {
     openEntry(null);
     setMode('create');
     clearDraft();
-  };
-
-  const handleDuplicate = () => {
-    const dateIso = openingMeta?.openingDate || todayIso();
-    lastHydratedKeyRef.current = null;
-    setSavedJournalEntryId(null);
-    resetKeepPosted();
-    setIsPosted(false);
-    setLoadedVersion(undefined);
-    setValue('entryNumber', defaultEntryNumber(openingMeta?.nextEntryNumber));
-    setValue('date', dateIso);
-    setValue('hijriDate', openingMeta?.hijriDate || toHijriDate(dateIso));
-    setValue('isPosted', false);
-    router.replace(OPENING_HREF, { scroll: false });
-    setMode('create');
-    setSuccess('تم تكرار القيد — راجع البيانات ثم احفظ');
   };
 
   const handleSyncOpeningInventory = async () => {
@@ -994,12 +947,20 @@ function OpeningBalancePageInner() {
   const handleRestore = async () => {
     if (!savedJournalEntryId) return;
     try {
-      await apiClient.post(`/accounting/journal-entries/${savedJournalEntryId}/restore`, {});
+      await apiClient.post(`/accounting/journal-entries/${savedJournalEntryId}/restore`, {
+        post: openingAutoPostOnSave,
+      });
       setIsCancelled(false);
+      setIsPosted(openingAutoPostOnSave);
+      lockToView();
       invalidateQuery(['journal-entries']);
       invalidateQuery(['opening-balance-meta']);
       invalidateQuery(['journal-entry', savedJournalEntryId]);
-      setSuccess('تم استعادة نفس القيد الافتتاحي');
+      setSuccess(
+        openingAutoPostOnSave
+          ? 'تم استعادة وترحيل قيد الرصيد الافتتاحي'
+          : 'تم استعادة نفس القيد الافتتاحي — غير مرحّل'
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر استعادة القيد');
     }
@@ -1019,18 +980,17 @@ function OpeningBalancePageInner() {
     <ErpDocumentLayout>
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-      {restoreOffer && !savedJournalEntryId ? (
-        <PageDraftRestoreBanner
-          message="يوجد مسودة قيد افتتاحي غير محفوظة. اضغط استعادة لإرجاعها."
-          onRestore={() => {
-            const payload = acceptRestore();
-            if (!payload) return;
-            applyOpeningDraft(payload);
-            setSuccess('تم استعادة مسودة القيد الافتتاحي');
-          }}
-          onDismiss={dismissRestore}
-        />
-      ) : null}
+      <PageDraftRestoreGate<OpeningDraftSnapshot>
+        restoreOffer={restoreOffer}
+        hide={Boolean(savedJournalEntryId)}
+        message="يوجد مسودة قيد افتتاحي غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyOpeningDraft(payload);
+          setSuccess('تم استعادة مسودة القيد الافتتاحي');
+        }}
+      />
 
       <OpeningBalanceHeader
         docNumber={entryNumberW || defaultEntryNumber()}
@@ -1041,7 +1001,6 @@ function OpeningBalancePageInner() {
         onSyncOpeningInventory={() => void handleSyncOpeningInventory()}
         onSyncOpeningPapers={() => void handleSyncOpeningPapers()}
         onSaveDraft={() => void handleSubmit(onSave, onFieldErrors(setError))()}
-        onSaveAsDraft={() => void handleSubmit(onSaveAsDraft, onFieldErrors(setError))()}
         savePending={financialBusy}
         canSave={!isReadOnly && !isPosted && !financialBusy}
         onBrowseList={openOpeningBrowseList}
@@ -1054,7 +1013,7 @@ function OpeningBalancePageInner() {
             onPrintLayout={() =>
               printOperationalDocument({
                 title: 'قيد افتتاحي',
-                documentNo: journalPrintModel.voucherNumber || 'مسودة',
+                documentNo: journalPrintModel.voucherNumber || 'جديد',
                 documentDate: lockedDate || new Date().toISOString().slice(0, 10),
                 sellerName: companyProfile?.nameAr,
                 buyerName: journalPrintModel.description,
@@ -1088,39 +1047,13 @@ function OpeningBalancePageInner() {
           restoreLabel: 'استعادة القيد',
           restoreConfirmMessage:
             'سيتم استعادة نفس القيد الافتتاحي. لو فيه قيد افتتاحي تاني شغال لازم تلغيه الأول.',
-          onUnapprove: () => {
-            if (!savedJournalEntryId) return;
-            void apiClient
-              .post(`/accounting/journal-entries/${savedJournalEntryId}/unapprove`, {})
-              .then(() => setSuccess('تم إلغاء اعتماد القيد'))
-              .catch((err: unknown) =>
-                setError(err instanceof Error ? err.message : 'تعذر إلغاء الاعتماد')
-              );
-          },
           onUnpost: () => unpostJournalMutation.mutate({}),
-          onPrint: () => {
-            if (!lines.length) return;
-            void printOperationalDocument({
-              title: 'قيد افتتاحي',
-              documentNo: journalPrintModel.voucherNumber || 'مسودة',
-              documentDate: lockedDate || new Date().toISOString().slice(0, 10),
-              sellerName: companyProfile?.nameAr,
-              buyerName: journalPrintModel.description,
-              currency: journalPrintModel.currencyCode,
-              lines: journalPrintModel.lines.map((line) => ({
-                description: `${line.accountLabel}${line.description ? ` — ${line.description}` : ''}`,
-                quantity: 1,
-                unitPrice: line.debit || line.credit || 0,
-                total: line.debit || line.credit || 0,
-              })),
-            });
-          },
-          onDuplicate: existingOpeningId ? undefined : handleDuplicate,
           postPending: postJournalMutation.isPending,
           onNew: startNewEntry,
           newLabel: 'جديد',
           newDisabled: Boolean(existingOpeningId || savedJournalEntryId),
           newHint: 'يوجد قيد افتتاحي بالفعل. عدّل نفس القيد أو استرجعه إن كان ملغياً.',
+          transactionSettingsDocumentType: 'OPENING_BALANCE',
         }}
         openingDate={lockedDate}
         hijriDate={lockedHijri}

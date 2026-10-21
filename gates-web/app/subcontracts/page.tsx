@@ -44,6 +44,7 @@ export default function SubcontractsCommand() {
       onRefresh={() => void refetch()}
       shortcuts={[
         { key: 'F2', label: 'عقد باطن', href: '/subcontracts/contracts' },
+        { key: 'F3', label: 'بطاقة مقاول', href: '/subcontracts/directory' },
         { key: 'F4', label: 'مستخلص باطن', href: '/subcontracts/contracts' },
       ]}
     >

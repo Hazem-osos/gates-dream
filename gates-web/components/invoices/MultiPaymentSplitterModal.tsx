@@ -8,16 +8,20 @@ import { pickDefaultSafeId } from '@/lib/hooks/useMasterDataQueries';
 import { SafeSelect } from '@/app/components/form/SafeSelect';
 import { BankSelect } from '@/app/components/form/BankSelect';
 import { erpInputClass, erpLabelClass } from '@/components/erp';
+import { useTransactionDocumentSettings } from '@/lib/transaction-settings/use-transaction-document-settings';
+import { documentSerialPlaceholder } from '@/lib/transaction-settings/serial-mode';
 import {
   type PaymentSplitLine,
   splitsMatchTotal,
   sumPaymentSplits,
   buildSplitWithOnAccount,
+  cashVoucherNumberLabel,
+  cashVoucherNumberRequiredMessage,
 } from '@/lib/invoices/payment-split.types';
 
 type SafeRow = { id: string; arabicName: string; code?: string | null; isDefault?: boolean };
 
-type CashDraft = { id: string; type: 'CASH'; safeId: string; amount: string };
+type CashDraft = { id: string; type: 'CASH'; safeId: string; amount: string; voucherNumber: string };
 type BankDraft = {
   id: string;
   type: 'BANK';
@@ -59,7 +63,7 @@ function newId(prefix: string): string {
 }
 
 function emptyCash(safeId = ''): CashDraft {
-  return { id: newId('cash'), type: 'CASH', safeId, amount: '' };
+  return { id: newId('cash'), type: 'CASH', safeId, amount: '', voucherNumber: '' };
 }
 
 function emptyBank(): BankDraft {
@@ -96,7 +100,13 @@ function draftsFromInitial(initial: PaymentSplitLine[] | undefined, defaultSafeI
   const cheque: ChequeDraft[] = [];
   for (const line of initial ?? []) {
     if (line.type === 'CASH') {
-      cash.push({ id: newId('cash'), type: 'CASH', safeId: line.safeId, amount: String(line.amount) });
+      cash.push({
+        id: newId('cash'),
+        type: 'CASH',
+        safeId: line.safeId,
+        amount: String(line.amount),
+        voucherNumber: line.voucherNumber ?? '',
+      });
     } else if (line.type === 'BANK') {
       bank.push({
         id: newId('bank'),
@@ -147,6 +157,13 @@ export function MultiPaymentSplitterModal({
   );
   const safes = safesRes?.data ?? EMPTY_SAFES;
   const defaultSafeId = pickDefaultSafeId(safes) ?? '';
+  const { serialManual: cashSerialManual } = useTransactionDocumentSettings(
+    direction === 'RECEIPT' ? 'RECEIPT_VOUCHER' : 'PAYMENT_VOUCHER'
+  );
+  const { serialManual: bankSerialManual } = useTransactionDocumentSettings(
+    direction === 'RECEIPT' ? 'BANK_CREDIT_ADVICE' : 'BANK_DEBIT_ADVICE'
+  );
+  const cashNumberLabel = cashVoucherNumberLabel(direction);
 
   useEffect(() => {
     if (!open) return;
@@ -172,7 +189,15 @@ export function MultiPaymentSplitterModal({
     const out: Exclude<PaymentSplitLine, { type: 'ON_ACCOUNT' }>[] = [];
     for (const row of cashRows) {
       const amount = parseAmount(row.amount);
-      if (amount > 0 && row.safeId) out.push({ type: 'CASH', safeId: row.safeId, amount });
+      if (amount > 0 && row.safeId) {
+        const voucherNumber = row.voucherNumber.trim() || undefined;
+        out.push({
+          type: 'CASH',
+          safeId: row.safeId,
+          amount,
+          ...(voucherNumber ? { voucherNumber } : {}),
+        });
+      }
     }
     for (const row of bankRows) {
       const amount = parseAmount(row.amount);
@@ -211,6 +236,24 @@ export function MultiPaymentSplitterModal({
       setError('يجب أن يساوي مجموع التوزيع إجمالي الفاتورة');
       return;
     }
+    if (cashSerialManual) {
+      const missingCashNumber = cashRows.some(
+        (row) => parseAmount(row.amount) > 0 && row.safeId && !row.voucherNumber.trim()
+      );
+      if (missingCashNumber) {
+        setError(cashVoucherNumberRequiredMessage(direction));
+        return;
+      }
+    }
+    if (bankSerialManual) {
+      const missingBankNumber = bankRows.some(
+        (row) => parseAmount(row.amount) > 0 && row.bankAccountId && !row.referenceNumber.trim()
+      );
+      if (missingBankNumber) {
+        setError('رقم العملية / المرجع مطلوب — الترقيم يدوي لإشعار البنك');
+        return;
+      }
+    }
     onConfirm(builtLines);
     onClose();
   };
@@ -238,7 +281,14 @@ export function MultiPaymentSplitterModal({
 
         <section className="mb-4 rounded-xl border border-slate-200 p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-slate-800">نقدي</h3>
+            <h3 className="text-sm font-semibold text-slate-800">
+              نقدي
+              {cashSerialManual ? (
+                <span className="mr-2 text-[11px] font-medium text-amber-800">
+                  {cashNumberLabel} مطلوب
+                </span>
+              ) : null}
+            </h3>
             <button
               type="button"
               className="text-xs font-semibold text-[#0E78AA] hover:underline"
@@ -248,38 +298,57 @@ export function MultiPaymentSplitterModal({
             </button>
           </div>
           {cashRows.map((row) => (
-            <div key={row.id} className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_8rem_auto]">
-              <SafeSelect
-                value={row.safeId}
-                onChange={(safeId) =>
-                  setCashRows(cashRows.map((item) => (item.id === row.id ? { ...item, safeId } : item)))
-                }
-                safes={safes}
-                placeholder="اختر الخزينة"
-                emptyLabel="اختر الخزينة"
-              />
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                placeholder="المبلغ"
-                className={erpInputClass}
-                value={row.amount}
-                onChange={(e) =>
-                  setCashRows(cashRows.map((item) => (item.id === row.id ? { ...item, amount: e.target.value } : item)))
-                }
-              />
-              {cashRows.length > 1 ? (
-                <button
-                  type="button"
-                  className="text-xs font-medium text-rose-600 hover:underline"
-                  onClick={() => setCashRows(cashRows.filter((item) => item.id !== row.id))}
-                >
-                  حذف
-                </button>
-              ) : (
-                <span />
-              )}
+            <div key={row.id} className="mb-2 space-y-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_8rem_auto]">
+                <SafeSelect
+                  value={row.safeId}
+                  onChange={(safeId) =>
+                    setCashRows(cashRows.map((item) => (item.id === row.id ? { ...item, safeId } : item)))
+                  }
+                  safes={safes}
+                  placeholder="اختر الخزينة"
+                  emptyLabel="اختر الخزينة"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="المبلغ"
+                  className={erpInputClass}
+                  value={row.amount}
+                  onChange={(e) =>
+                    setCashRows(cashRows.map((item) => (item.id === row.id ? { ...item, amount: e.target.value } : item)))
+                  }
+                />
+                {cashRows.length > 1 ? (
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-rose-600 hover:underline"
+                    onClick={() => setCashRows(cashRows.filter((item) => item.id !== row.id))}
+                  >
+                    حذف
+                  </button>
+                ) : (
+                  <span />
+                )}
+              </div>
+              {cashSerialManual ? (
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-semibold text-amber-800">{cashNumberLabel}</span>
+                  <input
+                    className={erpInputClass}
+                    value={row.voucherNumber}
+                    placeholder={documentSerialPlaceholder(false)}
+                    onChange={(e) =>
+                      setCashRows(
+                        cashRows.map((item) =>
+                          item.id === row.id ? { ...item, voucherNumber: e.target.value } : item
+                        )
+                      )
+                    }
+                  />
+                </label>
+              ) : null}
             </div>
           ))}
         </section>
@@ -319,7 +388,9 @@ export function MultiPaymentSplitterModal({
               />
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <input
-                  placeholder="رقم العملية / المرجع"
+                  placeholder={
+                    bankSerialManual ? 'رقم العملية / المرجع (يدوي)' : 'رقم العملية / المرجع'
+                  }
                   className={erpInputClass}
                   value={row.referenceNumber}
                   onChange={(e) =>

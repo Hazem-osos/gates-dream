@@ -362,6 +362,7 @@ export function ManufacturingProductionOrderBottomSplit({
       netLabel="إجمالي تكلفة الإنتاج"
       showTafqeet={netAmount > 0}
       journalEntryId={activeJournalId}
+      sourceDocumentId={order?.id ?? null}
       journalOptions={journalOptions.length > 1 ? journalOptions : undefined}
       onJournalIdChange={(id) => setJournalId(id)}
       journalEmptyTitle={journalEmptyTitle}

@@ -16,10 +16,8 @@ import {
   useRowDetailPrefetch,
 } from '@/lib/hooks/useRowDetailPrefetch';
 import { JournalSourceBadge } from '@/components/accounting/JournalSourceBadge';
-import { isSourcedJournalEntry } from '@/lib/accounting/journal-source';
 import { toast } from '@/lib/feedback/toast';
 import { confirmAction } from '@/lib/feedback/confirm';
-import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
 import { apiClient } from '@/lib/api/client';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -55,19 +53,18 @@ export function JournalEntriesListSection({
   const queryClient = useQueryClient();
   const { prefetchDetail } = useRowDetailPrefetch();
   const [page, setPage] = useState(1);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'posted' | 'draft' | 'cancelled'>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [sortBy, setSortBy] = useState<'voucherNumber' | 'date'>('voucherNumber');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const sortBy = 'voucherNumber' as const;
+  const sortDir = 'asc' as const;
 
   const filterKey = useMemo(
     () => ({ statusFilter, search, startDate, endDate, entryType, sortBy, sortDir }),
-    [statusFilter, search, startDate, endDate, entryType, sortBy, sortDir]
+    [statusFilter, search, startDate, endDate, entryType]
   );
 
   const queryParams = useMemo(() => {
@@ -203,29 +200,25 @@ export function JournalEntriesListSection({
           }
           router.push(`${hrefBase}?id=${r.id}`);
         }}
-        defaultSort={{ id: 'num', dir: 'asc' }}
-        onSortChange={(next) => {
-          setPage(1);
-          setSortBy(next.id === 'date' ? 'date' : 'voucherNumber');
-          setSortDir(next.dir);
-        }}
+        enableColumnMenus={false}
         columns={[
           {
             id: 'num',
             header: 'رقم',
+            sortable: false,
             cell: (r) => r.voucherNumber || r.legacyGlNum || '—',
-            sortValue: (r) => r.voucherNumber || r.legacyGlNum || '',
           },
           {
             id: 'date',
             header: 'التاريخ',
+            sortable: false,
             cell: (r) => (r.date ? new Date(r.date).toLocaleDateString('ar-EG') : '—'),
-            sortValue: (r) => (r.date ? Date.parse(String(r.date)) : 0),
           },
-          { id: 'desc', header: 'الشرح', accessor: 'description' },
+          { id: 'desc', header: 'الشرح', sortable: false, accessor: 'description' },
           {
             id: 'source',
             header: 'المصدر',
+            sortable: false,
             cell: (r) => (
               <JournalSourceBadge
                 sourceType={r.sourceType}
@@ -234,12 +227,14 @@ export function JournalEntriesListSection({
                 sourceNumber={r.sourceNumber}
                 entryType={typeof r.entryType === 'string' ? r.entryType : null}
                 voucherFund={r.voucherFund === 'bank' || r.voucherFund === 'cash' ? r.voucherFund : null}
+                showOpenArrow={false}
               />
             ),
           },
           {
             id: 'status',
             header: 'الحالة',
+            sortable: false,
             align: 'center',
             cell: (r) => (
               <StatusBadge
@@ -292,30 +287,6 @@ export function JournalEntriesListSection({
                     }}
                   >
                     {restoringId === r.id ? 'جاري الاستعادة…' : 'استعادة'}
-                  </Button>
-                ) : null}
-                {!r.isPosted && !r.isCancelled && !isSourcedJournalEntry(r) ? (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    disabled={deletingId === r.id}
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (!(await confirmAction('حذف هذا القيد غير المرحّل؟'))) return;
-                      setDeletingId(r.id);
-                      try {
-                        await deleteDraftDocument('/accounting/journal-entries', r.id);
-                        toast.success('تم حذف القيد');
-                        await queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
-                        await queryClient.invalidateQueries({ queryKey: ['opening-balance-meta'] });
-                      } catch (error) {
-                        toast.error(error instanceof Error ? error.message : 'تعذر حذف القيد');
-                      } finally {
-                        setDeletingId(null);
-                      }
-                    }}
-                  >
-                    حذف
                   </Button>
                 ) : null}
               </div>

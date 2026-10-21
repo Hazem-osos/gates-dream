@@ -88,6 +88,8 @@ export type InventoryReportFilterValues = {
   nonNegativeOnly: boolean;
   /** المبيعات الشهرية: إخفاء الأصناف التي لم يُبَع منها في الفترة. */
   hideUnsoldItems: boolean;
+  /** حركة الأصناف: مخزنية / غير مخزنية / الكل. الافتراضي مخزنية. */
+  itemStockKind: string;
   manufacturerId: string;
   colorId: string;
   countryOfOrigin: string;
@@ -105,6 +107,8 @@ export type InventoryReportFilterValues = {
   daysLateDays: string;
   /** cash | bank | cheque */
   paymentChannel: string;
+  /** منطقة بطاقة العميل/المورد (نص كما في البطاقة). */
+  area: string;
 };
 
 export type ReportOptionId =
@@ -168,6 +172,8 @@ export type InventoryReportFilterFields = {
   priceList?: boolean;
   customer?: boolean;
   supplier?: boolean;
+  /** فلتر المنطقة من بطاقة العميل/المورد. */
+  area?: boolean;
   delegate?: boolean;
   seller?: boolean;
   driver?: boolean;
@@ -200,6 +206,8 @@ export type InventoryReportFilterFields = {
   reportOptions?: boolean | ReportOptionId[];
   /** عرض بالمجموعات / عرض بالمخازن جنب زرار الخيارات. */
   groupByLayout?: boolean;
+  /** حركة الأصناف: مخزنية فقط / غير مخزنية فقط / الكل. */
+  itemStockKind?: boolean;
   /** المستخدم الذي أنشأ المستند. الافتراضي إظهاره. */
   user?: boolean;
 };
@@ -277,6 +285,7 @@ export function emptyInventoryReportFilters(urlPath?: string): InventoryReportFi
     negativeOnly: false,
     nonNegativeOnly: false,
     hideUnsoldItems: false,
+    itemStockKind: 'stock',
     manufacturerId: '',
     colorId: '',
     countryOfOrigin: '',
@@ -291,6 +300,7 @@ export function emptyInventoryReportFilters(urlPath?: string): InventoryReportFi
     daysLateOp: '',
     daysLateDays: '',
     paymentChannel: '',
+    area: '',
   };
 }
 
@@ -332,6 +342,7 @@ export function buildInventoryReportQuery(
   if (fields.supplier && values.supplierCategoryId) {
     params.set('supplierCategoryId', values.supplierCategoryId);
   }
+  if (fields.area && values.area.trim()) params.set('area', values.area.trim());
   if (fields.delegate && values.delegateId) params.set('delegateId', values.delegateId);
   if (fields.driver && values.driverId) params.set('driverId', values.driverId);
   if (fields.distributor && values.distributorId) params.set('distributorId', values.distributorId);
@@ -377,6 +388,12 @@ export function buildInventoryReportQuery(
   if (values.userId) params.set('userId', values.userId);
   if (fields.invoiceRange && values.fromInvoice) params.set('fromInvoice', values.fromInvoice);
   if (fields.invoiceRange && values.toInvoice) params.set('toInvoice', values.toInvoice);
+  if (fields.itemStockKind) {
+    const kind = values.itemStockKind === 'service' || values.itemStockKind === 'both'
+      ? values.itemStockKind
+      : 'stock';
+    params.set('itemStockKind', kind);
+  }
   if (fields.serial && values.serial) params.set('serial', values.serial);
   if (fields.debtSchedule) {
     if (values.debtOrder) params.set('debtOrder', values.debtOrder);
@@ -556,6 +573,19 @@ export function renderInventoryReportFields(
       />
     );
   }
+  if (fields.area) {
+    nodes.push(
+      <ReportFilterField key="area" label="المنطقة">
+        <input
+          type="text"
+          className={reportFilterInputClass}
+          value={values.area}
+          onChange={(e) => patch({ area: e.target.value })}
+          placeholder="كما في بطاقة العميل"
+        />
+      </ReportFilterField>
+    );
+  }
   if (fields.delegate) {
     nodes.push(
       <ReportFilterDelegateSelect
@@ -648,13 +678,36 @@ export function renderInventoryReportFields(
     );
   }
   if (fields.item) {
+    const pickerStockKind =
+      fields.itemStockKind &&
+      (values.itemStockKind === 'service' || values.itemStockKind === 'both')
+        ? (values.itemStockKind as 'service' | 'both')
+        : fields.itemStockKind
+          ? 'stock'
+          : undefined;
     nodes.push(
       <ReportFilterItemSelect
         key="item"
         label="الصنف"
         value={values.itemId}
         onChange={(itemId) => patch({ itemId })}
+        itemStockKind={pickerStockKind}
       />
+    );
+  }
+  if (fields.itemStockKind) {
+    nodes.push(
+      <ReportFilterField key="itemStockKind" label="نوع الأصناف">
+        <select
+          className={reportFilterInputClass}
+          value={values.itemStockKind || 'stock'}
+          onChange={(e) => patch({ itemStockKind: e.target.value || 'stock' })}
+        >
+          <option value="stock">الأصناف المخزنية فقط</option>
+          <option value="service">الأصناف غير المخزنية فقط</option>
+          <option value="both">الكل</option>
+        </select>
+      </ReportFilterField>
     );
   }
   if (fields.costCenter) {
@@ -909,7 +962,7 @@ export function renderInventoryReportFields(
       />
     );
   }
-  if (optionIds.length || fields.financialPresence || fields.groupByLayout || fields.stockCount) {
+  if (optionIds.length || fields.financialPresence || fields.groupByLayout || fields.stockCount || fields.itemStockKind) {
     checks.push(
       <ReportOptionsControl
         key="report-options"
@@ -918,6 +971,7 @@ export function renderInventoryReportFields(
         optionIds={optionIds}
         financialPresence={Boolean(fields.financialPresence)}
         groupByLayout={Boolean(fields.groupByLayout || fields.stockCount)}
+        itemStockKind={Boolean(fields.itemStockKind)}
       />
     );
   }
@@ -955,12 +1009,14 @@ function ReportOptionsControl({
   optionIds,
   financialPresence,
   groupByLayout,
+  itemStockKind,
 }: {
   values: InventoryReportFilterValues;
   patch: (next: Partial<InventoryReportFilterValues>) => void;
   optionIds: ReportOptionId[];
   financialPresence: boolean;
   groupByLayout: boolean;
+  itemStockKind: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -983,6 +1039,9 @@ function ReportOptionsControl({
 
   const groupedByWarehouses = values.showWarehouse && !values.showGroups;
   const groupedByGroups = values.showGroups;
+  const stockKind = values.itemStockKind === 'service' || values.itemStockKind === 'both'
+    ? values.itemStockKind
+    : 'stock';
 
   return (
     <div ref={boxRef} className="relative flex flex-wrap items-center gap-2">
@@ -998,6 +1057,34 @@ function ReportOptionsControl({
         >
           خيارات التقرير
         </button>
+      ) : null}
+      {itemStockKind ? (
+        <>
+          <ReportFilterCheckbox
+            id="itemStockKindStock"
+            label="الأصناف المخزنية فقط"
+            checked={stockKind === 'stock'}
+            onChange={(on) => {
+              if (on) patch({ itemStockKind: 'stock' });
+            }}
+          />
+          <ReportFilterCheckbox
+            id="itemStockKindService"
+            label="الأصناف غير المخزنية فقط"
+            checked={stockKind === 'service'}
+            onChange={(on) => {
+              if (on) patch({ itemStockKind: 'service' });
+            }}
+          />
+          <ReportFilterCheckbox
+            id="itemStockKindBoth"
+            label="الكل"
+            checked={stockKind === 'both'}
+            onChange={(on) => {
+              if (on) patch({ itemStockKind: 'both' });
+            }}
+          />
+        </>
       ) : null}
       {groupByLayout ? (
         <>

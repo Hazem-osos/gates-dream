@@ -6,7 +6,10 @@ import {
   useCustomersQuery,
   useSuppliersQuery,
   formatAccountLabel,
+  isPostableLeafAccount,
+  ACCOUNT_PICKER_PAGE_SIZE,
   PICKER_PAGE_SIZE,
+  PICKER_UNLIMITED_VISIBLE,
   type PartyOption,
 } from '@/lib/hooks/useMasterDataQueries';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
@@ -56,7 +59,7 @@ function PartySelectInner({
   const [search, setSearch] = useState('');
   const customerQ = useCustomersQuery(PICKER_PAGE_SIZE, search, kind === 'CUSTOMER');
   const supplierQ = useSuppliersQuery(PICKER_PAGE_SIZE, search, kind === 'SUPPLIER');
-  const accountsQ = useAccountsQuery(search, includeAllAccounts ? 80 : PICKER_PAGE_SIZE, {
+  const accountsQ = useAccountsQuery(search, ACCOUNT_PICKER_PAGE_SIZE, {
     leafOnly: accountsLeafOnly,
     enabled: includeAllAccounts,
   });
@@ -103,18 +106,29 @@ function PartySelectInner({
     }));
     const accountOpts =
       includeAllAccounts
-        ? (accountsQ.data?.data ?? []).map((a) => ({
-            value: `acct:${a.id}`,
-            label: `حساب · ${formatAccountLabel(a)}`,
-            searchText: `${a.code} ${a.arabicName} ${a.englishName ?? ''}`,
-          }))
+        ? (accountsQ.data?.data ?? [])
+            .filter((a) => (accountsLeafOnly ? isPostableLeafAccount(a) : true))
+            .map((a) => ({
+              value: `acct:${a.id}`,
+              label: `حساب · ${formatAccountLabel(a)}`,
+              searchText: `${a.code} ${a.arabicName} ${a.englishName ?? ''}`,
+            }))
         : [];
     const merged = [...list, ...accountOpts.filter((a) => !list.some((p) => p.value === a.value))];
     if (allowEmpty) {
       return [{ value: '', label: emptyLabel ?? defaultEmpty, searchText: '' }, ...merged];
     }
     return merged;
-  }, [rows, pinnedParty, allowEmpty, emptyLabel, defaultEmpty, includeAllAccounts, accountsQ.data?.data]);
+  }, [
+    rows,
+    pinnedParty,
+    allowEmpty,
+    emptyLabel,
+    defaultEmpty,
+    includeAllAccounts,
+    accountsLeafOnly,
+    accountsQ.data?.data,
+  ]);
 
   const displayValueLabel = useMemo(() => {
     if (!value) return undefined;
@@ -140,6 +154,14 @@ function PartySelectInner({
             return;
           }
           const accountId = id.slice(5);
+          const linkedParty =
+            rows.find((p) => p.accountId === accountId) ??
+            (pinnedParty?.accountId === accountId ? pinnedParty : null);
+          if (linkedParty?.id) {
+            setPinnedParty(linkedParty);
+            onChange(linkedParty.id);
+            return;
+          }
           const partyPath = kind === 'SUPPLIER' ? '/accounting/suppliers' : '/accounting/customers';
           const missing =
             kind === 'SUPPLIER'
@@ -171,7 +193,7 @@ function PartySelectInner({
         onQuickCreate={enableQuickCreate ? (query) => openQuickCreate(query) : undefined}
         valueLabel={displayValueLabel}
         onQueryChange={handleQueryChange}
-        maxVisible={includeAllAccounts ? 120 : PICKER_PAGE_SIZE}
+        maxVisible={includeAllAccounts ? PICKER_UNLIMITED_VISIBLE : PICKER_PAGE_SIZE}
         clientSearchEntity={
           includeAllAccounts ? undefined : kind === 'CUSTOMER' ? 'customers' : 'suppliers'
         }

@@ -74,7 +74,32 @@ export function isAccountCodeColumn(column: { id: string }): boolean {
   return column.id === 'code';
 }
 
-const LEDGER_QUERY_KEYS = ['fromDate', 'toDate', 'costCenterId', 'currencyId', 'branchId'] as const;
+const SYNTHETIC_LEDGER_IDS = new Set(['current-period-pnl', 'net-income']);
+
+export function isSyntheticLedgerAccountId(accountId: string | null | undefined): boolean {
+  return !accountId || SYNTHETIC_LEDGER_IDS.has(accountId);
+}
+const LEDGER_SCOPE_KEYS = ['costCenterId', 'currencyId', 'branchId', 'showUnposted'] as const;
+
+/** Period + scope query for دفتر الأستاذ / دفتر مركز التكلفة, from a balance report. */
+export function ledgerFilterParams(query: Record<string, string> = {}): URLSearchParams {
+  const params = new URLSearchParams();
+  const asOf = query.asOfDate?.trim();
+  if (asOf) {
+    params.set('fromDate', `${asOf.slice(0, 4)}-01-01`);
+    params.set('toDate', asOf);
+  } else {
+    for (const key of ['fromDate', 'toDate'] as const) {
+      const value = query[key]?.trim();
+      if (value) params.set(key, value);
+    }
+  }
+  for (const key of LEDGER_SCOPE_KEYS) {
+    const value = query[key]?.trim();
+    if (value) params.set(key, value);
+  }
+  return params;
+}
 
 export function isPaperNumberColumn(column: { id: string }): boolean {
   return column.id === 'paperNumber';
@@ -283,14 +308,27 @@ export function accountLedgerHref(
   query: Record<string, string> = {}
 ): string | null {
   const accountId = text(row, 'accountId');
-  if (!accountId || accountId === 'current-period-pnl' || accountId === 'net-income') return null;
+  if (!accountId || isSyntheticLedgerAccountId(accountId)) return null;
   const params = new URLSearchParams();
   params.set('accountId', accountId);
-  for (const key of LEDGER_QUERY_KEYS) {
-    const value = query[key]?.trim();
-    if (value) params.set(key, value);
-  }
+  for (const [key, value] of ledgerFilterParams(query).entries()) params.set(key, value);
   return `/accounting/account-reports/books/daftar-ostaz?${params.toString()}`;
+}
+
+/** Opens دفتر أستاذ مركز التكلفة for a cost-center budget/balance row. */
+export function costCenterLedgerHref(
+  row: Record<string, unknown>,
+  query: Record<string, string> = {}
+): string | null {
+  const costCenterId = text(row, 'costCenterId') ?? text(row, 'accountId');
+  if (!costCenterId || isSyntheticLedgerAccountId(costCenterId)) return null;
+  const params = new URLSearchParams();
+  params.set('costCenterId', costCenterId);
+  for (const [key, value] of ledgerFilterParams(query).entries()) {
+    if (key === 'costCenterId') continue;
+    params.set(key, value);
+  }
+  return `/accounting/account-reports/books/cost-center-ledger?${params.toString()}`;
 }
 
 /** Opens the journal entry for a report row. Never the source document. */

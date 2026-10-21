@@ -130,6 +130,13 @@ html.gates-privacy-mode .gates-sensitive {
   --erp-form-gap-y: clamp(0.75rem, 1.6cqi, 1.25rem);
 }
 
+/* UA fieldset min-inline-size: min-content expands the pane and wraps/breaks AppTabs. */
+.gates-erp-root fieldset {
+  min-width: 0;
+  min-inline-size: 0;
+  max-width: 100%;
+}
+
 .erp-page-card {
   box-sizing: border-box;
   width: 100%;
@@ -216,6 +223,20 @@ html.gates-privacy-mode .gates-sensitive {
   right: 0;
   z-index: 20;
   box-shadow: -4px 0 8px -4px rgba(15, 23, 42, 0.12);
+}
+
+/* حركة الصنف: عمود التاريخ ثابت بخلفية صلبة (بدون شفافية عند التمرير) */
+.report-scroll-viewport.item-movement-sheet[dir='rtl'] thead th:first-child {
+  background-color: #f8fafc;
+  z-index: 45;
+}
+
+.report-scroll-viewport.item-movement-sheet[dir='rtl'] tbody tr.item-movement-data-row.bg-white td.sticky-date-cell {
+  background-color: #ffffff;
+}
+
+.report-scroll-viewport.item-movement-sheet[dir='rtl'] tbody tr.item-movement-data-row.bg-slate-50 td.sticky-date-cell {
+  background-color: #f8fafc;
 }
 
 /*

@@ -45,9 +45,14 @@ export default function SubcontractsListPage() {
       statusLabel="عرض"
       favoriteHref="/subcontracts/contracts"
       extraActions={
-        <Button iconStart={<Plus className="h-4 w-4" />} onClick={() => setCreateOpen(true)}>
-          عقد باطن جديد
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => router.push('/subcontracts/directory')}>
+            بطاقة المقاول
+          </Button>
+          <Button iconStart={<Plus className="h-4 w-4" />} onClick={() => setCreateOpen(true)}>
+            عقد باطن جديد
+          </Button>
+        </div>
       }
       browseList={{
         title: 'العقود السابقة',

@@ -78,6 +78,7 @@ type Props = {
   sourceNumber?: string | null;
   entryType?: string | null;
   voucherFund?: 'bank' | 'cash' | null;
+  showOpenArrow?: boolean;
 };
 
 export function JournalSourceBadge({
@@ -87,6 +88,7 @@ export function JournalSourceBadge({
   sourceNumber,
   entryType,
   voucherFund,
+  showOpenArrow = true,
 }: Props) {
   const kind = resolveJournalSourceKind(sourceType, sourceKind);
   const config = SOURCE_CONFIG[kind] || SOURCE_CONFIG.MANUAL;
@@ -106,7 +108,7 @@ export function JournalSourceBadge({
           onClick={(e) => e.stopPropagation()}
         >
           <span>{sourceNumber}</span>
-          <ArrowUpLeft className="h-3 w-3" aria-hidden />
+          {showOpenArrow ? <ArrowUpLeft className="h-3 w-3" aria-hidden /> : null}
         </Link>
       ) : sourceNumber ? (
         <span className="font-mono text-xs text-slate-500">{sourceNumber}</span>

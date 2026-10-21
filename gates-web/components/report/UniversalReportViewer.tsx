@@ -138,6 +138,7 @@ const PARAM_KEYS = [
   'negativeOnly',
   'nonNegativeOnly',
   'hideUnsoldItems',
+  'itemStockKind',
   'showIdleAccounts',
   'withBudgetOnly',
 ];

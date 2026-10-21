@@ -1,16 +1,30 @@
 'use client';
 
-import { useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
-import { MessageSquare, MoreHorizontal, Printer, Receipt } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useOwnTabPathname, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { hasOpenDocumentSettingsIntent, pinTabQuery } from '@/lib/navigation/tab-memory';
+import { MessageSquare, MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { formActionButtonClass } from '@/components/ui/forms/formTokens';
 import { SimpleDropdownMenu } from '@/components/inventory/SimpleDropdownMenu';
 import { useOptionalDocumentMode } from './DocumentModeContext';
+import {
+  DOCUMENT_UNSAVED_ACTION_HINT,
+  resolveDocumentActionPolicy,
+} from '@/lib/documents/document-action-policy';
+import { LegacyDocumentSettingsDrawer } from '@/components/inventory/settings/LegacyDocumentSettingsDrawer';
+import { TransactionSettingsDrawer } from '@/components/settings/transaction-settings/TransactionSettingsDrawer';
+import type { LegacyDocumentProfileId } from '@/lib/inventory/legacy-document-settings-profiles';
+import type { TransactionDocumentType } from '@/lib/transaction-settings/types';
 import {
   openInvoiceWhatsApp,
   type WhatsAppInvoicePayload,
 } from '@/lib/whatsapp-share';
+import { DocumentArchiveScannerModal } from '@/components/attachments/DocumentArchiveScannerModal';
+import {
+  resolveArchiveTarget,
+  type ArchiveEntityTarget,
+} from '@/lib/attachments/archive-entity';
 
 export type DocumentActionExtraItem = {
   id: string;
@@ -19,9 +33,13 @@ export type DocumentActionExtraItem = {
   disabled?: boolean;
   destructive?: boolean;
   hint?: string;
+  /** Allow this action on an unsaved (browser-only) document. Default: false. */
+  allowWhenUnsaved?: boolean;
 };
 
 export type DocumentActionMenuProps = {
+  /** Persisted server id — when set, overrides `hasDocument` for lifecycle gating. */
+  documentId?: string | null;
   hasDocument: boolean;
   isPosted?: boolean;
   isCancelled?: boolean;
@@ -32,8 +50,12 @@ export type DocumentActionMenuProps = {
   onEdit?: () => void;
   onPost?: () => void;
   onUnpost?: () => void;
+  onApprove?: () => void;
   onUnapprove?: () => void;
   isApproved?: boolean;
+  approvePending?: boolean;
+  approveLabel?: string;
+  unapproveLabel?: string;
   onPrint?: () => void;
   onThermalPrint?: () => void;
   onDuplicate?: () => void;
@@ -48,6 +70,8 @@ export type DocumentActionMenuProps = {
   restorePending?: boolean;
   /** Hide ترحيل / فك الترحيل from the 3-dots menu. */
   hidePostActions?: boolean;
+  /** Show فك الترحيل in the menu while hiding ترحيل (e.g. stocktaking posts from the toolbar). */
+  showMenuUnpost?: boolean;
   postLabel?: string;
   unpostLabel?: string;
   /** Keep تعديل enabled on posted docs (in-place journal update on save). */
@@ -57,10 +81,24 @@ export type DocumentActionMenuProps = {
   printLabel?: string;
   voidLabel?: string;
   restoreLabel?: string;
+  /** When set, restore stays visible on cancelled docs but cannot run (e.g. auto-sourced GL). */
+  restoreDisabled?: boolean;
+  restoreDisabledHint?: string;
   duplicateLabel?: string;
   editLockedHint?: string;
   voidLockedHint?: string;
+  /** Keep فك الترحيل visible but disabled (e.g. collected commercial paper). */
+  unpostLockedHint?: string;
+  voidConfirmMessage?: string;
   restoreConfirmMessage?: string;
+  /** Opens إعدادات المستند drawer for this document family. */
+  transactionSettingsDocumentType?: TransactionDocumentType;
+  /** Legacy module settings (stock/commercial docs without transaction_settings row). */
+  legacyDocumentProfile?: LegacyDocumentProfileId;
+  /** Runs after settings save (e.g. refresh serial / invalidate caches). */
+  onTransactionSettingsSaved?: () => void;
+  /** أرشفة المستندات — يُستنتج من نوع المستند إن لم يُمرَّر صراحة. */
+  archiveTarget?: ArchiveEntityTarget | null;
 };
 
 export function DocumentActionMenu({
@@ -74,37 +112,46 @@ export function DocumentActionMenu({
   onEdit,
   onPost,
   onUnpost,
+  onApprove,
   onUnapprove,
   isApproved = false,
-  onPrint,
-  onThermalPrint,
-  onDuplicate,
+  approvePending,
+  approveLabel = 'اعتماد',
+  unapproveLabel = 'إلغاء الاعتماد',
   onVoid,
   onRestore,
   extraItems = [],
   whatsAppShare,
   postPending,
   unpostPending,
-  duplicatePending,
   voidPending,
   restorePending,
   hidePostActions = false,
+  showMenuUnpost = false,
   postLabel = 'ترحيل',
   unpostLabel = 'فك الترحيل',
   allowEditWhenPosted = false,
   allowEditWhenCancelled = false,
-  printLabel,
   voidLabel,
   restoreLabel,
-  duplicateLabel,
   editLockedHint,
   voidLockedHint,
+  unpostLockedHint,
+  voidConfirmMessage,
   restoreConfirmMessage,
+  restoreDisabled,
+  restoreDisabledHint,
+  transactionSettingsDocumentType,
+  legacyDocumentProfile,
+  onTransactionSettingsSaved,
+  documentId,
+  archiveTarget: archiveTargetProp,
 }: DocumentActionMenuProps) {
   const mode = useOptionalDocumentMode();
   const isReadOnly = mode?.isReadOnly ?? false;
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = useOwnTabPathname();
+  const searchParams = useOwnTabSearchParams();
   const startNewDocument = () => {
     if (onNew) {
       onNew();
@@ -113,8 +160,27 @@ export function DocumentActionMenu({
     router.replace(pathname);
   };
   const [confirm, setConfirm] = useState<'unpost' | 'void' | 'restore' | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
   const [manualPhone, setManualPhone] = useState('');
+  const [archiveOpen, setArchiveOpen] = useState(false);
+
+  useEffect(() => {
+    if (!transactionSettingsDocumentType && !legacyDocumentProfile) return;
+    if (searchParams.get('openDocumentSettings') !== '1') return;
+    if (hasOpenDocumentSettingsIntent()) setSettingsOpen(true);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('openDocumentSettings');
+    const qs = next.toString();
+    pinTabQuery(qs);
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [
+    transactionSettingsDocumentType,
+    legacyDocumentProfile,
+    searchParams,
+    pathname,
+    router,
+  ]);
 
   const handleWhatsAppShare = () => {
     if (!whatsAppShare) return;
@@ -126,15 +192,39 @@ export function DocumentActionMenu({
     setPhoneDialogOpen(true);
   };
 
-  const lockEditWhenPosted = isPosted && !hidePostActions && !allowEditWhenPosted;
-  const editDisabled =
-    !hasDocument || (isCancelled && !allowEditWhenCancelled) || lockEditWhenPosted || !onEdit;
+  const persistedId =
+    documentId !== undefined
+      ? String(documentId ?? '').trim() || null
+      : hasDocument
+        ? 'saved'
+        : null;
+  const isSavedOnServer = persistedId !== null;
+
+  const archiveTarget = resolveArchiveTarget({
+    documentId:
+      documentId ??
+      (persistedId && persistedId !== 'saved' ? persistedId : null),
+    transactionSettingsDocumentType,
+    archiveTarget: archiveTargetProp,
+  });
+
+  const policy = resolveDocumentActionPolicy(
+    { documentId: isSavedOnServer ? 'saved' : null, isPosted, isCancelled },
+    { allowEditWhenPosted, allowEditWhenCancelled }
+  );
+
+  const gatedExtraItems = extraItems.map((item) => {
+    if (item.allowWhenUnsaved || isSavedOnServer) return item;
+    return {
+      ...item,
+      disabled: true,
+      hint: item.hint ?? DOCUMENT_UNSAVED_ACTION_HINT,
+    };
+  });
   const editHint =
-    isCancelled && !allowEditWhenCancelled
-    ? 'المستند ملغي ولا يمكن تعديله'
-    : lockEditWhenPosted
-      ? editLockedHint ?? 'المستند مرحل ومثبت محاسبياً. فك الترحيل أولاً من قائمة (...)'
-      : undefined;
+    policy.phase === 'posted' && !policy.edit.enabled
+      ? editLockedHint ?? policy.edit.hint
+      : policy.edit.hint;
 
   const items = [
     {
@@ -149,17 +239,29 @@ export function DocumentActionMenu({
     {
       id: 'edit',
       label: 'تعديل',
-      disabled: editDisabled || !onEdit,
+      disabled: !policy.edit.enabled || !onEdit,
       hint: editHint,
       onClick: () => onEdit?.(),
     },
+    ...(onApprove
+      ? [
+          {
+            id: 'approve',
+            label: approvePending ? 'جاري الاعتماد…' : approveLabel,
+            disabled: !isSavedOnServer || isCancelled || isApproved || approvePending,
+            hint: isApproved ? 'المستند معتمد بالفعل' : undefined,
+            onClick: () => onApprove(),
+          },
+        ]
+      : []),
     ...(hidePostActions
       ? []
       : [
           {
             id: 'post',
             label: postPending ? `جاري ${postLabel}…` : postLabel,
-            disabled: !hasDocument || isPosted || isCancelled || !onPost || postPending,
+            disabled: !policy.post.enabled || !onPost || postPending,
+            hint: policy.post.hint,
             onClick: () => onPost?.(),
           },
         ]),
@@ -167,38 +269,28 @@ export function DocumentActionMenu({
       ? [
           {
             id: 'unapprove',
-            label: 'إلغاء الاعتماد',
-            disabled: !hasDocument || isCancelled || !isApproved,
+            label: unapproveLabel,
+            disabled: !isSavedOnServer || isCancelled || !isApproved,
             hint:
               !isApproved && !isCancelled
-                ? 'القيد غير معتمد'
+                ? 'المستند غير معتمد'
                 : undefined,
             onClick: () => onUnapprove(),
           },
         ]
       : []),
-    ...(hidePostActions || !onUnpost
+    ...(!onUnpost
       ? []
       : [
           {
             id: 'unpost',
             label: unpostPending ? `جاري ${unpostLabel}…` : unpostLabel,
-            disabled: !hasDocument || !isPosted || isCancelled || unpostPending,
+            disabled: !policy.unpost.enabled || unpostPending || Boolean(unpostLockedHint),
+            hint: unpostLockedHint || policy.unpost.hint,
             onClick: () => setConfirm('unpost'),
           },
         ]),
-    ...(onThermalPrint
-      ? [
-          {
-            id: 'thermal-print',
-            label: 'طباعة إيصال حراري (بلوتوث)',
-            disabled: !hasDocument,
-            onClick: () => onThermalPrint(),
-            icon: <Receipt className="h-4 w-4" />,
-          },
-        ]
-      : []),
-    ...(whatsAppShare && hasDocument
+    ...(whatsAppShare && isSavedOnServer
       ? [
           {
             id: 'whatsapp',
@@ -209,26 +301,34 @@ export function DocumentActionMenu({
           },
         ]
       : []),
-    ...(onDuplicate
+    {
+      id: 'document-archive',
+      label: 'أرشفة المستندات',
+      disabled: !archiveTarget,
+      hint: archiveTarget ? undefined : 'احفظ المستند أولاً ثم أرفق الملفات من الأرشيف',
+      onClick: () => setArchiveOpen(true),
+    },
+    ...(transactionSettingsDocumentType || legacyDocumentProfile
       ? [
           {
-            id: 'duplicate',
-            label:
-              duplicatePending
-                ? 'جاري التكرار…'
-                : duplicateLabel ?? (hidePostActions ? 'تكرار' : 'تكرار المستند'),
-            disabled: !hasDocument || duplicatePending,
-            onClick: () => onDuplicate(),
+            id: 'document-settings',
+            label: 'إعدادات المستند',
+            onClick: () => setSettingsOpen(true),
           },
         ]
       : []),
-    ...extraItems,
-    ...(isCancelled && onRestore
+    ...gatedExtraItems,
+    ...(onRestore
       ? [
           {
             id: 'restore',
-            label: restorePending ? 'جاري الاستعادة…' : restoreLabel ?? 'استعادة القيد',
-            disabled: !hasDocument || restorePending,
+            label: restorePending ? 'جاري الاستعادة…' : restoreLabel ?? 'استعادة',
+            disabled: !policy.restore.enabled || restorePending || Boolean(restoreDisabled),
+            hint:
+              restoreDisabled && isCancelled
+                ? restoreDisabledHint ??
+                  'لا يمكن استعادة هذا المستند من هذه الشاشة'
+                : policy.restore.hint,
             onClick: () => setConfirm('restore'),
           },
         ]
@@ -238,39 +338,20 @@ export function DocumentActionMenu({
       label:
         voidPending
           ? 'جاري الإلغاء…'
-          : voidLabel ?? (hidePostActions ? 'إلغاء' : 'إلغاء / حذف المستند'),
-      disabled: !hasDocument || isCancelled || isPosted || !onVoid || voidPending,
-      hint: isPosted
-        ? voidLockedHint ??
-          (hidePostActions
-            ? 'المستند مكتمل ولا يمكن إلغاؤه'
-            : 'المستند مرحل. فك الترحيل أولاً ثم ألغه')
-        : undefined,
+          : voidLabel ?? 'إلغاء',
+      disabled: !policy.void.enabled || !onVoid || voidPending,
+      hint:
+        policy.phase === 'posted'
+          ? voidLockedHint ?? (hidePostActions ? 'المستند مكتمل ولا يمكن إلغاؤه' : policy.void.hint)
+          : policy.void.hint,
       destructive: true,
       onClick: () => setConfirm('void'),
     },
   ];
 
-  const printButtonLabel =
-    printLabel ?? (hidePostActions ? 'طباعة السند' : 'طباعة المستند');
-
   return (
     <>
       <div className="flex shrink-0 items-center gap-1">
-        {onPrint ? (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className={`${formActionButtonClass} gap-1.5`}
-            disabled={!hasDocument}
-            onClick={() => onPrint()}
-            data-tour="document-print"
-          >
-            <Printer className="h-3.5 w-3.5" aria-hidden />
-            {printButtonLabel}
-          </Button>
-        ) : null}
         <SimpleDropdownMenu
           align="right"
           trigger={
@@ -337,7 +418,8 @@ export function DocumentActionMenu({
                 : confirm === 'restore'
                   ? restoreConfirmMessage ??
                     'سيتم استعادة نفس المستند الملغي. لو فيه مستند تاني شغال لنفس العملية لازم تلغيه الأول.'
-                  : 'سيتم إلغاء هذا المستند مع الإبقاء عليه بحالة ملغي. الأطراف تفضل موجودة على نفس الشاشة، و«جديد» يقفل. يمكن استعادته لاحقاً.'}
+                  : voidConfirmMessage ??
+                    'سيتم إلغاء هذا المستند مع الإبقاء عليه وعلى قيده بحالة ملغي، ويظهر في «السابق» كملغي. يمكن استعادته لاحقاً بنفس القيد.'}
             </p>
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
@@ -364,6 +446,27 @@ export function DocumentActionMenu({
             </div>
           </div>
         </div>
+      ) : null}
+      {transactionSettingsDocumentType ? (
+        <TransactionSettingsDrawer
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          documentType={transactionSettingsDocumentType}
+          onSettingsSaved={onTransactionSettingsSaved}
+        />
+      ) : null}
+      <DocumentArchiveScannerModal
+        open={archiveOpen}
+        onClose={() => setArchiveOpen(false)}
+        target={archiveTarget}
+      />
+      {legacyDocumentProfile && !transactionSettingsDocumentType ? (
+        <LegacyDocumentSettingsDrawer
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          profile={legacyDocumentProfile}
+          onSettingsSaved={onTransactionSettingsSaved}
+        />
       ) : null}
     </>
   );

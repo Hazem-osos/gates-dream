@@ -84,6 +84,7 @@ export function QuickCreateSafeModal({
       parentAccount={parentAccount}
       initialArabicName={initialName}
       createKind="POSTING"
+      overlayZClass="z-[15000]"
       onClose={onClose}
       onSaved={() => undefined}
       onCreatedAccount={(account) => {

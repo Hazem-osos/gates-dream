@@ -140,6 +140,13 @@ export const accountingSettingsModules: (ModuleItem | ModuleWithChildren)[] = [
         href: '/accounting-settings/operations-management/fix-average-cost'
       },
       {
+        key: 'fix-inventory-journals',
+        icon: '',
+        label: 'اصلاح قيود المخزون',
+        color: '#0E78AA',
+        href: '/accounting-settings/operations-management/fix-inventory-journals'
+      },
+      {
         key: 'import-entry',
         icon: '',
         label: 'إستيراد قيد',
@@ -202,6 +209,13 @@ export const accountingSettingsModules: (ModuleItem | ModuleWithChildren)[] = [
         label: 'الإسترجاع القاعدة البيانات',
         color: '#0E78AA',
         href: '/accounting-settings/database-tools/database-restore'
+      },
+      {
+        key: 'database-migration',
+        icon: '',
+        label: 'ترحيل قواعد البيانات',
+        color: '#0E78AA',
+        href: '/accounting-settings/database-tools/database-migration'
       }
     ]
   },

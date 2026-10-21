@@ -47,7 +47,9 @@ export const CompactFormField = React.forwardRef<HTMLInputElement, CompactFormFi
   ) => {
     const fieldId = htmlFor ?? id;
     const describedBy = error ? `${fieldId ?? label}-error` : hint ? `${fieldId ?? label}-hint` : undefined;
-    const isDateField = inputProps.type === 'date' && !HIJRI_ONLY_LABEL.test(label);
+    const isDateField =
+      (inputProps.type === 'date' || inputProps.type === 'datetime-local') &&
+      !HIJRI_ONLY_LABEL.test(label);
     const isNumericField =
       inputProps.type === 'number' ||
       inputProps.inputMode === 'decimal' ||

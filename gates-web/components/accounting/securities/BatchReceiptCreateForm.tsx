@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { useRouter } from 'next/navigation';
 import { useForm, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -82,6 +84,26 @@ function isValidSaveLine(line: BatchReceiptLine): boolean {
   return line.paperNumber.trim().length > 0 && line.amount > 0 && line.dueDate.trim().length > 0;
 }
 
+type SecuritiesBatchDraft = {
+  header: SecuritiesBulkCreateHeaderFormInput;
+  lines: BatchReceiptLine[];
+  paperKind: 'receipt' | 'payment';
+  patternAccountId: string;
+};
+
+function isSecuritiesBatchDraftEmpty(draft: SecuritiesBatchDraft): boolean {
+  const h = draft.header;
+  const hasHeader =
+    Boolean(h.partyId) ||
+    Boolean(h.partyName?.trim()) ||
+    Boolean(h.entityId) ||
+    Boolean(h.entityName?.trim()) ||
+    Boolean(h.costCenterId) ||
+    Boolean(h.notes?.trim());
+  const hasLines = draft.lines.some(isEnteredLine);
+  return !hasHeader && !hasLines && !draft.patternAccountId;
+}
+
 export function BatchReceiptCreateForm({
   variant = 'batch',
   kind = 'receipt',
@@ -89,6 +111,13 @@ export function BatchReceiptCreateForm({
   const opening = variant === 'opening';
   const [paperKind, setPaperKind] = useState<'receipt' | 'payment'>(kind === 'payment' ? 'payment' : 'receipt');
   const payment = opening ? paperKind === 'payment' : kind === 'payment';
+  const settingsDocumentType = opening
+    ? payment
+      ? 'OPENING_SECURITIES_PAYMENT'
+      : 'OPENING_SECURITIES_RECEIPT'
+    : payment
+      ? 'SECURITIES_PAYMENT'
+      : 'SECURITIES_RECEIPT';
   const papersLabel = payment ? 'دفع' : 'قبض';
   const listHref = payment
     ? '/accounting/operations/securities/payment'
@@ -129,6 +158,7 @@ export function BatchReceiptCreateForm({
     handleSubmit,
     watch,
     setValue,
+    reset,
     formState: { errors },
   } = useForm<SecuritiesBulkCreateHeaderFormInput>({
     resolver: zodResolver(securitiesBulkCreateHeaderFormSchema) as Resolver<SecuritiesBulkCreateHeaderFormInput>,
@@ -175,6 +205,46 @@ export function BatchReceiptCreateForm({
   const partyName = watch('partyName') || '';
   const costCenterId = watch('costCenterId');
   const notes = watch('notes');
+  const headerValues = watch();
+
+  const batchDocumentType = opening
+    ? payment
+      ? 'opening-securities-payment-batch'
+      : 'opening-securities-receipt-batch'
+    : payment
+      ? 'securities-payment-batch'
+      : 'securities-receipt-batch';
+
+  const draftSnapshot = useMemo<SecuritiesBatchDraft>(
+    () => ({
+      header: headerValues,
+      lines,
+      paperKind,
+      patternAccountId,
+    }),
+    [headerValues, lines, paperKind, patternAccountId]
+  );
+
+  const applySecuritiesBatchDraft = useCallback(
+    (payload: SecuritiesBatchDraft) => {
+      reset(payload.header);
+      setLines(Array.isArray(payload.lines) ? payload.lines : createBlankBatchReceiptLines(3));
+      setPaperKind(payload.paperKind === 'payment' ? 'payment' : 'receipt');
+      setPatternAccountId(payload.patternAccountId ?? '');
+      setError('');
+    },
+    [reset]
+  );
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: batchDocumentType,
+    mode: 'new',
+    value: draftSnapshot,
+    enabled: true,
+    applyRestore: applySecuritiesBatchDraft,
+    isEmpty: isSecuritiesBatchDraftEmpty,
+    restoreMessage: opening ? 'يوجد مسودة أوراق أول المدة غير محفوظة' : 'يوجد مسودة إدخال أوراق غير محفوظة',
+  });
 
   useEffect(() => {
     if (currencies.length > 0 && !currencyId) {
@@ -357,6 +427,7 @@ export function BatchReceiptCreateForm({
         .then((res) => {
           invalidateQuery([payment ? 'securities-payments' : 'securities-receipts']);
           invalidateQuery(['opening-paper-next-number']);
+          clearDraft();
           const count = res.data?.count ?? entered.length;
           if (opening) {
             setSuccess(`تم حفظ ${count} شيك بدون قيد تحرير. استوردهم من قيد الرصيد الافتتاحي.`);
@@ -375,6 +446,24 @@ export function BatchReceiptCreateForm({
 
   return (
     <ErpDocumentLayout>
+      <PageDraftRestoreGate<SecuritiesBatchDraft>
+        restoreOffer={restoreOffer}
+        hide={false}
+        message={
+          opening ? 'يوجد مسودة أوراق أول المدة غير محفوظة.' : 'يوجد مسودة إدخال أوراق غير محفوظة.'
+        }
+        acceptRestore={acceptRestore}
+        dismissRestore={() => {
+          dismissRestore();
+          reset();
+          setLines(createBlankBatchReceiptLines(3));
+          setPatternAccountId('');
+        }}
+        onRestored={(payload) => {
+          applySecuritiesBatchDraft(payload);
+          setSuccess('تم استعادة مسودة الأوراق');
+        }}
+      />
       <ErpDocumentPageHeader
         title={opening ? 'أوراق مالية سابقة' : `إنشاء عدة أوراق ${papersLabel}`}
         breadcrumbs={
@@ -391,7 +480,7 @@ export function BatchReceiptCreateForm({
               ]
         }
         statusTone="neutral"
-        statusLabel={opening ? 'شيكات أول المدة' : 'مسودة إدخال'}
+        statusLabel={opening ? 'شيكات أول المدة' : 'إدخال جديد'}
         docNumber={opening ? (nextSerialManual ? 'يدوي' : nextSerial || '…') : undefined}
         showDocumentRef={opening}
         favoriteHref={opening ? '/accounting/operations/basic-operations/opening-securities' : batchHref}
@@ -414,6 +503,10 @@ export function BatchReceiptCreateForm({
         standardActions={{
           hasDocument: false,
           hidePostActions: true,
+          transactionSettingsDocumentType: settingsDocumentType,
+          onTransactionSettingsSaved: () => {
+            void invalidateQuery(['transaction-settings', settingsDocumentType]);
+          },
         }}
       />
 

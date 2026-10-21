@@ -128,6 +128,13 @@ export function buildReportFilterBadges(
   } else if (params.showWarehouse === 'true') {
     badges.push({ icon: '🔎', label: 'عرض بالمخازن' });
   }
+  if (params.itemStockKind === 'service') {
+    badges.push({ icon: '🔎', label: 'الأصناف غير المخزنية فقط' });
+  } else if (params.itemStockKind === 'both') {
+    badges.push({ icon: '🔎', label: 'الأصناف المخزنية وغير المخزنية' });
+  } else if (params.itemStockKind === 'stock') {
+    badges.push({ icon: '🔎', label: 'الأصناف المخزنية فقط' });
+  }
 
   if (params.amountOp && amountOps[params.amountOp]) {
     badges.push({ icon: '🔎', label: `مبلغ القيد: ${amountOps[params.amountOp]}` });

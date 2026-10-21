@@ -11,10 +11,12 @@ export function TransactionSettingsDrawer({
   open,
   onClose,
   documentType,
+  onSettingsSaved,
 }: {
   open: boolean;
   onClose: () => void;
   documentType: TransactionDocumentType;
+  onSettingsSaved?: () => void;
 }) {
   return (
     <MasterEntitySideDrawer
@@ -23,7 +25,11 @@ export function TransactionSettingsDrawer({
       title={DOCUMENT_TYPE_TITLE[documentType]}
       subtitle="سياسات الترقيم والترحيل والتسعير والضرائب لهذا المستند"
     >
-      <TransactionSettingsForm documentType={documentType} compact />
+      <TransactionSettingsForm
+        documentType={documentType}
+        compact
+        onSettingsSaved={onSettingsSaved}
+      />
     </MasterEntitySideDrawer>
   );
 }

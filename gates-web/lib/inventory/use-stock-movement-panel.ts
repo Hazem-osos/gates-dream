@@ -20,17 +20,23 @@ export function useStockMovementPanel(
 
   const onPosted = useCallback(
     (res?: ApiResponse<unknown>) => {
-      setPostMeta(extractStockPostResult(res));
+      const meta = extractStockPostResult(res);
+      setPostMeta(meta);
+      const jeId = meta.journalEntryId ?? journalEntryIdFromDoc ?? null;
+      if (jeId) invalidateQuery(['journal-entry', jeId]);
       if (!documentId) return;
+      invalidateQuery(['journal-entries-by-source', documentId]);
       invalidateQuery(['inventory-movements-by-doc', documentId]);
       invalidateQuery(['document-audit', 'STOCK_MOVEMENT', documentId]);
     },
-    [documentId, invalidateQuery]
+    [documentId, invalidateQuery, journalEntryIdFromDoc]
   );
 
   const resetPanel = useCallback(() => {
     setPostMeta(emptyMeta);
-  }, []);
+    if (journalEntryIdFromDoc) invalidateQuery(['journal-entry', journalEntryIdFromDoc]);
+    if (documentId) invalidateQuery(['journal-entries-by-source', documentId]);
+  }, [documentId, invalidateQuery, journalEntryIdFromDoc]);
 
   return {
     bottomSplitProps: {

@@ -47,6 +47,7 @@ import {
 } from '@/lib/manufacturing/bom-cost-distribution';
 import { AccountSelect } from '@/app/components/form/AccountSelect';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { ItemAlternativesPeek } from '@/components/manufacturing/ItemAlternativesPeek';
 import {
   DocumentModeProvider,
@@ -65,6 +66,8 @@ import {
   resolveAssemblyUnitCost,
   type AssemblyPricingMethod,
 } from '@/lib/inventory/assembly-pricing';
+import { parseManufacturingLinePricingPolicy } from '@/lib/manufacturing/line-pricing';
+import type { ManufacturingSettingsView } from '@/lib/manufacturing/settings-types';
 
 type ItemRow = ItemWithUnits & {
   id: string;
@@ -331,6 +334,7 @@ function ManufacturingModelPageInner() {
   const [distributeCostByUnits, setDistributeCostByUnits] = useState(false);
   const [standardExecutionTime, setStandardExecutionTime] = useState('');
   const [pricingMethod, setPricingMethod] = useState<AssemblyPricingMethod>('AVERAGE_COST');
+  const appliedModulePricingRef = useRef(false);
   const [rawLines, setRawLines] = useState<RawLine[]>(emptyRawLines);
   const [outputLines, setOutputLines] = useState<OutputLine[]>([emptyOutputLine()]);
   const [additionalCosts, setAdditionalCosts] = useState<AdditionalCostLine[]>([emptyAdditionalCost()]);
@@ -356,6 +360,20 @@ function ManufacturingModelPageInner() {
     { limit: 500, isActive: true }
   );
   const items = itemsResponse?.data ?? [];
+  const { data: mfgSettingsResponse } = useApiQuery<ManufacturingSettingsView>(
+    ['manufacturing-settings'],
+    '/manufacturing/settings'
+  );
+  const moduleLinePricing = parseManufacturingLinePricingPolicy(
+    mfgSettingsResponse?.data?.linePricingPolicy
+  );
+
+  useEffect(() => {
+    if (bomId || appliedModulePricingRef.current) return;
+    if (!mfgSettingsResponse?.data) return;
+    appliedModulePricingRef.current = true;
+    setPricingMethod(moduleLinePricing);
+  }, [bomId, mfgSettingsResponse?.data, moduleLinePricing]);
 
   const itemById = useMemo(() => {
     const map = new Map<string, ItemRow>();
@@ -447,6 +465,7 @@ function ManufacturingModelPageInner() {
     setPricingMethod(
       meta.pricingMethod != null ? parsePricingMethod(meta.pricingMethod) : 'MANUAL'
     );
+    appliedModulePricingRef.current = true;
 
     const snapshot = meta.rawLinesSnapshot ?? [];
     const dbLines = bomDetail.lines ?? [];
@@ -614,6 +633,7 @@ function ManufacturingModelPageInner() {
     setDistributeCostByUnits(payload.distributeCostByUnits);
     setStandardExecutionTime(payload.standardExecutionTime);
     setPricingMethod(parsePricingMethod(payload.pricingMethod));
+    appliedModulePricingRef.current = true;
     setRawLines(payload.rawLines?.length ? payload.rawLines : emptyRawLines());
     setOutputLines(payload.outputLines?.length ? payload.outputLines : [emptyOutputLine()]);
     setAdditionalCosts(
@@ -623,7 +643,7 @@ function ManufacturingModelPageInner() {
     [openBom, router]
   );
 
-  const { clearDraft } = useDraftAutosave({
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
     documentType: 'manufacturing-bom-model',
     mode: bomId ? 'edit' : 'new',
     documentId: bomId,
@@ -631,7 +651,7 @@ function ManufacturingModelPageInner() {
     enabled: true,
     applyRestore: applyBomModelDraft,
     isEmpty: isMfgBomModelDraftEmpty,
-    restoreMessage: 'تم استعادة مسودة نموذج التصنيع',
+    restoreMessage: 'يوجد مسودة نموذج تصنيع غير محفوظة',
   });
 
   const resetToNewBomForm = useCallback(() => {
@@ -653,9 +673,10 @@ function ManufacturingModelPageInner() {
     setStage('');
     setDistributeCostByUnits(false);
     setStandardExecutionTime('');
-    setPricingMethod('AVERAGE_COST');
+    setPricingMethod(moduleLinePricing);
+    appliedModulePricingRef.current = true;
     openBom(null);
-  }, [clearDraft, unlockForEdit]);
+  }, [clearDraft, unlockForEdit, moduleLinePricing]);
 
   async function loadBomAsNewDraft(sourceId: string) {
     setError(null);
@@ -1132,6 +1153,18 @@ function ManufacturingModelPageInner() {
   }
 
   return (
+    <>
+      <PageDraftRestoreGate<MfgBomModelDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(bomId)}
+        message="يوجد مسودة نموذج تصنيع غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyBomModelDraft(payload);
+          setSuccess('تم استعادة مسودة نموذج التصنيع');
+        }}
+      />
     <ManufacturingPageChrome
       title="نموذج التصنيع"
       statusLabel={bomId ? 'محفوظ' : 'جديد'}
@@ -1149,8 +1182,6 @@ function ManufacturingModelPageInner() {
         onNew: handleNew,
         newLabel: 'نموذج جديد',
         onEdit: () => unlockForEdit(),
-        onDuplicate: bomId ? () => void loadBomAsNewDraft(bomId) : undefined,
-        duplicateLabel: 'نسخ كمسودة',
         hidePostActions: true,
       }}
     >
@@ -1760,5 +1791,6 @@ function ManufacturingModelPageInner() {
       {error && <ErrorToast message={error} onClose={() => setError(null)} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess(null)} />}
     </ManufacturingPageChrome>
+    </>
   );
 }

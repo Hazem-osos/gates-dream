@@ -4,12 +4,14 @@ import { Calculator, Layers, Ruler } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
+import { BoqSellingLadder } from '@/components/contracting/BoqSellingLadder';
+import { RatePriceBreakdown } from '@/components/contracting/RatePriceBreakdown';
 import { BoqStatusBadge } from '@/components/contracting/StatusBadges';
 import { ownerBoqHierarchyHints, withItemCodeHierarchy } from '@/lib/contracting/boq-hierarchy';
 import { BOQ_UNIT_LABEL } from '@/lib/contracting/labels';
 import type { OwnerBoqItem } from '@/lib/contracting/types';
 import type { ContractBoqScopeItem } from '@/lib/contracting/variation-types';
-import { formatEgp, formatPercent, formatQty, toMoney } from '@/lib/subcontracts/money';
+import { formatEgp, formatQty, toMoney } from '@/lib/subcontracts/money';
 
 function isOwnerBoqHeader(item: OwnerBoqItem, dottedParent: boolean): boolean {
   if (item.hasChildren === true || item.isLeaf === false || item.isExecutable === false) return true;
@@ -69,7 +71,7 @@ export function OwnerBoqTable({
 
   return (
     <div className="overflow-x-auto rounded-xl border border-[#E6F0F7]">
-      <table className="w-full min-w-[1100px] text-center text-sm">
+      <table className="w-full min-w-[1400px] text-center text-sm">
         <thead>
           <tr className="bg-[#0E78AA] text-white">
             <th className="px-3 py-2">كود البند</th>
@@ -83,8 +85,9 @@ export function OwnerBoqTable({
               </>
             ) : null}
             <th className="px-3 py-2">التكلفة المباشرة</th>
-            <th className="px-3 py-2">نسبة التحميل</th>
+            <th className="px-3 py-2">مسار السعر حتى البيع</th>
             <th className="px-3 py-2">سعر البيع</th>
+            <th className="px-3 py-2">تفصيل السعر</th>
             <th className="px-3 py-2">إجمالي البند</th>
             <th className="px-3 py-2">المنفّذ التراكمي</th>
             <th className="px-3 py-2">الحالة</th>
@@ -144,11 +147,29 @@ export function OwnerBoqTable({
                 <td className="px-3 py-2 tabular-nums">
                   {isParent ? '—' : formatEgp(item.directCostEstimated)}
                 </td>
-                <td className="px-3 py-2 tabular-nums">
-                  {isParent ? '—' : formatPercent(toMoney(item.indirectMarkupRate) * 100)}
+                <td className="px-3 py-2">
+                  {isParent ? (
+                    '—'
+                  ) : (
+                    <BoqSellingLadder
+                      directUnitCost={toMoney(item.directCostEstimated)}
+                      quantity={toMoney(scope?.effectiveQuantity ?? item.contractQuantity)}
+                      markup={item.markupStructures?.[0]}
+                      indirectMarkupRate={toMoney(item.indirectMarkupRate)}
+                      storedUnitSellingPrice={toMoney(item.unitSellingPrice)}
+                      storedTotalSellingPrice={toMoney(item.totalSellingPrice)}
+                    />
+                  )}
                 </td>
                 <td className="px-3 py-2 tabular-nums">
                   {isParent ? '—' : formatEgp(item.unitSellingPrice)}
+                </td>
+                <td className="px-3 py-2">
+                  {isParent ? (
+                    <span className="text-xs text-slate-500">يُفصَّل على البنود التنفيذية</span>
+                  ) : (
+                    <RatePriceBreakdown items={item.rateAnalysisItems} />
+                  )}
                 </td>
                 <td className="px-3 py-2 tabular-nums font-semibold">
                   {isParent ? '—' : formatEgp(item.totalSellingPrice)}
@@ -201,6 +222,7 @@ export function OwnerBoqTable({
               إجمالي البنود التنفيذية (بدون البنود الرئيسية)
             </td>
             <td className="px-3 py-2 tabular-nums">{formatEgp(totalDirect)}</td>
+            <td />
             <td />
             <td />
             <td className="px-3 py-2 tabular-nums text-[#0E78AA]">{formatEgp(totalSelling)}</td>

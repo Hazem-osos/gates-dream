@@ -36,6 +36,16 @@ describe('legal financial position', () => {
       'إجمالي الالتزامات وحقوق الملكية',
     ]);
     expect(notes.find((note) => note.title === 'أصول ثابتة')?.rows[0].name).toBe('121 أصول ثابتة');
+    expect(notes.find((note) => note.title === 'أصول ثابتة')?.rows[0].accountId).toBeUndefined();
     expect(lines.find((line) => line.name === 'إجمالي الأصول')?.current).toBe(140);
+  });
+
+  it('keeps account ids on note rows so the face can open a ledger', () => {
+    const { notes } = buildLegalFinancialPosition(
+      [{ accountId: 'acc-cash', code: '111', arabicName: 'النقدية بالخزينة', amount: 40, depth: 0 }],
+      [],
+      () => 0
+    );
+    expect(notes[0]?.rows[0]).toMatchObject({ accountId: 'acc-cash', name: '111 النقدية بالخزينة' });
   });
 });

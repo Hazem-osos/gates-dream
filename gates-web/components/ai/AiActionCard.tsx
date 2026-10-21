@@ -362,7 +362,7 @@ export function AiActionCard({
           <div className="flex items-center justify-between gap-2 text-xs text-emerald-700">
             <span className="inline-flex items-center gap-1 font-semibold">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              تم الحفظ بنجاح كمسودة رقم {savedNumber || local?.documentNumber || '—'}
+              تم الحفظ بنجاح — غير مرحّل رقم {savedNumber || local?.documentNumber || '—'}
             </span>
             {savedUrl || local?.openUrl ? (
               <a

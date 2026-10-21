@@ -42,9 +42,9 @@ type TemplateDef = {
 };
 
 const TEMPLATES: TemplateDef[] = [
-  { id: 'a4-tax', label: 'فاتورة حسب تصميم الشركة (شعار، ألوان، QR، توقيعات)' },
-  { id: 'delivery-slip', label: 'إيصال استلام بضاعة بدون أسعار (Delivery Slip)' },
-  { id: 'thermal-pos', label: 'إيصال حراري لنقاط البيع (80mm POS Thermal Receipt)' },
+  { id: 'a4-tax', label: 'فاتورة حسب تصميم الشركة (شعار، ألوان، رمز QR، توقيعات)' },
+  { id: 'delivery-slip', label: 'إيصال استلام بضاعة بدون أسعار' },
+  { id: 'thermal-pos', label: 'إيصال حراري لنقاط البيع (عرض 80 مم)' },
 ];
 
 function CompanyLayoutInvoicePreview({

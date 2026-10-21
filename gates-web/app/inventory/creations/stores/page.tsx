@@ -1,6 +1,8 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { useClearDocumentQuery, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { rememberTabHref, rememberTabSearch } from '@/lib/navigation/tab-memory';
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
@@ -15,7 +17,12 @@ import { DocumentModeProvider, useDocumentMode } from '@/components/common/docum
 import { WarehousesListSection, asWarehouseRows, type WarehouseRow } from '@/components/inventory/WarehousesListSection';
 import { WarehouseParentField } from '@/components/inventory/WarehouseParentField';
 import { ChildWarehouseKindDialog } from '@/components/inventory/ChildWarehouseKindDialog';
-import { inheritWarehouseAccounts, warehouseRoleLabel, type WarehouseKind } from '@/lib/inventory/warehouse-kind';
+import {
+  inheritWarehouseAccounts,
+  warehouseEmptyStockAccountsMessage,
+  warehouseRoleLabel,
+  type WarehouseKind,
+} from '@/lib/inventory/warehouse-kind';
 import { AccountSelect } from '@/components/form/AccountSelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
@@ -69,7 +76,7 @@ function StoresPageInner() {
   const searchParams = useOwnTabSearchParams();
   const clearDocumentQuery = useClearDocumentQuery();
   const idFromUrl = searchParams.get('id');
-  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const { isReadOnly, unlockForEdit, setMode } = useDocumentMode();
   const hydratedUrlIdRef = useRef<string | null>(null);
   const invalidateQuery = useInvalidateQuery();
   const quickCreate = useQuickCreateHost('warehouse');
@@ -79,6 +86,23 @@ function StoresPageInner() {
   const [success, setSuccess] = useState('');
   const [showGuide, setShowGuide] = useState(false);
   const [kindPickerParent, setKindPickerParent] = useState<{ id: string; label: string } | null>(null);
+
+  const editingWarehouseId = selectedId || idFromUrl;
+  const draftSnapshot = useMemo(() => formData, [formData]);
+  const applyWarehouseDraft = useCallback((payload: WarehouseForm) => {
+    setFormData(payload);
+    setSelectedId(null);
+    setMode('create');
+    setError('');
+  }, [setMode]);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'warehouse-card',
+    editingId: editingWarehouseId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.arabicName.trim() && !d.code.trim(),
+    applyRestore: applyWarehouseDraft,
+    restoreMessage: 'يوجد مسودة بطاقة مخزن غير محفوظة',
+  });
 
   const { data: warehousesRes } = useApiQuery<WarehouseRow[]>(
     ['warehouses', { page: 1, pageSize: 1000 }],
@@ -110,7 +134,7 @@ function StoresPageInner() {
   }, [quickCreate.prefillName, selectedId]);
 
   const fillFromRow = (row: WarehouseRow) => {
-    lockToView();
+    unlockForEdit();
     setSelectedId(row.id);
     setFormData({
       code: row.code ?? '',
@@ -141,7 +165,7 @@ function StoresPageInner() {
     if (hydratedUrlIdRef.current === idFromUrl) return;
     hydratedUrlIdRef.current = idFromUrl;
     fillFromRow(row);
-  }, [idFromUrl, warehouses, warehouseByIdRes?.data, lockToView]);
+  }, [idFromUrl, warehouses, warehouseByIdRes?.data, unlockForEdit]);
 
   const createMutation = useApiMutation<
     { id?: string; arabicName?: string; code?: string | null },
@@ -149,6 +173,7 @@ function StoresPageInner() {
   >('/inventory/warehouses', 'POST', {
     showSuccessToast: false,
     onSuccess: (res) => {
+      clearDraft();
       const created = res?.data;
       if (created?.id && quickCreate.isQuickCreate) {
         quickCreate.complete({
@@ -194,6 +219,7 @@ function StoresPageInner() {
     {
       showSuccessToast: false,
       onSuccess: () => {
+        clearDraft();
         invalidateStockViews(invalidateQuery);
         if (selectedId) invalidateQuery(['warehouse', selectedId]);
         finishDocumentSave({
@@ -266,6 +292,7 @@ function StoresPageInner() {
   });
 
   const resetNew = () => {
+    clearDraft();
     hydratedUrlIdRef.current = idFromUrl || '__new__';
     setSelectedId(null);
     setFormData(emptyForm());
@@ -304,6 +331,17 @@ function StoresPageInner() {
       setError('لا يمكن أن يكون المخزن رئيسيًا لنفسه');
       return;
     }
+    const emptyAccountsMessage = warehouseEmptyStockAccountsMessage(formData);
+    if (emptyAccountsMessage) {
+      const ok = await confirmAction({
+        title: 'حسابات المخزن فارغة',
+        message: emptyAccountsMessage,
+        confirmLabel: 'متابعة',
+        cancelLabel: 'رجوع',
+        tone: 'warning',
+      });
+      if (!ok) return;
+    }
     if (selectedId) {
       updateMutation.mutate(requestBody());
       return;
@@ -322,6 +360,14 @@ function StoresPageInner() {
 
   return (
     <ErpDocumentLayout>
+      <MasterCardDraftRestoreGate<WarehouseForm>
+        editingId={editingWarehouseId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyWarehouseDraft}
+        message="يوجد مسودة بطاقة مخزن غير محفوظة."
+      />
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 

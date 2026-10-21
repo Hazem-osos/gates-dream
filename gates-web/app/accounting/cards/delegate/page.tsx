@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { User } from 'lucide-react';
 import Image from 'next/image';
@@ -121,13 +123,12 @@ function rememberCreatedDelegate(
 }
 
 function DelegatePageInner() {
-  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const { isReadOnly, unlockForEdit, setMode } = useDocumentMode();
   const queryClient = useQueryClient();
   const invalidateQuery = useInvalidateQuery();
   const searchParams = useOwnTabSearchParams();
   const clearDocumentQuery = useClearDocumentQuery();
   const idFromUrl = searchParams.get('id');
-  const modeFromUrl = searchParams.get('mode');
   const groupIdFromUrl = searchParams.get('groupId');
   
   const [error, setError] = useState('');
@@ -135,6 +136,28 @@ function DelegatePageInner() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState(EMPTY_FORM);
+
+  type DelegateCardDraft = typeof formData;
+  const editingDelegateId = selectedId || idFromUrl;
+  const draftSnapshot = useMemo(() => formData, [formData]);
+  const applyDelegateDraft = useCallback(
+    (payload: DelegateCardDraft) => {
+      setFormData(payload);
+      setSelectedId(null);
+      setMode('create');
+      setError('');
+      clearDocumentQuery();
+    },
+    [clearDocumentQuery, setMode]
+  );
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'delegate-card',
+    editingId: editingDelegateId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.arabicName.trim() && !d.code.trim() && !d.phone1.trim(),
+    applyRestore: applyDelegateDraft,
+    restoreMessage: 'يوجد مسودة بطاقة مندوب غير محفوظة',
+  });
 
   // Fetch price lists
   const { data: priceListsResponse } = useApiQuery<PriceList[]>(
@@ -182,8 +205,7 @@ function DelegatePageInner() {
 
   const hydrate = (row: DelegateRecord) => {
     setSelectedId(row.id);
-    if (modeFromUrl === 'edit') unlockForEdit();
-    else lockToView();
+    unlockForEdit();
     setFormData({
       serial: row.serial || row.code || '',
       code: row.code || row.serial || '',
@@ -233,6 +255,7 @@ function DelegatePageInner() {
     {
       showSuccessToast: false,
       onSuccess: (res) => {
+        clearDraft();
         const row = res?.data as DelegateRecord | undefined;
         if (row?.id) rememberCreatedDelegate(queryClient, row);
         toast.success('تم حفظ المندوب بنجاح — تقدر تضيف التالي');
@@ -295,6 +318,7 @@ function DelegatePageInner() {
         await apiClient.put(`/accounting/delegates/${selectedId}`, payload, {
           skipSuccessNotify: true,
         });
+        clearDraft();
         toast.success('تم حفظ تعديلات المندوب');
         invalidateQuery(['delegates']);
         invalidateQuery(['delegates', 'groups', 'DELEGATE']);
@@ -308,6 +332,7 @@ function DelegatePageInner() {
   };
 
   const handleCancel = () => {
+    clearDraft();
     setSelectedId(null);
     setFormData({
       ...EMPTY_FORM,
@@ -338,9 +363,18 @@ function DelegatePageInner() {
       }}
       editDisabled={!selectedId}
       currentId={selectedId}
+      masterArchiveEntityType="DELEGATE"
       onBrowseList={() => setShowGuide(true)}
       favoriteHref="/accounting/cards/delegate"
     >
+      <MasterCardDraftRestoreGate<DelegateCardDraft>
+        editingId={editingDelegateId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyDelegateDraft}
+        message="يوجد مسودة بطاقة مندوب غير محفوظة."
+      />
       <form className="w-full text-base">
         <fieldset disabled={isReadOnly} className="min-w-0 border-0 p-0">
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف المندوب" icon={User}>
@@ -536,7 +570,7 @@ function DelegatePageInner() {
           emptyTitle="لا يوجد مندوبون"
           onRowClick={(row) => {
             setSelectedId(row.id);
-            lockToView();
+            unlockForEdit();
             setFormData((prev) => ({
               ...prev,
               serial: row.serial || row.code || '',

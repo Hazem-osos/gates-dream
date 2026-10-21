@@ -1,4 +1,4 @@
-import { resolveItemBarcode } from '@/lib/inventory/item-barcode-default';
+import { barcodeInputFromStored, resolveItemBarcode } from '@/lib/inventory/item-barcode-default';
 
 export type ItemUnitRow = {
   id?: string;
@@ -423,7 +423,7 @@ export function applyItemToForm(item: Partial<ItemDetail>): ItemCardForm {
       item.units?.[0]?.unitId ||
       item.units?.[0]?.unit?.id ||
       '',
-    barcode: resolveItemBarcode(item.barcode ?? '', item.serial ?? ''),
+    barcode: barcodeInputFromStored(item.barcode, item.serial),
     defaultTaxPercent: item.isTaxExempt ? '0' : moneyToInput(item.defaultTaxPercent),
     mainAccountId: item.mainAccountId ?? '',
     costCenterId: item.costCenterId ?? '',

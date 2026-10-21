@@ -8,7 +8,17 @@ import { useOwnTabPathname, useOwnTabSearchParams } from '@/lib/navigation/tab-r
 import { Button } from '@/components/ui';
 import { DynamicModalSkeleton, LineGridSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
-import { shouldLockLoadedSource, type TransactionSettings } from '@/lib/transaction-settings/types';
+import {
+  isTransactionSerialAutomatic,
+  isTransactionSerialManual,
+} from '@/lib/transaction-settings/serial-mode';
+import {
+  shouldLockItemPriceOverride,
+  shouldLockLoadedSource,
+  shouldShowAllAccountsInPartyField,
+  type TransactionSettings,
+} from '@/lib/transaction-settings/types';
+import { dispatchAutoPrintAfterSave } from '@/lib/printer/print-prefs';
 import { pickDefaultSafeId, useSuppliersQuery } from '@/lib/hooks/useMasterDataQueries';
 import {
   combinedPriceListDiscountPercent,
@@ -19,24 +29,46 @@ import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { toast, toastInvoiceSaveError, toastVersionConflict } from '@/lib/feedback/toast';
 import { finishDocumentSave } from '@/lib/documents/finish-save';
-import { unpostedDocumentStatusLabel } from '@/lib/documents/document-status-labels';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
 import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
 import {
   postInvoiceAfterSave,
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
 import { resolvePostedFlag } from '@/lib/documents/posting-trust';
+import {
+  DOCUMENT_NEW_LABEL,
+  resolveDocumentLifecycleStatus,
+} from '@/lib/documents/document-status-labels';
 import type { ApiError } from '@/lib/api/types';
 import { apiClient } from '@/lib/api/client';
-import { LandedCostPanel } from '@/components/inventory/purchase/LandedCostPanel';
 import { confirmAction } from '@/lib/feedback/confirm';
-import { inventorySupplierInvoiceFormSchema } from '@/lib/validation/inventory.schema';
+import { retryIfNegativeStockConfirm } from '@/lib/invoices/purchase-unpost-negative-stock';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
+import { inventorySupplierInvoiceFormSchemaForStockPolicy } from '@/lib/validation/inventory.schema';
 import { mapSalesFormToM5CreateBody, mapSalesFormToM5UpdateBody } from '@/lib/invoices/mapFormToM5Invoice';
 import {
+  invoiceJournalPreviewFromApi,
+  useInvoiceJournalPreview,
+} from '@/lib/invoices/invoice-journal-preview';
+import {
+  invoiceNetBelowPaymentConfirmMessage,
+  invoiceHasLinkedCollections,
+  invoiceNetCoversCollections,
+  linkedInvoicePaidAmount,
+  postedSettlementPaidTotal,
+} from '@/lib/invoices/invoice-collected-guard';
+import { invoicePaymentButtonDisabled } from '@/lib/invoices/invoice-payment-controls';
+import {
   computeInvoiceFinancialSummary,
+  computeInvoiceGrossDiscount,
   computeLineSubtotalAfterDiscount,
 } from '@/lib/invoices/computeInvoiceFinancialSummary';
+import { sumPartyInvoiceExtras } from '@/lib/invoices/invoice-adjustments';
+import { useInvoiceExtras } from '@/lib/invoices/use-invoice-extras';
+import { InvoiceExtrasPanel } from '@/components/inventory/invoices/InvoiceExtrasPanel';
+import type { InvoiceAdjustmentApiRow, InvoiceExtraRow } from '@/lib/invoices/invoice-adjustments';
 import { whtSettingsToLinePercent } from '@/lib/invoices/itemTracking';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import type { PurchaseInvoiceLine } from '@/components/inventory/ProgressivePurchaseInvoiceLineGrid';
@@ -46,6 +78,7 @@ import {
 } from '@/lib/invoices/invoiceLineColumns';
 import { useVisibleColumnIds } from '@/lib/invoices/useVisibleColumnIds';
 import { defaultUnitIdForItem, findDefaultPieceUnitId } from '@/lib/inventory/item-units';
+import { invoiceLineVatRate, invoiceLineVatRateForItemId } from '@/lib/invoices/item-vat-rate';
 import {
   parsePricingCalculationBasis,
   type PricingCalculationBasis,
@@ -54,21 +87,27 @@ import { inferDiscountTypeFromApi, inferDiscountValueFromApi } from '@/lib/invoi
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { useFirstCompany } from '@/lib/hooks/useFirstCompany';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
-import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { ERP_INVOICE_DOCUMENT_LAYOUT_CLASS } from '@/components/erp/erpUiTokens';
 import { PurchaseInvoicePageHeader } from '@/components/inventory/purchase-invoice/PurchaseInvoicePageHeader';
+import { DocumentFollowUpButton } from '@/components/documents/DocumentFollowUpButton';
+import { buildStockDocumentFollowUpHref } from '@/lib/documents/document-follow-up';
 import { PurchaseInvoiceFormHeader } from '@/components/inventory/purchase-invoice/PurchaseInvoiceFormHeader';
 import { InternalNotesScratchpad } from '@/components/documents/InternalNotesScratchpad';
 import type { InternalNoteEntry, PaymentSplitLine } from '@/lib/invoices/payment-split.types';
 import {
+  cashTenderNeedsManualVoucherNumber,
+  cashVoucherNumberRequiredMessage,
   resolveInvoicePaymentUi,
   splitsMatchTotal,
   summarizePaymentSplits,
   sumPaymentSplits,
+  withCopiedCashVoucherNumbers,
   withOnAccountRemainder,
 } from '@/lib/invoices/payment-split.types';
 import type { AdvanceLinkAllocation } from '@/components/invoices/LinkAdvancePaymentModal';
 import { postInvoiceSettlementSplits } from '@/lib/invoices/post-invoice-settlement-splits';
+import { readInvoiceLineItemName } from '@/lib/invoices/stock-impact-line';
 import {
   bankDraftFromSplits,
   buildCashTenderSplits,
@@ -94,7 +133,6 @@ import {
   type InvoiceChequesPayload,
 } from '@/lib/invoices/invoice-settlements';
 import { PurchaseInvoiceBottomSplit } from '@/components/inventory/purchase-invoice/PurchaseInvoiceBottomSplit';
-import { DocumentApprovalBar } from '@/app/components/accounting/DocumentApprovalBar';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import {
   DocumentFormLock,
@@ -102,8 +140,6 @@ import {
   DocumentReadOnlyBanner,
   useDocumentMode,
 } from '@/components/common/document-shell';
-import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
-import { MultiStockPermitLoadControl } from '@/components/invoices/MultiStockPermitLoadControl';
 import {
   mergeSourceNote,
   sourceLineToPurchaseRow,
@@ -116,7 +152,6 @@ import {
 } from '@/lib/invoices/multi-source-hydrate';
 import {
   invoiceLineColumnsForStockPolicy,
-  purchaseInvoiceSourceTypes,
   transactionAffectsStock,
 } from '@/lib/transaction-settings/affect-stock';
 import { consumeAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
@@ -182,6 +217,9 @@ interface Delegate {
 }
 interface Item {
   id: string;
+  code?: string;
+  serial?: string;
+  arabicName?: string;
   units?: {
     unitId?: string;
     isBaseUnit?: boolean;
@@ -189,6 +227,8 @@ interface Item {
     conversionFactor?: number | string | null;
     unit?: { id: string };
   }[];
+  defaultTaxPercent?: number | string | null;
+  isTaxExempt?: boolean | null;
 }
 
 function normalizeLoadedLineWarehouseId(
@@ -232,6 +272,8 @@ type PurchaseInvoiceDraft = {
   cashBankReference?: string;
   cashChequeRows?: InvoiceChequeDraft[];
   cashIssuingBankAccountId?: string;
+  invoiceExtras?: InvoiceExtraRow[];
+  extrasOpen?: boolean;
 };
 
 function isPurchaseInvoiceDraftEmpty(draft: PurchaseInvoiceDraft) {
@@ -261,12 +303,15 @@ function FinalPurchaseInvoicePageInner() {
   const searchParams = useOwnTabSearchParams();
   const ownPathname = useOwnTabPathname();
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
-  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   const invalidateQuery = useInvalidateQuery();
   const { companyId } = useFirstCompany();
   const { data: txSettingsRes } = useApiQuery<TransactionSettings>(
     ['transaction-settings', 'PURCHASE_INVOICE'],
     '/transaction-settings/PURCHASE_INVOICE'
+  );
+  const { data: paymentVoucherSettingsRes } = useApiQuery<TransactionSettings>(
+    ['transaction-settings', 'PAYMENT_VOUCHER'],
+    '/transaction-settings/PAYMENT_VOUCHER'
   );
   const { data: accountingSettingsRes, isLoading: accountingSettingsLoading } =
     useAccountingSettingsQuery();
@@ -303,6 +348,16 @@ function FinalPurchaseInvoicePageInner() {
   const [delegateId, setDelegateId] = useState('');
   const [currencyId, setCurrencyId] = useState('');
   const [exchangeRate, setExchangeRate] = useState(1);
+  const {
+    invoiceExtras,
+    setInvoiceExtras,
+    extrasOpen,
+    setExtrasOpen,
+    loadAdjustments,
+    resetExtras,
+    getExtrasPayload,
+    validateExtras,
+  } = useInvoiceExtras();
   const [paymentType, setPaymentType] = useState<'cash' | 'credit' | 'split'>('credit');
   const [treasuryId, setTreasuryId] = useState('');
   const [advancePaidAmount, setAdvancePaidAmount] = useState(0);
@@ -329,9 +384,18 @@ function FinalPurchaseInvoicePageInner() {
   const [sourceType, setSourceType] = useState('');
   const [sourceId, setSourceId] = useState('');
   const [sourceNumber, setSourceNumber] = useState('');
-  const [sourceBarKey, setSourceBarKey] = useState(0);
   const txSettings = txSettingsRes?.data;
+  const cashPaymentNumberingManual = isTransactionSerialManual(
+    paymentVoucherSettingsRes?.data?.numberingMode
+  );
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost(
+    txSettings?.autoPostOnSave
+  );
   const affectsStock = transactionAffectsStock(txSettings);
+  const supplierInvoiceFormSchema = useMemo(
+    () => inventorySupplierInvoiceFormSchemaForStockPolicy(affectsStock),
+    [affectsStock]
+  );
   const lockLoadedSource = shouldLockLoadedSource(txSettings, sourceId);
   const [storedColumnIds, setStoredColumnIds] = useVisibleColumnIds(
     'gates:columns:purchase-invoice',
@@ -342,12 +406,15 @@ function FinalPurchaseInvoicePageInner() {
     affectsStock
   );
   const [error, setError] = useState('');
+  const [restorePending, setRestorePending] = useState(false);
   const [success, setSuccess] = useState('');
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(
     () => searchParams.get('invoiceId')?.trim() || null
   );
+  const installmentFromUrl = searchParams.get('installment');
   const fromAiDraft = searchParams.get('fromAiDraft') === '1';
   const aiDraftAppliedRef = useRef(false);
+  const installmentReminderOpenedRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!selectedInvoiceId) {
@@ -357,6 +424,42 @@ function FinalPurchaseInvoicePageInner() {
     if (isPosted) lockToView();
     else setMode('edit');
   }, [isPosted, lockToView, selectedInvoiceId, setMode]);
+
+  useEffect(() => {
+    const installmentParam = installmentFromUrl?.trim();
+    if (!selectedInvoiceId || !installmentParam || !isPosted) return;
+    const openKey = `${selectedInvoiceId}:${installmentParam}`;
+    if (installmentReminderOpenedRef.current === openKey) return;
+
+    void apiClient
+      .get<{
+        data?: Array<{
+          id?: string;
+          installmentNumber?: number;
+          amount?: number;
+          paidAmount?: number;
+          remainingAmount?: number;
+        }>;
+      }>(`/invoices/${selectedInvoiceId}/installments`)
+      .then((res) => {
+        const rows = res.data?.data ?? [];
+        const targetNum = Number(installmentParam);
+        const row = rows.find(
+          (r) =>
+            String(r.installmentNumber) === installmentParam ||
+            (Number.isFinite(targetNum) && r.installmentNumber === targetNum)
+        );
+        if (!row?.id) return;
+        const remaining =
+          Number(row.remainingAmount) ||
+          Math.max(0, Number(row.amount) - Number(row.paidAmount ?? 0));
+        installmentReminderOpenedRef.current = openKey;
+        setBottomSplitTab('installments');
+        setCollectInstallment({ id: row.id, remaining });
+        setCollectModalOpen(true);
+      })
+      .catch(() => {});
+  }, [selectedInvoiceId, installmentFromUrl, isPosted]);
 
   useEffect(() => {
     if (aiDraftAppliedRef.current || !fromAiDraft || selectedInvoiceId) return;
@@ -416,6 +519,8 @@ function FinalPurchaseInvoicePageInner() {
       cashBankReference,
       cashChequeRows,
       cashIssuingBankAccountId,
+      invoiceExtras,
+      extrasOpen,
     }),
     [
       invoiceNumber,
@@ -447,6 +552,8 @@ function FinalPurchaseInvoicePageInner() {
       cashBankReference,
       cashChequeRows,
       cashIssuingBankAccountId,
+      invoiceExtras,
+      extrasOpen,
     ]
   );
 
@@ -489,7 +596,9 @@ function FinalPurchaseInvoicePageInner() {
             (line) => Number(line.withholdingTaxRate) > 0 || Number(line.withholdingTaxAmount) > 0
           )
     );
-  }, []);
+    setInvoiceExtras(Array.isArray(payload.invoiceExtras) ? payload.invoiceExtras : []);
+    setExtrasOpen(Boolean(payload.extrasOpen) || (payload.invoiceExtras?.length ?? 0) > 0);
+  }, [setExtrasOpen, setInvoiceExtras]);
 
   const skipServerHydrateRef = useRef(false);
   const hydratedPurchaseKeyRef = useRef('');
@@ -526,34 +635,51 @@ function FinalPurchaseInvoicePageInner() {
     { enabled: !!selectedInvoiceId }
   );
   const selectedInvoice = invoiceResponse?.data;
-  const { profile: companyProfile } = useCompanyPrintProfile();
-  const printInvoiceDocument = selectedInvoice
-    ? ({ ...selectedInvoice, invoiceKind: 'PURCHASE' } as Record<string, unknown>)
-    : null;
-
-  const financialSummary = useMemo(
-    () =>
-      computeInvoiceFinancialSummary(
-        invoiceLines.map((line) => ({
-          quantity: line.quantity,
-          baseQuantity: line.baseQuantity,
-          unitPrice: line.unitPrice,
-          discount: line.discountValue ?? line.discount,
-          discountValue: line.discountValue ?? line.discount,
-          discountType: line.discountType,
-          taxRate: line.tax,
-          withholdingTaxRate: line.withholdingTaxRate,
-          withholdingTaxAmount: line.withholdingTaxAmount,
-          withholdingAmountManual: line.withholdingAmountManual,
-        })),
-        {
-          applyTax: isSalesTaxInvoice,
-          withholdingTaxAmount: Number(selectedInvoice?.withholdingTaxAmount ?? 0),
-          pricingCalculationBasis,
-        }
-      ),
-    [invoiceLines, isSalesTaxInvoice, pricingCalculationBasis, selectedInvoice?.withholdingTaxAmount]
+  const invoiceJournalPreview = useMemo(
+    () => invoiceJournalPreviewFromApi(selectedInvoice),
+    [selectedInvoice]
   );
+  const {
+    journalOptions: invoiceJournalOptions,
+    activeJournalId: activeInvoiceJournalId,
+    activeJournalLabel: activeInvoiceJournalLabel,
+    setActiveJournalId: setActiveInvoiceJournalId,
+  } = useInvoiceJournalPreview(invoiceJournalPreview, 'purchase', selectedInvoiceId);
+  const { profile: companyProfile } = useCompanyPrintProfile();
+
+  const financialSummary = useMemo(() => {
+    const summaryLines = invoiceLines.map((line) => ({
+      quantity: line.quantity,
+      baseQuantity: line.baseQuantity,
+      unitPrice: line.unitPrice,
+      discount: line.discountValue ?? line.discount,
+      discountValue: line.discountValue ?? line.discount,
+      discountType: line.discountType,
+      taxRate: line.tax,
+      withholdingTaxRate: line.withholdingTaxRate,
+      withholdingTaxAmount: line.withholdingTaxAmount,
+      withholdingAmountManual: line.withholdingAmountManual,
+    }));
+    const { gross, commercialDiscount } = computeInvoiceGrossDiscount(summaryLines, pricingCalculationBasis);
+    const extrasNet = sumPartyInvoiceExtras(
+      invoiceExtras,
+      gross - commercialDiscount,
+      exchangeRate > 0 ? exchangeRate : 1
+    );
+    return computeInvoiceFinancialSummary(summaryLines, {
+      applyTax: isSalesTaxInvoice,
+      withholdingTaxAmount: Number(selectedInvoice?.withholdingTaxAmount ?? 0),
+      pricingCalculationBasis,
+      additionsAndDiscounts: extrasNet,
+    });
+  }, [
+    invoiceLines,
+    isSalesTaxInvoice,
+    pricingCalculationBasis,
+    selectedInvoice?.withholdingTaxAmount,
+    invoiceExtras,
+    exchangeRate,
+  ]);
 
   useEffect(() => {
     if (paymentType !== 'split') return;
@@ -637,9 +763,7 @@ function FinalPurchaseInvoicePageInner() {
       setAdvanceSafeId('');
     } else if (loaded.method === 'credit') {
       setCashTenderKind(inferCashTenderKind(loaded.splits));
-      setAdvancePaidAmount(
-        resolvePostedFlag(selectedInvoice) ? savedPaidForHydrate : tenderPaidFromSplits(loaded.splits)
-      );
+      setAdvancePaidAmount(Math.max(savedPaidForHydrate, tenderPaidFromSplits(loaded.splits)));
       setAdvanceSafeId(cashSplit?.safeId ?? '');
       setTreasuryId(cashSplit?.safeId ?? '');
       setCashBankAccountId(bankDraft.bankAccountId);
@@ -660,6 +784,7 @@ function FinalPurchaseInvoicePageInner() {
       apiInstallments.length ? apiInstallments : extractPaymentInstallments(notesList)
     );
     setInternalNotes(stripPaymentInstallmentsNote(notesList));
+    loadAdjustments((selectedInvoice as { adjustments?: InvoiceAdjustmentApiRow[] }).adjustments);
     setIsPosted(resolvePostedFlag(selectedInvoice));
     setIsSalesTaxInvoice(selectedInvoice.isSalesTaxInvoice !== false);
     const loadedLines = selectedInvoice.lines as Record<string, unknown>[] | undefined;
@@ -691,6 +816,10 @@ function FinalPurchaseInvoicePageInner() {
             loadedBasis
           );
           const fromRate = withholdingTaxRate > 0 ? (lineAfterDiscount * withholdingTaxRate) / 100 : 0;
+          const lineSources = Array.isArray(line.lineSources)
+            ? (line.lineSources as Array<{ sourceKind?: string; sourceLineId?: string }>)
+            : [];
+          const goodsReceiptSource = lineSources.find((s) => s.sourceKind === 'GOODS_RECEIPT') ?? lineSources[0];
           return {
           itemId: String(line.itemId ?? ''),
           unitId: line.unitId ? String(line.unitId) : '',
@@ -729,6 +858,12 @@ function FinalPurchaseInvoicePageInner() {
             line.warehouseId != null ? String(line.warehouseId) : undefined,
             selectedInvoice.warehouseId != null ? String(selectedInvoice.warehouseId) : undefined
           ),
+          ...(goodsReceiptSource?.sourceKind && goodsReceiptSource?.sourceLineId
+            ? {
+                sourceKind: goodsReceiptSource.sourceKind as PurchaseInvoiceLine['sourceKind'],
+                sourceLineId: String(goodsReceiptSource.sourceLineId),
+              }
+            : {}),
           };
         })
       );
@@ -768,6 +903,48 @@ function FinalPurchaseInvoicePageInner() {
     { limit: 1000, isActive: true }
   );
   const items = useMemo(() => itemsResponse?.data ?? [], [itemsResponse?.data]);
+  const printInvoiceDocument = useMemo((): Record<string, unknown> | null => {
+    const apiLines = Array.isArray((selectedInvoice as { lines?: unknown[] } | undefined)?.lines)
+      ? ((selectedInvoice as { lines: unknown[] }).lines)
+      : [];
+    if (selectedInvoice && apiLines.length > 0) {
+      return { ...selectedInvoice, invoiceKind: 'PURCHASE' } as Record<string, unknown>;
+    }
+    const lines = invoiceLines.filter((line) => line.itemId && Number(line.quantity) > 0);
+    if (lines.length === 0) return null;
+    return {
+      invoiceKind: 'PURCHASE',
+      invoiceNumber: invoiceNumber || DOCUMENT_NEW_LABEL,
+      date: date || new Date().toISOString(),
+      paymentType,
+      isSalesTaxInvoice,
+      supplier: selectedSupplier ? { arabicName: selectedSupplier.arabicName } : undefined,
+      lines: lines.map((line) => {
+        const it = items.find((item) => item.id === line.itemId);
+        return {
+          itemId: line.itemId,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          discount: line.discountValue ?? line.discount,
+          discountValue: line.discountValue ?? line.discount,
+          discountType: line.discountType,
+          taxRate: line.tax,
+          item: it
+            ? { code: it.code, serial: it.serial, arabicName: it.arabicName }
+            : undefined,
+        };
+      }),
+    };
+  }, [
+    selectedInvoice,
+    invoiceLines,
+    invoiceNumber,
+    date,
+    paymentType,
+    isSalesTaxInvoice,
+    selectedSupplier,
+    items,
+  ]);
   const { data: unitsResponse } = useApiQuery<{ id: string; code?: string | null; arabicName?: string }[]>(
     ['units', 'invoice-fallback'],
     '/inventory/units',
@@ -786,7 +963,7 @@ function FinalPurchaseInvoicePageInner() {
   );
 
   const applyPickedItemToLine = useCallback(
-    (index: number, picked: { id: string; units?: { unitId?: string; isBaseUnit?: boolean; unit?: { id: string } }[]; itemPrices?: unknown[]; lastPurchasePrice?: number | string | null; averageCost?: number | string | null; defaultTaxPercent?: number | string | null; barcode?: string; serial?: string; code?: string } | undefined) => {
+    (index: number, picked: { id: string; units?: { unitId?: string; isBaseUnit?: boolean; unit?: { id: string } }[]; itemPrices?: unknown[]; lastPurchasePrice?: number | string | null; averageCost?: number | string | null; defaultTaxPercent?: number | string | null; isTaxExempt?: boolean | null; barcode?: string; serial?: string; code?: string } | undefined) => {
       if (!picked) return;
       const unitId = defaultUnitIdForItem(picked);
       const priced = picked as {
@@ -819,9 +996,7 @@ function FinalPurchaseInvoicePageInner() {
                 discount: discountPercent,
               }
             : {}),
-          ...(picked.defaultTaxPercent != null
-            ? { tax: Number(picked.defaultTaxPercent) }
-            : {}),
+          tax: invoiceLineVatRate(picked, isSalesTaxInvoice),
         };
         return next;
       });
@@ -857,6 +1032,7 @@ function FinalPurchaseInvoicePageInner() {
         .catch(() => undefined);
     },
     [
+      isSalesTaxInvoice,
       selectedSupplierPriceListId,
       selectedSupplierPartyDiscount,
       supplierId,
@@ -876,7 +1052,10 @@ function FinalPurchaseInvoicePageInner() {
           discount: line.discount,
           discountValue: line.discount,
           discountType: 'PERCENTAGE',
-          tax: isSalesTaxInvoice ? 14 : 0,
+          tax: invoiceLineVatRate(
+            items.find((x) => x.id === line.itemId),
+            isSalesTaxInvoice
+          ),
           warehouseId: '',
         })),
       ]);
@@ -898,11 +1077,14 @@ function FinalPurchaseInvoicePageInner() {
     setInvoiceLines(
       payload.lines.map((line) => {
         const row = sourceLineToPurchaseRow(line, payload.warehouseId || warehouseId);
-        return isSalesTaxInvoice && !(Number(row.tax) > 0) ? { ...row, tax: 14 } : row;
+        return Number(row.tax) > 0
+          ? row
+          : { ...row, tax: invoiceLineVatRateForItemId(items, row.itemId, isSalesTaxInvoice) };
       })
     );
+    loadAdjustments(payload.adjustments);
     setSuccess(`تم تعبئة الفاتورة من ${payload.sourceNumber}`);
-  }, [isSalesTaxInvoice, warehouseId]);
+  }, [isSalesTaxInvoice, items, loadAdjustments, warehouseId]);
 
   const handleMultiStockPermitHydrate = useCallback(
     ({ payloads, lineMode, replaceExisting }: MultiStockPermitHydrateRequest) => {
@@ -924,13 +1106,15 @@ function FinalPurchaseInvoicePageInner() {
       );
       const newRows = combined.map((line) => {
         const row = sourceLineToPurchaseRow(line, wh);
-        return isSalesTaxInvoice && !(Number(row.tax) > 0) ? { ...row, tax: 14 } : row;
+        return Number(row.tax) > 0
+          ? row
+          : { ...row, tax: invoiceLineVatRateForItemId(items, row.itemId, isSalesTaxInvoice) };
       });
       const current = invoiceLines.filter((line) => Boolean(line.itemId));
       setInvoiceLines(replaceExisting ? newRows : [...current, ...newRows]);
       setSuccess(`تم تحميل ${payloads.length} مستند على الفاتورة`);
     },
-    [invoiceLines, isSalesTaxInvoice, warehouseId]
+    [invoiceLines, isSalesTaxInvoice, items, warehouseId]
   );
 
   const handleNew = useCallback(() => {
@@ -942,7 +1126,6 @@ function FinalPurchaseInvoicePageInner() {
     setSourceType('');
     setSourceId('');
     setSourceNumber('');
-    setSourceBarKey((k) => k + 1);
     setSupplierId('');
     setWarehouseId('');
     setCostCenterId('');
@@ -976,15 +1159,9 @@ function FinalPurchaseInvoicePageInner() {
     setPricingCalculationBasis(
       parsePricingCalculationBasis(companySettingsRes?.data?.pricingCalculationBasis)
     );
+    resetExtras();
     clearDraft();
-  }, [clearDraft, companySettingsRes?.data?.pricingCalculationBasis, openInvoice, resetKeepPosted, txSettingsRes?.data?.autoApplyVat]);
-
-  const handleRestoreDraft = () => {
-    const payload = acceptRestore() as PurchaseInvoiceDraft | null;
-    if (!payload) return;
-    applyPurchaseDraft(payload);
-    setSuccess('تم استعادة مسودة فاتورة المشتريات');
-  };
+  }, [clearDraft, companySettingsRes?.data?.pricingCalculationBasis, openInvoice, resetExtras, resetKeepPosted, txSettingsRes?.data?.autoApplyVat]);
 
   const invoiceMutation = useApiMutation<{ id?: string; invoiceNumber?: string }, Record<string, unknown>>(
     '/invoices',
@@ -996,8 +1173,8 @@ function FinalPurchaseInvoicePageInner() {
         clearDraft();
         invalidateStockViews(invalidateQuery);
         const savedId = res.data?.id;
-        const posted = Boolean((res.data as { isPosted?: boolean } | undefined)?.isPosted);
-        if (res.message && !posted) setError(res.message);
+        const alreadyPosted = Boolean((res.data as { isPosted?: boolean } | undefined)?.isPosted);
+        if (res.message && !alreadyPosted) setError(res.message);
         const held = pendingAdvancesRef.current;
         pendingAdvancesRef.current = [];
         setPendingAdvanceTotal(0);
@@ -1006,13 +1183,30 @@ function FinalPurchaseInvoicePageInner() {
             setError(error instanceof Error ? error.message : 'تعذر ربط الدفعة المقدمة بعد الحفظ');
           });
         }
-        finishDocumentSave({
-          label: 'فاتورة مشتريات',
-          number: res.data?.invoiceNumber || invoiceNumber,
-          savedId: res.data?.id,
-          onOpen: (saved) => openInvoice(saved),
-          reset: handleNew,
-        });
+        const autoPrintIfEnabled = () => {
+          if (txSettings?.autoPrintOnSave) dispatchAutoPrintAfterSave();
+        };
+        const finishCreate = (posted: boolean) => {
+          autoPrintIfEnabled();
+          finishDocumentSave({
+            label: 'فاتورة مشتريات',
+            number: res.data?.invoiceNumber || invoiceNumber,
+            posted,
+            savedId: res.data?.id,
+            onOpen: (saved) => openInvoice(saved),
+            reset: handleNew,
+          });
+        };
+        if (savedId && !alreadyPosted && txSettings?.autoPostOnSave) {
+          void postInvoiceAfterSave(savedId)
+            .then(() => finishCreate(true))
+            .catch((error: ApiError) => {
+              setError(error.message || 'تم الحفظ وتعذر الترحيل');
+              finishCreate(false);
+            });
+          return;
+        }
+        finishCreate(alreadyPosted);
       },
       onError: (err) => {
         setError(err.message || 'حدث خطأ أثناء الحفظ');
@@ -1031,19 +1225,25 @@ function FinalPurchaseInvoicePageInner() {
         const id = selectedInvoiceId;
         const shouldPostNow = persistIntentRef.current === 'post';
         persistIntentRef.current = 'save';
+        const autoPrintIfEnabled = () => {
+          if (txSettings?.autoPrintOnSave) dispatchAutoPrintAfterSave();
+        };
         if (shouldPostNow && id) {
           consumeShouldRepost();
           postInvoiceMutation.mutate({});
           invalidateQuery(['invoice', id]);
+          autoPrintIfEnabled();
           return;
         }
         if (consumeShouldRepost() && id) {
           void postInvoiceAfterSave(id)
             .then(() => {
+              autoPrintIfEnabled();
               finishDocumentSave({
                 label: 'فاتورة مشتريات',
                 number: invoiceNumber,
                 posted: true,
+                cleared: false,
                 savedId: id,
                 clearDraft,
                 onOpen: (saved) => openInvoice(saved),
@@ -1051,17 +1251,30 @@ function FinalPurchaseInvoicePageInner() {
               });
             })
             .catch((err: ApiError) => {
-              handleNew();
               setError(err.message || 'تم الحفظ لكن تعذر ترحيل الفاتورة');
+              autoPrintIfEnabled();
+              finishDocumentSave({
+                label: 'فاتورة مشتريات',
+                number: invoiceNumber,
+                posted: false,
+                savedId: id,
+                clearDraft,
+                onOpen: (saved) => openInvoice(saved),
+                onSavedOpen: (saved) => invalidateQuery(['invoice', saved]),
+                reset: handleNew,
+              });
             });
           return;
         }
+        autoPrintIfEnabled();
         finishDocumentSave({
           label: 'فاتورة مشتريات',
           number: invoiceNumber,
+          posted: false,
           savedId: id,
           clearDraft,
           onOpen: (saved) => openInvoice(saved),
+          onSavedOpen: (saved) => invalidateQuery(['invoice', saved]),
           reset: handleNew,
         });
       },
@@ -1077,30 +1290,45 @@ function FinalPurchaseInvoicePageInner() {
     }
   );
 
-  const invoiceDeleteMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedInvoiceId ? `/invoices/${selectedInvoiceId}` : '/invoices',
-    'DELETE',
+  const invoiceCancelMutation = useApiMutation<unknown, Record<string, unknown>>(
+    selectedInvoiceId ? `/invoices/${selectedInvoiceId}/cancel` : '/invoices',
+    'POST',
     {
       showSuccessToast: false,
       onSuccess: () => {
-        setSuccess('تم حذف فاتورة المشتريات بنجاح');
+        toast.success('تم إلغاء الفاتورة');
+        invalidateQuery(['invoice', selectedInvoiceId]);
         invalidateStockViews(invalidateQuery);
-        handleNew();
+        setIsPosted(false);
       },
-      onError: (err) => setError(err.message || 'حدث خطأ أثناء الحذف'),
+      onError: (err: ApiError) => {
+        toast.error('تعذر إلغاء الفاتورة', { description: err.message });
+      },
     }
   );
 
   const postInvoiceMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedInvoiceId ? `/invoices/${selectedInvoiceId}/post` : '/invoices',
+    `/invoices/${selectedInvoiceId || '_'}/post`,
     'POST',
     {
       onSuccess: () => {
         setSuccess('تم ترحيل فاتورة المشتريات بنجاح');
         setIsPosted(true);
         invalidateStockViews(invalidateQuery);
+        invalidateQuery(['journal-entry']);
+        if (activeInvoiceJournalId) invalidateQuery(['journal-entry', activeInvoiceJournalId]);
       },
-      onError: (err) => {
+      onError: (err, variables) => {
+        if (
+          retryIfNegativeStockConfirm(
+            err,
+            variables,
+            (body) => postInvoiceMutation.mutate(body),
+            'confirmNegativeStockPost'
+          )
+        ) {
+          return;
+        }
         setIsPosted(false);
         setError(err.message || 'حدث خطأ أثناء الترحيل');
       },
@@ -1108,7 +1336,7 @@ function FinalPurchaseInvoicePageInner() {
   );
 
   const unpostInvoiceMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedInvoiceId ? `/invoices/${selectedInvoiceId}/unpost` : '/invoices',
+    `/invoices/${selectedInvoiceId || '_'}/unpost`,
     'POST',
     {
       onSuccess: () => {
@@ -1116,8 +1344,19 @@ function FinalPurchaseInvoicePageInner() {
         setIsPosted(false);
         markUnpostedForEdit();
         invalidateStockViews(invalidateQuery);
+        invalidateQuery(['journal-entry']);
+        if (activeInvoiceJournalId) invalidateQuery(['journal-entry', activeInvoiceJournalId]);
       },
-      onError: (err) => setError(err.message || 'حدث خطأ'),
+      onError: (err, variables) => {
+        if (
+          retryIfNegativeStockConfirm(err, variables, (body) =>
+            unpostInvoiceMutation.mutate(body)
+          )
+        ) {
+          return;
+        }
+        setError(err.message || 'حدث خطأ');
+      },
     }
   );
 
@@ -1145,6 +1384,12 @@ function FinalPurchaseInvoicePageInner() {
     undefined,
     { enabled: !!selectedInvoiceId }
   );
+  const { data: settlementHistoryResponse } = useApiQuery<InvoiceCashSettlement[]>(
+    ['invoice-settlements-history', selectedInvoiceId],
+    `/invoices/${selectedInvoiceId}/settlements/history`,
+    undefined,
+    { enabled: !!selectedInvoiceId }
+  );
   const { data: chequesResponse } = useApiQuery<InvoiceChequesPayload>(
     ['invoice-settlements-cheques', selectedInvoiceId],
     `/invoices/${selectedInvoiceId}/settlements/cheques`,
@@ -1152,13 +1397,18 @@ function FinalPurchaseInvoicePageInner() {
     { enabled: !!selectedInvoiceId }
   );
   const settlements = settlementsResponse?.data || [];
+  const settlementHistory = settlementHistoryResponse?.data || [];
   const { cheques: settlementCheques } = unwrapInvoiceCheques(chequesResponse?.data);
 
   const purchaseVatDefaultApplied = useRef(false);
   useEffect(() => {
     if (selectedInvoiceId) return;
     const settings = txSettingsRes?.data;
-    if (settings?.defaultWarehouseId && !warehouseId) {
+    if (
+      transactionAffectsStock(settings) &&
+      settings?.defaultWarehouseId &&
+      !warehouseId
+    ) {
       setWarehouseId(settings.defaultWarehouseId);
     }
     if (settings?.defaultCostCenterId && !costCenterId) {
@@ -1174,7 +1424,10 @@ function FinalPurchaseInvoicePageInner() {
     const enabled = settings.autoApplyVat !== false;
     setIsSalesTaxInvoice(enabled);
     setInvoiceLines((lines) =>
-      lines.map((line) => (line.itemId ? line : { ...line, tax: enabled ? 14 : 0 }))
+      lines.map((line) => ({
+        ...line,
+        tax: invoiceLineVatRateForItemId(items, line.itemId, enabled),
+      }))
     );
   }, [selectedInvoiceId, txSettingsRes?.data]);
 
@@ -1191,8 +1444,13 @@ function FinalPurchaseInvoicePageInner() {
 
   const handlePurchaseTaxChange = useCallback((enabled: boolean) => {
     setIsSalesTaxInvoice(enabled);
-    setInvoiceLines((lines) => lines.map((line) => ({ ...line, tax: enabled ? 14 : 0 })));
-  }, []);
+    setInvoiceLines((lines) =>
+      lines.map((line) => ({
+        ...line,
+        tax: invoiceLineVatRateForItemId(items, line.itemId, enabled),
+      }))
+    );
+  }, [items]);
 
   const handlePurchaseWithholdingChange = useCallback(
     (enabled: boolean) => {
@@ -1241,6 +1499,7 @@ function FinalPurchaseInvoicePageInner() {
         setCollectInstallment(null);
         invalidateQuery(['invoice', selectedInvoiceId]);
         invalidateQuery(['invoice-settlements', selectedInvoiceId]);
+        invalidateQuery(['invoice-settlements-history', selectedInvoiceId]);
         invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
         invalidateQuery(['invoice-installments', selectedInvoiceId]);
       },
@@ -1251,7 +1510,7 @@ function FinalPurchaseInvoicePageInner() {
   const loading =
     invoiceMutation.isPending ||
     invoiceUpdateMutation.isPending ||
-    invoiceDeleteMutation.isPending;
+    invoiceCancelMutation.isPending;
   const financialBusy =
     loading || postInvoiceMutation.isPending || unpostInvoiceMutation.isPending;
 
@@ -1317,7 +1576,7 @@ function FinalPurchaseInvoicePageInner() {
     setSubmitAttempt((n) => n + 1);
     setError('');
     setSuccess('');
-    const parsed = inventorySupplierInvoiceFormSchema.safeParse({
+    const parsed = supplierInvoiceFormSchema.safeParse({
       serialNumber: invoiceNumber,
       description: supplierRef ? `${supplierRef} — ${description}` : description,
       date: date || new Date().toISOString(),
@@ -1345,8 +1604,21 @@ function FinalPurchaseInvoicePageInner() {
     }
     const d = parsed.data;
     const resolvedMethod = paymentType;
-    if (!validatePurchasePayment()) {
+    const savedPaidEarly = linkedInvoicePaidAmount(
+      Number((selectedInvoice as { paidAmount?: number } | undefined)?.paidAmount ?? 0),
+      postedSettlementPaidTotal(settlements)
+    );
+    const lockPaymentTenders = invoiceHasLinkedCollections(savedPaidEarly);
+    if (!lockPaymentTenders && !validatePurchasePayment()) {
       persistIntentRef.current = 'save';
+      return;
+    }
+    const extrasValidation = validateExtras();
+    if (extrasValidation) {
+      persistIntentRef.current = 'save';
+      setError(extrasValidation);
+      toastInvoiceSaveError(extrasValidation);
+      setExtrasOpen(true);
       return;
     }
     const cashTreasury = String(treasuryId || defaultSafeId || '').trim();
@@ -1357,7 +1629,7 @@ function FinalPurchaseInvoicePageInner() {
     const partialCash =
       resolvedMethod === 'cash' && creditPaid > 0.009 && creditPaid + 0.009 < invoiceNet;
     const cashBuilt =
-      resolvedMethod === 'cash' || resolvedMethod === 'credit'
+      !lockPaymentTenders && (resolvedMethod === 'cash' || resolvedMethod === 'credit')
         ? buildCashTenderSplits({
             kind: cashKind,
             netAmount: invoiceNet,
@@ -1375,15 +1647,38 @@ function FinalPurchaseInvoicePageInner() {
       resolvedMethod === 'split'
         ? withOnAccountRemainder(paymentSplits, financialSummary.netAmount)
         : undefined;
-    const cashTreasurySplits = resolvedMethod === 'cash' ? cashBuilt.splits : undefined;
-    const creditSplits = resolvedMethod === 'credit' ? cashBuilt.splits : undefined;
+    const cashTreasurySplits =
+      resolvedMethod === 'cash'
+        ? withCopiedCashVoucherNumbers(cashBuilt.splits, paymentSplits)
+        : undefined;
+    const creditSplits =
+      resolvedMethod === 'credit'
+        ? withCopiedCashVoucherNumbers(cashBuilt.splits, paymentSplits)
+        : undefined;
+    const outgoingSplits =
+      resolvedMethod === 'split'
+        ? splitLines
+        : resolvedMethod === 'credit'
+          ? creditSplits
+          : cashTreasurySplits;
+    if (
+      !lockPaymentTenders &&
+      cashTenderNeedsManualVoucherNumber(outgoingSplits, cashPaymentNumberingManual)
+    ) {
+      persistIntentRef.current = 'save';
+      const message = cashVoucherNumberRequiredMessage('PAYMENT');
+      setError(message);
+      toast.error(message);
+      setSplitModalOpen(true);
+      return;
+    }
     const formData = {
       invoiceNumber: d.serialNumber,
       description: d.description,
       date: d.date || new Date().toISOString(),
       hijriDate: d.hijriDate,
       supplierId: d.supplierId,
-      warehouseId: d.warehouseId,
+      warehouseId: affectsStock ? d.warehouseId : d.warehouseId || undefined,
       costCenterId: costCenterId || undefined,
       delegateId: delegateId || undefined,
       currencyId: currencyId || undefined,
@@ -1393,12 +1688,7 @@ function FinalPurchaseInvoicePageInner() {
       sourceNumber: sourceNumber || undefined,
       paymentMethod: resolvedMethod,
       pricingCalculationBasis,
-      paymentSplits:
-        resolvedMethod === 'split'
-          ? splitLines
-          : resolvedMethod === 'credit'
-            ? creditSplits
-            : cashTreasurySplits,
+      paymentSplits: outgoingSplits,
       internalNotes,
       installments: paymentInstallments.map((row) => ({
         installmentNumber: row.number,
@@ -1418,7 +1708,7 @@ function FinalPurchaseInvoicePageInner() {
         discountValue: line.discountValue ?? line.discount ?? 0,
         discountType: line.discountType,
         taxRate: line.tax ?? 0,
-        warehouseId: line.warehouseId || d.warehouseId,
+        warehouseId: affectsStock ? line.warehouseId || d.warehouseId : undefined,
         costCenterId: line.costCenterId,
         withholdingTaxRate: line.withholdingTaxRate,
         withholdingTaxAmount: line.withholdingTaxAmount,
@@ -1432,7 +1722,11 @@ function FinalPurchaseInvoicePageInner() {
         color: line.color,
         size: line.size,
         customRevenueAccountId: line.customRevenueAccountId,
+        ...(line.sourceKind && line.sourceLineId
+          ? { sourceKind: line.sourceKind, sourceLineId: line.sourceLineId }
+          : {}),
       })),
+      adjustments: getExtrasPayload(),
     };
     const mapOpts = {
       invoiceKind: 'PURCHASE' as const,
@@ -1442,17 +1736,26 @@ function FinalPurchaseInvoicePageInner() {
       fallbackUnitId,
     };
     try {
-      if (selectedInvoiceId) {
-        invoiceUpdateMutation.mutate(
-          mapSalesFormToM5UpdateBody(formData, {
-            ...mapOpts,
-            expectedVersion:
-              typeof selectedInvoice?.version === 'number' ? selectedInvoice.version : undefined,
-          })
-        );
-      } else {
+      const persistUpdate = (confirmNetBelowCollections?: boolean) => {
+        if (selectedInvoiceId) {
+          invoiceUpdateMutation.mutate(
+            mapSalesFormToM5UpdateBody(formData, {
+              ...mapOpts,
+              expectedVersion:
+                typeof selectedInvoice?.version === 'number' ? selectedInvoice.version : undefined,
+              lockPaymentTenders,
+              confirmNetBelowCollections,
+            })
+          );
+          return;
+        }
         invoiceMutation.mutate(mapSalesFormToM5CreateBody(formData, mapOpts));
-      }
+      };
+      const needsNetConfirm =
+        selectedInvoiceId &&
+        lockPaymentTenders &&
+        !invoiceNetCoversCollections(invoiceNet, savedPaidEarly);
+      persistUpdate(needsNetConfirm ? true : undefined);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'تعذر تجهيز الفاتورة';
       setError(message);
@@ -1474,7 +1777,7 @@ function FinalPurchaseInvoicePageInner() {
 
   const formErrors = useMemo(() => {
     if (submitAttempt === 0) return {};
-    const parsed = inventorySupplierInvoiceFormSchema.safeParse({
+    const parsed = supplierInvoiceFormSchema.safeParse({
       serialNumber: invoiceNumber,
       description: supplierRef ? `${supplierRef} — ${description}` : description,
       date,
@@ -1519,6 +1822,7 @@ function FinalPurchaseInvoicePageInner() {
     return map;
   }, [
     submitAttempt,
+    supplierInvoiceFormSchema,
     invoiceNumber,
     description,
     supplierRef,
@@ -1537,21 +1841,109 @@ function FinalPurchaseInvoicePageInner() {
     financialSummary.netAmount,
   ]);
 
-  const statusTone = isPosted ? 'success' : 'warning';
-  const statusLabel = isPosted ? 'مرحّل' : unpostedDocumentStatusLabel(Boolean(selectedInvoiceId));
+  const purchaseLifecycle = {
+    documentId: selectedInvoiceId,
+    isPosted,
+    isCancelled: Boolean((selectedInvoice as { isCancelled?: boolean } | undefined)?.isCancelled),
+  };
+  const purchaseLifecycleStatus = resolveDocumentLifecycleStatus(purchaseLifecycle);
+
+  const handleVoidPurchaseInvoice = async () => {
+    if (!selectedInvoiceId) {
+      setError('يرجى اختيار فاتورة أولاً');
+      return;
+    }
+    if (financialBusy) return;
+    if (await confirmAction('إلغاء المستند؟ سيبقى في السجل ويمكن استعادته من قائمة (...).')) {
+      invoiceCancelMutation.mutate({});
+    }
+  };
+
+  const handleRestoreCancelledPurchase = async () => {
+    if (!selectedInvoiceId || restorePending) return;
+    setRestorePending(true);
+    try {
+      await restoreCancelledDocument({
+        restorePath: `/invoices/${selectedInvoiceId}/restore`,
+        postPath: `/invoices/${selectedInvoiceId}/post`,
+        kind: 'invoice',
+        autoPostOnSave: txSettings?.autoPostOnSave,
+      });
+      invalidateQuery(['invoice', selectedInvoiceId]);
+      invalidateStockViews(invalidateQuery);
+      setSuccess(
+        txSettings?.autoPostOnSave ? 'تمت الاستعادة والترحيل' : 'تمت الاستعادة — المستند غير مرحّل'
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر الاستعادة');
+    } finally {
+      setRestorePending(false);
+    }
+  };
+
+  const paymentUiEnabled = !invoicePaymentButtonDisabled('sales-invoice', {
+    lockLoadedSource,
+    isReadOnly,
+    isPosted,
+  });
+
+  const openPurchasePaymentOrCollect = () => {
+    if (!isPosted) {
+      setSplitModalOpen(true);
+      return;
+    }
+    if (!selectedInvoiceId) {
+      setError('يرجى اختيار فاتورة أولاً');
+      return;
+    }
+    const remaining = invoiceRemainingForCollect(selectedInvoice);
+    if (remaining === null) {
+      setError('لا يوجد مبلغ متبقٍ للسداد');
+      return;
+    }
+    if (!safesResponse?.data?.length) {
+      setError('لا توجد خزينة معرّفة — أضف خزينة قبل السداد');
+      return;
+    }
+    setCollectInstallment(null);
+    setCollectModalOpen(true);
+  };
+
+  const handleCreateWarehouseReceipt = () => {
+    if (!selectedInvoiceId) {
+      setError('احفظ الفاتورة أولاً');
+      return;
+    }
+    if (affectsStock) {
+      setError('الفاتورة مربوطة بالمخزن — لا حاجة لإذن إضافة منفصل');
+      return;
+    }
+    const hasLines = invoiceLines.some((line) => Boolean(line.itemId));
+    if (!hasLines) {
+      setError('أضف أصنافاً في الفاتورة أولاً');
+      return;
+    }
+    router.push(
+      buildStockDocumentFollowUpHref('receipt', 'PURCHASE_INVOICE', selectedInvoiceId)
+    );
+  };
 
   return (
     <ErpDocumentLayout className={ERP_INVOICE_DOCUMENT_LAYOUT_CLASS}>
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
-      {restoreOffer && !selectedInvoiceId ? (
-        <PageDraftRestoreBanner
-          message="يوجد مسودة فاتورة مشتريات غير محفوظة."
-          onRestore={handleRestoreDraft}
-          onDismiss={dismissRestore}
-        />
-      ) : null}
+      <PageDraftRestoreGate<PurchaseInvoiceDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedInvoiceId)}
+        message="يوجد مسودة فاتورة مشتريات غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyPurchaseDraft(payload);
+          setSuccess('تم استعادة مسودة فاتورة المشتريات');
+        }}
+      />
 
       {draftEnabled && lastSavedAt ? (
         <p className="mb-2 text-xs text-slate-500 text-left" dir="ltr">
@@ -1561,8 +1953,9 @@ function FinalPurchaseInvoicePageInner() {
 
       <PurchaseInvoicePageHeader
         invoiceNumber={invoiceNumber}
-        statusTone={statusTone}
-        statusLabel={statusLabel}
+        statusTone={purchaseLifecycleStatus.tone}
+        statusLabel={purchaseLifecycleStatus.label}
+        lifecycle={purchaseLifecycle}
         savePending={financialBusy}
         postPending={postInvoiceMutation.isPending || unpostInvoiceMutation.isPending}
         canPost={!!selectedInvoiceId && !isPosted && !financialBusy}
@@ -1580,44 +1973,22 @@ function FinalPurchaseInvoicePageInner() {
           if (!selectedInvoiceId) return;
           unapproveInvoiceMutation.mutate({});
         }}
-        onDelete={() => {
-          if (financialBusy) return;
-          void confirmAction('حذف الفاتورة؟').then((ok) => {
-            if (ok) invoiceDeleteMutation.mutate({});
-          });
-        }}
+        onDelete={() => void handleVoidPurchaseInvoice()}
+        isPosted={isPosted}
+        isCancelled={purchaseLifecycle.isCancelled}
+        onRestore={() => void handleRestoreCancelledPurchase()}
+        restorePending={restorePending}
         onOpenJournal={() => {
           if (selectedInvoiceId) {
             router.push(destinationAppTabHref(`/accounting/operations/journal-entry?ref=invoice&id=${selectedInvoiceId}`));
           }
         }}
         onPreviewJournal={() => setBottomSplitTab('gl')}
-        journalEntryId={(selectedInvoice as { journalEntryId?: string | null } | undefined)?.journalEntryId}
-        journalNumber={
-          (selectedInvoice as { journalEntry?: { voucherNumber?: string | null } } | undefined)
-            ?.journalEntry?.voucherNumber
-        }
-        onCollectPayment={() => {
-          if (!selectedInvoiceId) {
-            setError('يرجى اختيار فاتورة أولاً');
-            return;
-          }
-          if (!isPosted) {
-            setError('يجب ترحيل الفاتورة قبل تسجيل السداد');
-            return;
-          }
-          const remaining = invoiceRemainingForCollect(selectedInvoice);
-          if (remaining === null) {
-            setError('لا يوجد مبلغ متبقٍ للسداد');
-            return;
-          }
-          if (!safesResponse?.data?.length) {
-            setError('لا توجد خزينة معرّفة — أضف خزينة قبل السداد');
-            return;
-          }
-          setCollectInstallment(null);
-          setCollectModalOpen(true);
-        }}
+        journalEntryId={activeInvoiceJournalId}
+        journalNumber={activeInvoiceJournalLabel}
+        journalOptions={invoiceJournalOptions.length > 1 ? invoiceJournalOptions : undefined}
+        onJournalIdChange={setActiveInvoiceJournalId}
+        onCollectPayment={openPurchasePaymentOrCollect}
         onLinkAdvance={() => {
           if (!supplierId.trim()) {
             setError('اختر المورد أولاً');
@@ -1631,6 +2002,7 @@ function FinalPurchaseInvoicePageInner() {
             return;
           }
           invalidateQuery(['invoice-settlements', selectedInvoiceId]);
+          invalidateQuery(['invoice-settlements-history', selectedInvoiceId]);
           invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
           invalidateQuery(['invoice-installments', selectedInvoiceId]);
           setBottomSplitTab('settlements');
@@ -1647,7 +2019,7 @@ function FinalPurchaseInvoicePageInner() {
           router.push(destinationAppTabHref(`/inventory/operations/purchase-returns?fromInvoice=${selectedInvoiceId}`));
         }}
         unpostPending={unpostInvoiceMutation.isPending || financialBusy}
-        deletePending={invoiceDeleteMutation.isPending || financialBusy}
+        deletePending={invoiceCancelMutation.isPending || financialBusy}
         onBrowseList={() => setShowInvoiceList(true)}
         currentId={selectedInvoiceId}
         onNavigate={openInvoice}
@@ -1658,32 +2030,17 @@ function FinalPurchaseInvoicePageInner() {
           }
           unlockForEdit();
         }}
-        toolbarLeading={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <DocumentSourceLoadBar
-              key={sourceBarKey}
-              hasExistingLines={invoiceLines.some((line) => Boolean(line.itemId))}
-              disabled={isPosted || isReadOnly}
-              allowedTypes={purchaseInvoiceSourceTypes(affectsStock)}
-              sourceType={sourceType}
-              sourceId={sourceId}
-              sourceNumber={sourceNumber}
-              onTypeChange={(type) => {
-                setSourceType(type);
-                setSourceId('');
-                setSourceNumber('');
-              }}
-              onHydrate={handleSourceHydrate}
+        transactionSettingsDocumentType="PURCHASE_INVOICE"
+        onTransactionSettingsSaved={() =>
+          invalidateAfterTransactionSettingsSave(invalidateQuery, 'PURCHASE_INVOICE')
+        }
+        followUpActions={
+          !affectsStock && selectedInvoiceId && !purchaseLifecycle.isCancelled ? (
+            <DocumentFollowUpButton
+              label="إنشاء إذن إضافة مخزن"
+              onClick={handleCreateWarehouseReceipt}
             />
-            {!affectsStock ? (
-              <MultiStockPermitLoadControl
-                permitTypes={['GOODS_RECEIPT']}
-                hasExistingLines={invoiceLines.some((line) => Boolean(line.itemId))}
-                disabled={isPosted || isReadOnly}
-                onApply={handleMultiStockPermitHydrate}
-              />
-            ) : null}
-          </div>
+          ) : null
         }
       />
 
@@ -1704,18 +2061,6 @@ function FinalPurchaseInvoicePageInner() {
       ) : null}
 
       <DocumentReadOnlyBanner />
-
-      <LandedCostPanel invoiceId={selectedInvoiceId} posted={isPosted} />
-
-      <DocumentApprovalBar
-        entityType="INVOICE"
-        entityId={selectedInvoiceId}
-        isPosted={isPosted}
-        onError={setError}
-        onSuccess={setSuccess}
-        postPending={postInvoiceMutation.isPending}
-        onPost={handlePostInvoice}
-      />
 
       <PurchaseInvoiceFormHeader
         supplierId={supplierId}
@@ -1740,27 +2085,7 @@ function FinalPurchaseInvoicePageInner() {
         onAdvancePaidAmount={setAdvancePaidAmount}
         advanceSafeId={advanceSafeId}
         onAdvanceSafeId={setAdvanceSafeId}
-        onCollectPayment={() => {
-          if (!selectedInvoiceId) {
-            setError('يرجى اختيار فاتورة أولاً');
-            return;
-          }
-          if (!isPosted) {
-            setError('يجب ترحيل الفاتورة قبل تسجيل السداد');
-            return;
-          }
-          const remaining = invoiceRemainingForCollect(selectedInvoice);
-          if (remaining === null) {
-            setError('لا يوجد مبلغ متبقٍ للسداد');
-            return;
-          }
-          if (!safesResponse?.data?.length) {
-            setError('لا توجد خزينة معرّفة — أضف خزينة قبل السداد');
-            return;
-          }
-          setCollectInstallment(null);
-          setCollectModalOpen(true);
-        }}
+        onCollectPayment={openPurchasePaymentOrCollect}
         onConfigureSplit={() => {
           if (isPosted) {
             const remaining = invoiceRemainingForCollect(selectedInvoice);
@@ -1789,6 +2114,8 @@ function FinalPurchaseInvoicePageInner() {
         onDate={setDate}
         invoiceNumber={invoiceNumber}
         onInvoiceNumber={setInvoiceNumber}
+        serialAutomatic={isTransactionSerialAutomatic(txSettings?.numberingMode)}
+        hasSavedDocument={Boolean(selectedInvoiceId)}
         costCenterId={costCenterId}
         onCostCenterId={setCostCenterId}
         delegateId={delegateId}
@@ -1825,8 +2152,9 @@ function FinalPurchaseInvoicePageInner() {
         sourceNumber={sourceNumber}
         hasExistingLines={invoiceLines.some((line) => Boolean(line.itemId))}
         sourceDisabled={isPosted || isReadOnly}
-        showSourceLoad={false}
+        onMultiStockPermitHydrate={handleMultiStockPermitHydrate}
         fieldsDisabled={lockLoadedSource}
+        includeAllAccounts={shouldShowAllAccountsInPartyField(txSettings)}
         onSourceTypeChange={(type) => {
           setSourceType(type);
           setSourceId('');
@@ -1834,15 +2162,15 @@ function FinalPurchaseInvoicePageInner() {
         }}
         onSourceHydrate={handleSourceHydrate}
         affectsStock={affectsStock}
+        headerActions={
+          <InternalNotesScratchpad
+            notes={internalNotes}
+            onChange={setInternalNotes}
+            disabled={isPosted || lockLoadedSource}
+            className="inline-flex"
+          />
+        }
       />
-
-      <div className="mt-3">
-        <InternalNotesScratchpad
-          notes={internalNotes}
-          onChange={setInternalNotes}
-          disabled={isPosted || lockLoadedSource}
-        />
-      </div>
 
       <DocumentFormLock>
       <div className="mt-2">
@@ -1860,8 +2188,9 @@ function FinalPurchaseInvoicePageInner() {
           onClipboardLines={handlePurchaseClipboardLines}
           pricingCalculationBasis={pricingCalculationBasis}
           readOnly={isReadOnly || lockLoadedSource}
+          lockUnitPrice={shouldLockItemPriceOverride(txSettings)}
           headerDescription={description}
-          defaultTaxPercent={isSalesTaxInvoice ? 14 : 0}
+          defaultTaxPercent={invoiceLineVatRate(undefined, isSalesTaxInvoice)}
           defaultWithholdingRate={defaultWhtRate}
           applyPickedItemToLine={applyPickedItemToLine}
           invoiceAffectsStock={affectsStock}
@@ -1891,6 +2220,7 @@ function FinalPurchaseInvoicePageInner() {
                   setCollectInstallment(null);
                   invalidateQuery(['invoice', selectedInvoiceId]);
                   invalidateQuery(['invoice-settlements', selectedInvoiceId]);
+                  invalidateQuery(['invoice-settlements-history', selectedInvoiceId]);
                   invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
                   invalidateQuery(['invoice-installments', selectedInvoiceId]);
                 })
@@ -1965,6 +2295,7 @@ function FinalPurchaseInvoicePageInner() {
                 setSplitModalOpen(false);
                 invalidateQuery(['invoice', selectedInvoiceId]);
                 invalidateQuery(['invoice-settlements', selectedInvoiceId]);
+                invalidateQuery(['invoice-settlements-history', selectedInvoiceId]);
                 invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
                 invalidateQuery(['invoice-installments', selectedInvoiceId]);
               })
@@ -2008,6 +2339,20 @@ function FinalPurchaseInvoicePageInner() {
         />
       ) : null}
 
+      <InvoiceExtrasPanel
+        open={extrasOpen}
+        onToggle={() => setExtrasOpen((v) => !v)}
+        rows={invoiceExtras}
+        onChange={setInvoiceExtras}
+        currencies={currencies}
+        defaultCurrency={currencies.find((c) => c.id === currencyId)?.code ?? 'EGP'}
+        defaultExchangeRate={exchangeRate > 0 ? exchangeRate : 1}
+        defaultCostCenterId={costCenterId || ''}
+        disabled={isReadOnly || isPosted || lockLoadedSource}
+        count={getExtrasPayload().length}
+        headerDescription={description}
+      />
+
       <PurchaseInvoiceBottomSplit
         summary={financialSummary}
         applyTax={isSalesTaxInvoice}
@@ -2023,6 +2368,7 @@ function FinalPurchaseInvoicePageInner() {
         }))}
         savedLines={((selectedInvoice?.lines ?? []) as Record<string, unknown>[]).map((line) => ({
           itemId: String(line.itemId ?? ''),
+          itemName: readInvoiceLineItemName(line),
           quantity: Number(line.quantity) || 0,
           baseQuantity: Number(line.baseQuantity ?? line.quantity) || 0,
           unitPrice: Number(line.price ?? line.unitPrice) || 0,
@@ -2033,10 +2379,13 @@ function FinalPurchaseInvoicePageInner() {
         }))}
         pricingCalculationBasis={pricingCalculationBasis}
         warehouseId={warehouseId}
-        journalEntryId={(selectedInvoice as { journalEntryId?: string | null })?.journalEntryId}
+        journalEntryId={activeInvoiceJournalId}
+        journalOptions={invoiceJournalOptions.length > 1 ? invoiceJournalOptions : undefined}
+        onJournalIdChange={setActiveInvoiceJournalId}
         selectedInvoiceId={selectedInvoiceId}
         isPosted={isPosted}
         settlements={settlements}
+        settlementHistory={settlementHistory}
         cheques={settlementCheques}
         installments={paymentInstallments}
         paidAmount={Number((selectedInvoice as { paidAmount?: number } | undefined)?.paidAmount) || 0}
@@ -2064,12 +2413,16 @@ function FinalPurchaseInvoicePageInner() {
             pendingAdvanceTotal,
           }),
           method: paymentType,
-          disabled: isReadOnly || lockLoadedSource,
+          disabled: !paymentUiEnabled,
           onPaidChange: () => {},
           onOpenSplit: () => setSplitModalOpen(true),
           splitSummary: summarizePaymentSplits(paymentSplits) || undefined,
+          cashVoucherHint: cashPaymentNumberingManual
+            ? 'الترقيم يدوي لسند الصرف — أدخل الرقم من الدفع'
+            : undefined,
         }}
       />
+
     </ErpDocumentLayout>
   );
 }

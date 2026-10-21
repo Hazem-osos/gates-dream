@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { CenteredOverlay } from '@/components/erp/CenteredOverlay';
 import { CostCenterSelect } from '@/components/form/CostCenterSelect';
-import { useItemCostAsOf } from '@/lib/hooks/useItemCostAsOf';
+import { itemCostAsOfValue, useItemCostAsOf } from '@/lib/hooks/useItemCostAsOf';
 import { useItemStockBalance } from '@/lib/hooks/useItemStockBalance';
 import type { InvoiceLineExtended } from '@/lib/invoices/invoiceLineColumns';
 
@@ -22,6 +22,7 @@ type Props = {
   title?: string;
   line: LineDetailDrawerLine | null;
   warehouseId?: string;
+  asOfDate?: string;
   variant: 'sales' | 'purchase';
   onSave: (patch: LineDetailDrawerLine) => void;
 };
@@ -35,6 +36,7 @@ export function LineItemDetailDrawer({
   title = 'تفاصيل السطر',
   line,
   warehouseId,
+  asOfDate,
   variant,
   onSave,
 }: Props) {
@@ -44,13 +46,13 @@ export function LineItemDetailDrawer({
     if (line) setDraft({ ...line });
   }, [line, open]);
 
-  const { data: costRes } = useItemCostAsOf(draft.itemId ?? null);
+  const { data: costRes } = useItemCostAsOf(draft.itemId ?? null, asOfDate);
   const {
     data: stockRes,
     isLoading: stockLoading,
     isError: stockError,
   } = useItemStockBalance(draft.itemId ?? null, warehouseId);
-  const unitCost = Number(costRes?.data?.movingAverageCost ?? costRes?.data?.unitCost ?? 0);
+  const unitCost = itemCostAsOfValue(costRes?.data);
   const availableQty = stockRes?.data?.availableQuantity;
   const warehouseLabel =
     stockRes?.data?.warehouseName ??
@@ -111,7 +113,7 @@ export function LineItemDetailDrawer({
             <h3 className="text-sm font-semibold text-[#0A3D5E] mb-3">مخزون وتشغيلات</h3>
             <div className="space-y-3">
               <label className="block text-xs text-gray-600">
-                رقم التشغيلة / الباتش
+                رقم التشغيلة
                 <input
                   className={inputCls}
                   value={draft.batchNumber ?? ''}

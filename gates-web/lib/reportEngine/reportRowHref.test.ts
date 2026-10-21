@@ -2,6 +2,7 @@ import { parseReportNumber } from './reportFormatters';
 import { movementDocumentHref } from '../accounting/journal-source';
 import {
   accountLedgerHref,
+  costCenterLedgerHref,
   financialPaperHref,
   invoiceNumberHref,
   isInvoiceNumberColumn,
@@ -114,6 +115,19 @@ assert(
   'trial balance code opens the ledger'
 );
 assert(accountLedgerHref({ code: '1101' }) === null, 'code without account id');
+assert(
+  accountLedgerHref({ accountId: 'acc-1' }, { asOfDate: '2026-06-30', fromDate: '2025-12-31' }) ===
+    '/accounting/account-reports/books/daftar-ostaz?accountId=acc-1&fromDate=2026-01-01&toDate=2026-06-30',
+  'balance sheet as-of opens the ledger for that year'
+);
+assert(
+  costCenterLedgerHref(
+    { accountId: 'cc-1', code: '10' },
+    { fromDate: '2026-01-01', toDate: '2026-12-31' }
+  ) ===
+    '/accounting/account-reports/books/cost-center-ledger?costCenterId=cc-1&fromDate=2026-01-01&toDate=2026-12-31',
+  'cost-center budget row opens the cost-center ledger'
+);
 assert(
   itemMovementHref(
     { itemId: 'item-1', warehouseId: 'wh-1', itemName: 'صنف' },

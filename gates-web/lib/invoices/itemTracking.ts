@@ -9,12 +9,17 @@ export type TrackedItemLike = {
   colorId?: string | null;
 };
 
+export function itemUsesExpiryDate(item?: TrackedItemLike | null) {
+  if (!item) return false;
+  const type = String(item.trackingType || '').toUpperCase();
+  return Boolean(item.hasExpiry || item.useExpirationDate || type === 'BATCH' || type === 'LOT');
+}
+
 export function itemIsBatchTracked(item?: TrackedItemLike | null) {
   if (!item) return false;
   const type = String(item.trackingType || '').toUpperCase();
   return Boolean(
-    item.hasExpiry ||
-      item.useExpirationDate ||
+    itemUsesExpiryDate(item) ||
       item.useSerialNumber ||
       type === 'BATCH' ||
       type === 'LOT'

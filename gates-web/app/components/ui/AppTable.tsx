@@ -49,6 +49,8 @@ export interface AppTableProps<T extends object> {
   virtualizeThreshold?: number;
   defaultSort?: { id: string; dir: 'asc' | 'desc' };
   onSortChange?: (sort: { id: string; dir: 'asc' | 'desc' }) => void;
+  /** Column header sort/filter arrows. Default true. */
+  enableColumnMenus?: boolean;
   /** Persist column widths in localStorage (defaults to export file name or column ids). */
   columnWidthStorageKey?: string;
   resizableColumns?: boolean;
@@ -163,6 +165,7 @@ export function AppTable<T extends object>({
   virtualizeThreshold = 40,
   defaultSort,
   onSortChange,
+  enableColumnMenus = true,
   columnWidthStorageKey,
   resizableColumns = true,
 }: AppTableProps<T>) {
@@ -220,6 +223,7 @@ export function AppTable<T extends object>({
   }, [columns, data, serverSorted, sort]);
   const valuesByColumn = React.useMemo(() => {
     const map = new Map<string, string[]>();
+    if (!enableColumnMenus) return map;
     for (const col of columns) {
       if (/^(actions|action|ops|open)$/.test(col.id)) {
         map.set(col.id, []);
@@ -233,7 +237,7 @@ export function AppTable<T extends object>({
       map.set(col.id, [...values].sort((a, b) => a.localeCompare(b, 'ar')));
     }
     return map;
-  }, [columns, data]);
+  }, [columns, data, enableColumnMenus]);
   const filteredData = React.useMemo(() => {
     const active = Object.entries(valueFilters).filter(([, selected]) => selected.length > 0);
     if (!active.length) return sortedData;
@@ -306,7 +310,7 @@ export function AppTable<T extends object>({
     >
       <tr>
         {columns.map((col, colIndex) => {
-          const sortable = columnSortable(col);
+          const sortable = enableColumnMenus && columnSortable(col);
           const active = sort?.id === col.id;
           const columnValues = valuesByColumn.get(col.id) ?? [];
           const filtering = (valueFilters[col.id]?.length ?? 0) > 0;

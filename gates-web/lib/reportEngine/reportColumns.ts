@@ -68,6 +68,7 @@ export const TECHNICAL_COLUMN_IDS = new Set([
   'invoicePreviewPath',
   'sourcePreviewPath',
   'href',
+  'cells',
   'accountPath',
   'rowKind',
   'depth',
@@ -580,13 +581,25 @@ export const ITEM_MOVEMENT_COLUMNS: ReportColumnDef[] = [
   { id: 'outQty', label: 'كمية خارجة', accessor: 'outQty', format: 'number', defaultVisible: true },
   { id: 'outPrice', label: 'سعر خارج', accessor: 'outPrice', format: 'money', defaultVisible: true },
   { id: 'outTotal', label: 'إجمالي خارج', accessor: 'outTotal', format: 'money', defaultVisible: true },
-  { id: 'balance', label: 'الرصيد', accessor: 'balance', format: 'number', defaultVisible: true },
-  { id: 'itemGroupName', label: 'مجموعة الأصناف', accessor: 'itemGroupName', format: 'text', defaultVisible: true },
+  { id: 'balance', label: 'رصيد المخزن', accessor: 'balance', format: 'number', defaultVisible: true },
+  { id: 'companyBalance', label: 'الرصيد الإجمالي بالمخازن', accessor: 'companyBalance', format: 'number', defaultVisible: true },
+  { id: 'averageCost', label: 'متوسط التكلفة', accessor: 'averageCost', format: 'money', defaultVisible: true },
+  { id: 'itemSerial', label: 'الكود', accessor: 'itemSerial', format: 'text', defaultVisible: true },
+  { id: 'itemGroupName', label: 'المجموعة', accessor: 'itemGroupName', format: 'text', defaultVisible: true },
+  { id: 'manufacturer', label: 'المصنع', accessor: 'manufacturer', format: 'text', defaultVisible: true },
   { id: 'color', label: 'اللون', accessor: 'color', format: 'text', defaultVisible: true },
   { id: 'origin', label: 'المنشأ', accessor: 'origin', format: 'text', defaultVisible: true },
   { id: 'quality', label: 'النوعية', accessor: 'quality', format: 'text', defaultVisible: true },
   { id: 'size', label: 'المقاس', accessor: 'size', format: 'text', defaultVisible: true },
+  { id: 'property1', label: 'خاصية 1', accessor: 'property1', format: 'text', defaultVisible: true },
+  { id: 'property2', label: 'خاصية 2', accessor: 'property2', format: 'text', defaultVisible: true },
+  { id: 'property3', label: 'خاصية 3', accessor: 'property3', format: 'text', defaultVisible: true },
+  { id: 'property4', label: 'خاصية 4', accessor: 'property4', format: 'text', defaultVisible: true },
+  { id: 'property5', label: 'خاصية 5', accessor: 'property5', format: 'text', defaultVisible: true },
+  { id: 'barcode', label: 'الباركود', accessor: 'barcode', format: 'text', defaultVisible: true },
   { id: 'upperLimit', label: 'الحد الأعلى', accessor: 'upperLimit', format: 'number', defaultVisible: true },
+  { id: 'orderLimit', label: 'حد الطلب', accessor: 'orderLimit', format: 'number', defaultVisible: true },
+  { id: 'lowerLimit', label: 'الحد الأدنى', accessor: 'lowerLimit', format: 'number', defaultVisible: true },
   { id: 'minPurchasePrice', label: 'أقل سعر شراء', accessor: 'minPurchasePrice', format: 'money', defaultVisible: true },
   { id: 'avgPurchasePrice', label: 'متوسط سعر شراء', accessor: 'avgPurchasePrice', format: 'money', defaultVisible: true },
   { id: 'maxPurchasePrice', label: 'أعلى سعر شراء', accessor: 'maxPurchasePrice', format: 'money', defaultVisible: true },
@@ -601,6 +614,34 @@ export const ITEM_MOVEMENT_COLUMNS: ReportColumnDef[] = [
   { id: 'expiryDate', label: 'تاريخ الصلاحية', accessor: 'expiryDate', format: 'date', defaultVisible: true },
   { id: 'delegateName', label: 'المندوب', accessor: 'delegateName', format: 'text', defaultVisible: true },
 ];
+
+export const STOCK_TRANSFER_COLUMNS: ReportColumnDef[] = [
+  { id: 'date', label: 'التاريخ', accessor: 'date', format: 'date', defaultVisible: true },
+  { id: 'serial', label: 'المسلسل', accessor: 'serial', format: 'text', defaultVisible: true },
+  { id: 'fromWarehouse', label: 'من مخزن', accessor: 'fromWarehouse', format: 'text', defaultVisible: true },
+  { id: 'toWarehouse', label: 'إلى مخزن', accessor: 'toWarehouse', format: 'text', defaultVisible: true },
+  { id: 'itemSerial', label: 'كود الصنف', accessor: 'itemSerial', format: 'text', defaultVisible: true },
+  { id: 'itemName', label: 'الصنف', accessor: 'itemName', format: 'text', defaultVisible: true },
+  { id: 'quantity', label: 'الكمية', accessor: 'quantity', format: 'number', defaultVisible: true },
+  { id: 'unitPrice', label: 'السعر', accessor: 'unitPrice', format: 'money', defaultVisible: true },
+  { id: 'total', label: 'القيمة', accessor: 'total', format: 'money', defaultVisible: true },
+];
+
+export function itemsAnalyticalReportColumns(
+  delegates: Array<{ id: string; name: string }>
+): ReportColumnDef[] {
+  return [
+    { id: 'itemSerial', label: 'الكود', accessor: 'itemSerial', format: 'text', defaultVisible: true },
+    { id: 'itemName', label: 'الصنف', accessor: 'itemName', format: 'text', defaultVisible: true },
+    ...delegates.map((delegate) => ({
+      id: `delegate:${delegate.id}`,
+      label: delegate.name,
+      accessor: `delegate:${delegate.id}`,
+      format: 'text' as const,
+      defaultVisible: true,
+    })),
+  ];
+}
 
 const SALES_MONTH_LABELS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 
@@ -776,6 +817,14 @@ function partyStatementColumns(partyLabel: string): ReportColumnDef[] {
     { id: 'netAmount', label: 'صافي الفاتورة', accessor: 'netAmount', format: 'money', defaultVisible: true },
     { id: 'paidAmount', label: 'المدفوع', accessor: 'paidAmount', format: 'money', defaultVisible: true },
     { id: 'remainingAmount', label: 'المتبقي', accessor: 'remainingAmount', format: 'money', defaultVisible: true },
+    {
+      id: 'uncollectedPapersAmount',
+      label: 'قيمة الأوراق المالية غير المحصلة',
+      accessor: 'uncollectedPapersAmount',
+      format: 'money',
+      totalMode: 'none',
+      defaultVisible: true,
+    },
     { id: 'grossExTax', label: 'إجمالي الفاتورة بدون ضريبة', accessor: 'grossExTax', format: 'money', defaultVisible: true },
     { id: 'taxAmount', label: 'ضريبة المبيعات', accessor: 'taxAmount', format: 'money', defaultVisible: true },
     { id: 'additionsAmount', label: 'إضافات', accessor: 'additionsAmount', format: 'money', defaultVisible: true },
@@ -848,6 +897,33 @@ export function partyCurrencyStatementColumns(
 
 export const CUSTOMER_CURRENCY_ACCOUNT_COLUMNS = partyCurrencyStatementColumns('العميل');
 export const SUPPLIER_CURRENCY_ACCOUNT_COLUMNS = partyCurrencyStatementColumns('المورد');
+
+export const PARTY_ANALYTICAL_POSITION_COLUMNS: ReportColumnDef[] = [
+  { id: 'partyName', label: 'اسم العميل / المورد', accessor: 'partyName', format: 'text', defaultVisible: true },
+  { id: 'partyCode', label: 'كود الجهة', accessor: 'partyCode', format: 'text', defaultVisible: true },
+  { id: 'area', label: 'المنطقة', accessor: 'area', format: 'text', defaultVisible: true },
+  { id: 'previousBalance', label: 'الرصيد السابق', accessor: 'previousBalance', format: 'money', defaultVisible: true },
+  { id: 'sales', label: 'المبيعات', accessor: 'sales', format: 'money', defaultVisible: true },
+  { id: 'salesReturns', label: 'المرتجعات', accessor: 'salesReturns', format: 'money', defaultVisible: true },
+  { id: 'netSales', label: 'صافي المبيعات', accessor: 'netSales', format: 'money', defaultVisible: true },
+  { id: 'lastSalesDate', label: 'تاريخ آخر مبيعات', accessor: 'lastSalesDate', format: 'date', defaultVisible: true },
+  { id: 'collections', label: 'التحصيلات', accessor: 'collections', format: 'money', defaultVisible: true },
+  { id: 'lastReturnDate', label: 'تاريخ آخر مرتجعات', accessor: 'lastReturnDate', format: 'date', defaultVisible: true },
+  { id: 'purchases', label: 'المشتريات', accessor: 'purchases', format: 'money', defaultVisible: true },
+  { id: 'purchaseReturns', label: 'مرتجعات المشتريات', accessor: 'purchaseReturns', format: 'money', defaultVisible: true },
+  { id: 'netPurchases', label: 'صافي المشتريات', accessor: 'netPurchases', format: 'money', defaultVisible: true },
+  { id: 'adjustments', label: 'التسويات', accessor: 'adjustments', format: 'money', defaultVisible: true },
+  { id: 'netBalance', label: 'صافي الرصيد', accessor: 'netBalance', format: 'money', defaultVisible: true },
+  { id: 'lastCollectionDate', label: 'تاريخ آخر تحصيل', accessor: 'lastCollectionDate', format: 'date', defaultVisible: true },
+  { id: 'lastCollectionAmount', label: 'آخر تحصيل', accessor: 'lastCollectionAmount', format: 'money', defaultVisible: true },
+  {
+    id: 'uncollectedPapersAmount',
+    label: 'أوراق مالية غير محصلة',
+    accessor: 'uncollectedPapersAmount',
+    format: 'money',
+    defaultVisible: true,
+  },
+];
 
 export const CUSTOMER_BALANCE_COLUMNS: ReportColumnDef[] = [
   { id: 'accountLabel', label: 'الحساب', accessor: 'accountLabel', format: 'text', defaultVisible: true },
@@ -1035,6 +1111,7 @@ const REPORT_COLUMNS_BY_PATH: Record<string, ReportColumnDef[]> = {
   'inventory/reports/customer-accounts-reports': CUSTOMER_ACCOUNT_COLUMNS,
   'inventory/reports/supplier-accounts-reports': SUPPLIER_ACCOUNT_COLUMNS,
   'inventory/reports/customer-balances': CUSTOMER_BALANCE_COLUMNS,
+  'inventory/reports/party-analytical-position': PARTY_ANALYTICAL_POSITION_COLUMNS,
   'inventory/reports/collections-and-overdues': COLLECTIONS_AND_OVERDUES_COLUMNS,
   'inventory/reports/customer-receivables': CUSTOMER_RECEIVABLES_COLUMNS,
   'inventory/reports/invoices-profit-reports': INVOICES_PROFIT_COLUMNS,
@@ -1048,10 +1125,13 @@ const REPORT_COLUMNS_BY_PATH: Record<string, ReportColumnDef[]> = {
   'inventory/reports/receivables-aging': DEBT_AGE_COLUMNS,
   'inventory/reports/overdue-payments': OVERDUE_PAYMENT_COLUMNS,
   'inventory/reports/item-movement-reports': ITEM_MOVEMENT_COLUMNS,
+  'inventory/reports/cost-center-item-movement': ITEM_MOVEMENT_COLUMNS,
   'inventory/reports/expiry-date-report': EXPIRY_DATE_COLUMNS,
   'inventory/reports/monthly-sales-for-items': MONTHLY_ITEM_SALES_COLUMNS,
   'inventory/reports/analytical-invoices': ANALYTICAL_INVOICE_COLUMNS,
   'inventory/reports/item-movements': ITEM_MOVEMENT_COLUMNS,
+  'inventory/reports/stock-transfer-report': STOCK_TRANSFER_COLUMNS,
+  'inventory/reports/items-analytical-movement-on-representatives': itemsAnalyticalReportColumns([]),
   'inventory/reports/items-exceeding-order-limit': ITEMS_EXCEEDING_ORDER_LIMIT_COLUMNS,
   'inventory/reports/price-list': PRICE_LIST_COLUMNS,
   'pos/daily': POS_DAILY_REPORT_COLUMNS,

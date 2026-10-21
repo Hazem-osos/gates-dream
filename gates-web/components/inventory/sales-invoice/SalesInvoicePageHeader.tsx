@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useState } from 'react';
-import { MoreHorizontal, Printer } from 'lucide-react';
+import { MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { buildInvoicePrintModelFromApi } from '@/lib/print/buildInvoicePrintModel';
@@ -12,6 +12,8 @@ import type { ReactNode } from 'react';
 import { WhatsAppShareButton } from '@/components/share/WhatsAppShareButton';
 import type { WhatsAppInvoicePayload } from '@/lib/whatsapp-share';
 import { JournalEntryBadge } from '@/components/inventory/commercial/JournalEntryBadge';
+import type { DocumentLifecycleInput } from '@/lib/documents/document-status-labels';
+import type { TransactionDocumentType } from '@/lib/transaction-settings/types';
 
 const PrintHubModal = dynamic(
   () => import('@/components/print/PrintHubModal').then((m) => ({ default: m.PrintHubModal })),
@@ -28,8 +30,8 @@ const ThermalPrintModal = dynamic(
 
 type Props = {
   invoiceNumber: string;
-  statusTone: StatusTone;
-  statusLabel: string;
+  statusTone?: StatusTone;
+  statusLabel?: string;
   savePending?: boolean;
   postPending?: boolean;
   canPost?: boolean;
@@ -58,8 +60,6 @@ type Props = {
   onLinkAdvance?: () => void;
   onPaymentHistory: () => void;
   onCreateReturn?: () => void;
-  onDuplicate?: () => void;
-  duplicatePending?: boolean;
   favoriteHref?: string;
   favoriteLabel?: string;
   unpostPending?: boolean;
@@ -71,21 +71,35 @@ type Props = {
   onEdit?: () => void;
   hideStandalonePost?: boolean;
   isCancelled?: boolean;
+  isPosted?: boolean;
+  onRestore?: () => void;
+  restorePending?: boolean;
   whatsAppShare?: WhatsAppInvoicePayload | null;
   journalEntryId?: string | null;
   journalNumber?: string | null;
+  journalOptions?: { id: string; label: string }[];
+  onJournalIdChange?: (id: string) => void;
+  lifecycle?: DocumentLifecycleInput;
   onPreviewJournal?: () => void;
   title?: string;
   breadcrumbLabel?: string;
   invoiceKind?: string;
   collectLabel?: string;
   historyLabel?: string;
+  /** Hide «تحصيل» and «تحصيلات سابقة» from the ⋯ menu (use bottom «التحصيلات» tab / payment area). */
+  hideCollectMenuItems?: boolean;
   linkAdvanceLabel?: string;
   deleteLabel?: string;
   newDocumentLabel?: string;
   postLabel?: string;
   extraMenuItems?: Array<{ id: string; label: string; onClick: () => void; disabled?: boolean }>;
-  /** e.g. القسم / الرقم (تحميل من مستند) beside journal badge */
+  /** Visible follow-up actions (e.g. إنشاء إذن صرف) beside journal / WhatsApp. */
+  followUpActions?: ReactNode;
+  transactionSettingsDocumentType?: TransactionDocumentType;
+  onTransactionSettingsSaved?: () => void;
+  /** @deprecated القسم والرقم تُعرض أسفل حقول المستند. */
+  sourceActions?: ReactNode;
+  /** @deprecated use sourceActions */
   toolbarLeading?: ReactNode;
 };
 
@@ -116,8 +130,6 @@ export function SalesInvoicePageHeader(props: Props) {
     onLinkAdvance,
     onPaymentHistory,
     onCreateReturn,
-    onDuplicate,
-    duplicatePending,
     favoriteHref,
     favoriteLabel,
     unpostPending,
@@ -129,18 +141,25 @@ export function SalesInvoicePageHeader(props: Props) {
     onEdit,
     hideStandalonePost,
     isCancelled,
+    isPosted = false,
+    onRestore,
+    restorePending,
     title = 'فاتورة مبيعات',
     breadcrumbLabel = 'فاتورة مبيعات',
     invoiceKind = 'SALE',
     collectLabel = 'تحصيل / قبض',
     historyLabel = 'تحصيلات سابقة',
+    hideCollectMenuItems = false,
     linkAdvanceLabel = 'ربط دفعة مقدمة',
     deleteLabel = 'حذف الفاتورة',
     newDocumentLabel = 'فاتورة جديدة',
     postLabel = 'ترحيل الفاتورة',
     extraMenuItems = [],
+    followUpActions,
+    sourceActions: sourceActionsProp,
     toolbarLeading,
   } = props;
+  const sourceActions = sourceActionsProp ?? toolbarLeading;
 
   const printModel = useMemo(() => {
     if (!printInvoice) return null;
@@ -174,47 +193,15 @@ export function SalesInvoicePageHeader(props: Props) {
     };
   }, [printModel]);
 
-  const printItems = [
-    {
-      id: 'hub',
-      label: 'معاينة وطباعة الفاتورة',
-      disabled: !canPrint,
-      onClick: () => openPrintHub(),
-    },
-    {
-      id: 'thermal',
-      label: 'طباعة إيصال حراري (بلوتوث)',
-      disabled: !canPrint,
-      onClick: () => {
-        setThermalAutoStart(false);
-        setThermalOpen(true);
-      },
-    },
-    {
-      id: 'barcode',
-      label: 'باركود الأصناف',
-      onClick: () => printOptions?.onBarcodeLabels(),
-    },
-    {
-      id: 'design',
-      label: 'تصميم نموذج الطباعة…',
-      onClick: () => {
-        window.location.assign('/accounting-settings/company-settings/document-layout');
-      },
-    },
-  ];
-
   const moreItems = [
     { id: 'new', label: newDocumentLabel, onClick: onNewInvoice },
-    {
-      id: 'duplicate',
-      label: duplicatePending ? 'جاري التكرار…' : 'تكرار المستند',
-      onClick: onDuplicate ?? (() => {}),
-      disabled: !onDuplicate || duplicatePending,
-    },
-    { id: 'collect', label: collectLabel, onClick: onCollectPayment },
+    ...(hideCollectMenuItems
+      ? []
+      : [{ id: 'collect', label: collectLabel, onClick: onCollectPayment }]),
     { id: 'link-advance', label: linkAdvanceLabel, onClick: onLinkAdvance ?? (() => {}) },
-    { id: 'history', label: historyLabel, onClick: onPaymentHistory },
+    ...(hideCollectMenuItems
+      ? []
+      : [{ id: 'history', label: historyLabel, onClick: onPaymentHistory }]),
     { id: 'journal', label: 'فتح القيد المحاسبي', onClick: onOpenJournal },
     {
       id: 'unpost',
@@ -251,23 +238,16 @@ export function SalesInvoicePageHeader(props: Props) {
       docNumber={invoiceNumber}
       statusTone={statusTone}
       statusLabel={statusLabel}
+      lifecycle={props.lifecycle}
       savePending={savePending}
       postPending={postPending}
       canPost={canPost}
       canSave={canSave}
       onSaveDraft={onSaveDraft}
       onPost={onPost}
-      onCancel={onCancel}
       saveLabel={saveLabel}
       cancelLabel={cancelLabel}
       postLabel={postLabel}
-      printMenuItems={printItems}
-      printTrigger={
-        <Button variant="secondary" size="sm" className="gap-1.5">
-          <Printer className="h-3.5 w-3.5" />
-          طباعة
-        </Button>
-      }
       hideStandalonePost={hideStandalonePost}
       navEntity="invoice"
       invoiceKind={invoiceKind}
@@ -275,7 +255,7 @@ export function SalesInvoicePageHeader(props: Props) {
       onNavigate={onNavigate}
       standardActions={{
         hasDocument: Boolean(currentId),
-        isPosted: statusTone === 'success',
+        isPosted,
         isCancelled,
         onNew: onNewInvoice,
         newLabel: 'جديد',
@@ -285,32 +265,80 @@ export function SalesInvoicePageHeader(props: Props) {
         onUnapprove,
         onUnpost,
         onPrint: canPrint ? () => openPrintHub() : undefined,
-        onThermalPrint: canPrint
-          ? () => {
-              setThermalAutoStart(false);
-              setThermalOpen(true);
-            }
-          : undefined,
-        onDuplicate,
+        printLabel: 'طباعة',
         onVoid: onDelete,
+        onRestore,
+        restoreLabel: 'استعادة',
+        restorePending,
         postPending,
         unpostPending,
-        duplicatePending,
         voidPending: deletePending,
         whatsAppShare: props.whatsAppShare,
-        extraItems: moreItems.filter((item) => !['new', 'unpost', 'delete', 'duplicate'].includes(item.id)),
+        transactionSettingsDocumentType: props.transactionSettingsDocumentType,
+        onTransactionSettingsSaved: props.onTransactionSettingsSaved,
+        extraItems: [
+          ...moreItems.filter((item) => !['new', 'unpost', 'delete'].includes(item.id)),
+          ...(canPrint
+            ? [
+                {
+                  id: 'thermal',
+                  label: 'طباعة إيصال حراري (بلوتوث)',
+                  onClick: () => {
+                    setThermalAutoStart(false);
+                    setThermalOpen(true);
+                  },
+                },
+              ]
+            : []),
+          ...(printOptions?.onBarcodeLabels
+            ? [{ id: 'barcode', label: 'باركود الأصناف', onClick: () => printOptions.onBarcodeLabels() }]
+            : []),
+          {
+            id: 'print-design',
+            label: 'تصميم نموذج الطباعة…',
+            onClick: () => {
+              window.location.assign('/accounting-settings/company-settings/document-layout');
+            },
+          },
+        ],
       }}
+      sourceActions={sourceActions}
       extraActions={
-        <>
-          {toolbarLeading}
-          <JournalEntryBadge
-            journalEntryId={props.journalEntryId}
-            journalNumber={props.journalNumber}
-            pendingLabel="معاينة القيد المحاسبي"
-            onPreview={props.onPreviewJournal}
-          />
-          {currentId ? <WhatsAppShareButton kind="invoice" invoiceId={currentId} /> : null}
-        </>
+        props.onPreviewJournal
+          ? (
+            <>
+              {followUpActions}
+              {currentId ? <WhatsAppShareButton kind="invoice" invoiceId={currentId} /> : null}
+            </>
+          )
+          : (
+            <>
+              {followUpActions}
+              {props.journalOptions && props.journalOptions.length > 1 ? (
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-[#094C6B]">
+                  <select
+                    className="h-8 max-w-[11rem] rounded-md border border-[#D6EAF3] bg-white px-2 text-xs"
+                    value={props.journalEntryId || props.journalOptions[0]?.id || ''}
+                    onChange={(e) => props.onJournalIdChange?.(e.target.value)}
+                    aria-label="اختيار القيد المحاسبي"
+                  >
+                    {props.journalOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <JournalEntryBadge
+                journalEntryId={props.journalEntryId}
+                journalNumber={props.journalNumber}
+                pendingLabel="معاينة القيد المحاسبي"
+                onPreview={props.onPreviewJournal}
+              />
+              {currentId ? <WhatsAppShareButton kind="invoice" invoiceId={currentId} /> : null}
+            </>
+          )
       }
       moreTrigger={
         <Button variant="ghost" size="sm" aria-label="المزيد">

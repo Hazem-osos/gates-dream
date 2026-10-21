@@ -1,7 +1,5 @@
 'use client';
 
-import { Check } from 'lucide-react';
-import { Button } from '@/components/ui';
 import { currencyDisplayLabel } from '@/lib/accounting/fx-base';
 import { OrderStatusBadge, type OrderExecutionStatus } from '@/components/accounting/orders/OrderStatusBadge';
 
@@ -9,11 +7,9 @@ type Props = {
   totalAmount: number;
   currencyCode?: string;
   executionStatus: OrderExecutionStatus;
+  isPosted?: boolean;
   executedAt?: string | null;
   executedByName?: string | null;
-  canConfirm?: boolean;
-  confirmPending?: boolean;
-  onConfirm?: () => void;
   onSave: () => void;
   onCancel: () => void;
   savePending?: boolean;
@@ -32,11 +28,9 @@ export function ReceiptOrderStickyFooter({
   totalAmount,
   currencyCode = 'EGP',
   executionStatus,
+  isPosted = false,
   executedAt,
   executedByName,
-  canConfirm,
-  confirmPending,
-  onConfirm,
   onSave,
   onCancel,
   savePending,
@@ -49,23 +43,14 @@ export function ReceiptOrderStickyFooter({
     <div className="sticky bottom-0 z-30 mt-4 border-t border-slate-200 bg-white/95 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3" dir="ltr">
         <div className="flex flex-wrap items-center gap-2" dir="rtl">
-          <OrderStatusBadge orderType="RECEIPT_ORDER" status={executionStatus} />
-          {executionStatus === 'PENDING' && canConfirm && onConfirm ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="gap-1.5"
-              disabled={confirmPending}
-              onClick={onConfirm}
-            >
-              <Check className="h-3.5 w-3.5" />
-              {confirmPending ? 'جاري التأكيد…' : 'تأكيد إتمام التوريد'}
-            </Button>
-          ) : null}
+          <OrderStatusBadge
+            orderType="RECEIPT_ORDER"
+            status={executionStatus}
+            isPosted={isPosted}
+          />
           {executionStatus === 'COMPLETED' ? (
             <span className="rounded border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              {executedLabel ? `في ${executedLabel}` : 'تم التوريد'}
+              {executedLabel ? `توريد: ${executedLabel}` : 'تم التوريد'}
               {executedByName ? ` — ${executedByName}` : ''}
             </span>
           ) : null}

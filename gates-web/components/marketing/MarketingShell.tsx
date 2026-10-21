@@ -1,27 +1,11 @@
 'use client';
 
-import { IBM_Plex_Sans_Arabic, Newsreader } from 'next/font/google';
 import { useEffect } from 'react';
 import { Navbar } from '../layout/Navbar';
 import { ScrollProgress } from '../animations/ScrollProgress';
 import { createMarketingLenis, scrollToHash, startHomepageAutoplay } from '../../lib/lenis';
 import { registerGsapPlugins, ScrollTrigger } from '../../lib/gsap';
 import { LocaleProvider, useMarketingLocale } from '../../lib/marketing/locale';
-
-const ibmArabic = IBM_Plex_Sans_Arabic({
-  subsets: ['arabic', 'latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-ibm-arabic',
-  display: 'swap',
-});
-
-const newsreader = Newsreader({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
-  style: ['normal', 'italic'],
-  variable: '--font-newsreader',
-  display: 'swap',
-});
 
 function MarketingDocument({ children }: { children: React.ReactNode }) {
   const { locale, dir, copy } = useMarketingLocale();
@@ -82,7 +66,7 @@ function MarketingDocument({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className={`${ibmArabic.variable} ${newsreader.variable} gates-marketing min-h-screen`}
+      className="gates-marketing min-h-screen"
       data-locale={locale}
       dir={dir}
     >

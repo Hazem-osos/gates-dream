@@ -2,21 +2,22 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
-import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { useRouter } from 'next/navigation';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { Receipt } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { toast } from '@/lib/feedback/toast';
 import { confirmAction } from '@/lib/feedback/confirm';
-import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
 import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
+import { GenericRecordsList } from '@/components/erp/GenericRecordsList';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { CustomerSelect } from '@/app/components/form/PartySelect';
 import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
+import { WarehouseItemScopeToggle } from '@/components/form/WarehouseItemScopeToggle';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import {
   ErpFormHeaderCard,
@@ -33,6 +34,11 @@ import {
   type M5FormData,
 } from '@/lib/invoices/mapFormToM5Invoice';
 import { finishDocumentSave } from '@/lib/documents/finish-save';
+import {
+  DOCUMENT_CANCELLED_LABEL,
+  savedDocumentRowStatus,
+} from '@/lib/documents/document-status-labels';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
@@ -63,7 +69,21 @@ import {
   stockHeaderFieldsFromSource,
 } from '@/lib/inventory/apply-source-to-stock-document';
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
-import type { TransactionSettings } from '@/lib/transaction-settings/types';
+import { isTransactionSerialAutomatic } from '@/lib/transaction-settings/serial-mode';
+import { findBelowCostLine, SELL_BELOW_COST_MESSAGE } from '@/lib/accounting-settings/guardrail-hints';
+import {
+  shouldLockLoadedSource,
+  shouldShowAllAccountsInPartyField,
+  type TransactionSettings,
+} from '@/lib/transaction-settings/types';
+import { maybeAutoPrintAfterSave } from '@/lib/printer/print-prefs';
+import { postStoreDocumentAfterSave } from '@/lib/inventory/post-store-document-after-save';
+import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
+import { sumPartyInvoiceExtras, type InvoiceAdjustmentApiRow } from '@/lib/invoices/invoice-adjustments';
+import { useInvoiceExtras } from '@/lib/invoices/use-invoice-extras';
+import { InvoiceExtrasPanel } from '@/components/inventory/invoices/InvoiceExtrasPanel';
+import { InternalNotesScratchpad } from '@/components/documents/InternalNotesScratchpad';
 
 const PaymentInstallmentsModal = dynamic(
   () =>
@@ -161,7 +181,8 @@ function plusDays(days: number) {
 }
 
 function orderStatus(order?: OrderRecord | null) {
-  if (order?.isCancelled) return { tone: 'danger' as const, label: 'ملغي (Cancelled)' };
+  if (order?.isCancelled) return { tone: 'danger' as const, label: DOCUMENT_CANCELLED_LABEL };
+  if (order?.isPosted) return { tone: 'info' as const, label: 'مرحّل' };
   if (order?.convertedInvoiceId) return { tone: 'success' as const, label: 'تم التوريد بالكامل (Fulfilled)' };
   if (order?.id) return { tone: 'warning' as const, label: 'لم يتم التوريد (Pending Fulfillment)' };
   return { tone: 'warning' as const, label: 'لم يتم التوريد (Pending Fulfillment)' };
@@ -201,6 +222,7 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
   const [browseOpen, setBrowseOpen] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [restorePending, setRestorePending] = useState(false);
 
   const [orderNumber, setOrderNumber] = useState('');
   const [description, setDescription] = useState('');
@@ -221,12 +243,30 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
   const [paymentTerms, setPaymentTerms] = useState('');
   const [lines, setLines] = useState<CommercialDocumentLine[]>([emptyCommercialLine()]);
   const [sourceBarKey, setSourceBarKey] = useState(0);
+  const [postFlowPending, setPostFlowPending] = useState(false);
+  const {
+    invoiceExtras,
+    setInvoiceExtras,
+    extrasOpen,
+    setExtrasOpen,
+    loadAdjustments,
+    resetExtras,
+    getExtrasPayload,
+    validateExtras,
+  } = useInvoiceExtras();
 
-  const { data: salesInvoiceSettingsRes } = useApiQuery<TransactionSettings>(
-    ['transaction-settings', 'SALES_INVOICE'],
-    '/transaction-settings/SALES_INVOICE'
+  const { data: salesOrderSettingsRes } = useApiQuery<TransactionSettings>(
+    ['transaction-settings', 'SALES_ORDER'],
+    '/transaction-settings/SALES_ORDER'
   );
-  const defaultWarehouseFromSettings = salesInvoiceSettingsRes?.data?.defaultWarehouseId ?? '';
+  const salesTxSettings = salesOrderSettingsRes?.data;
+  const serialAutomatic = isTransactionSerialAutomatic(salesTxSettings?.numberingMode);
+  const autoPostOnSave = salesTxSettings?.autoPostOnSave === true;
+  const [loadedSourceId, setLoadedSourceId] = useState('');
+  const lockLoadedSource = shouldLockLoadedSource(salesTxSettings, loadedSourceId);
+  const defaultWarehouseFromSettings = salesTxSettings?.defaultWarehouseId ?? '';
+  const salesOrderSaveLabel =
+    isManufacturing ? 'حفظ' : autoPostOnSave ? STORE_SAVE_AND_POST_LABEL : 'حفظ';
 
   useEffect(() => {
     if (selectedId || warehouseId || !defaultWarehouseFromSettings) return;
@@ -248,6 +288,7 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
       shippingTerms,
       paymentTerms,
       lines,
+      internalNotes,
     }),
     [
       costCenterId,
@@ -258,6 +299,7 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
       deliveryLeadDays,
       deliveryDate,
       description,
+      internalNotes,
       lines,
       orderNumber,
       paymentTerms,
@@ -279,8 +321,10 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
     setShippingTerms(payload.shippingTerms);
     setPaymentTerms(payload.paymentTerms);
     setLines(payload.lines?.length ? payload.lines : [emptyCommercialLine()]);
+    setInternalNotes(Array.isArray(payload.internalNotes) ? payload.internalNotes : []);
   }, []);
   const skipServerHydrateRef = useRef(false);
+  const postAfterSaveRef = useRef(false);
   const {
     restoreOffer,
     acceptRestore,
@@ -310,14 +354,8 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
     { enabled: Boolean(selectedId) }
   );
   const loaded = orderResponse?.data ?? null;
+  const isPosted = Boolean(loaded?.isPosted);
 
-  const { data: browseResponse } = useApiQuery<OrderRecord[]>(
-    ['invoices', 'sales-orders-browse'],
-    '/invoices',
-    { invoiceKind: 'SALES_ORDER', limit: 200 },
-    { enabled: browseOpen }
-  );
-  const previousOrders = browseResponse?.data ?? [];
 
   const { data: currenciesResponse } = useApiQuery<{ id: string; code: string; arabicName: string }[]>(
     ['currencies'],
@@ -333,12 +371,16 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
   );
   const delegates = delegatesResponse?.data ?? [];
 
-  const { data: itemsResponse } = useApiQuery<{ id: string; units?: { unit?: { id: string }; unitId?: string; isBaseUnit?: boolean }[] }[]>(
-    ['items', 'sales-order'],
-    '/inventory/items',
-    { limit: 200, isActive: true }
-  );
+  const { data: itemsResponse } = useApiQuery<
+    {
+      id: string;
+      averageCost?: number | string | null;
+      lastPurchasePrice?: number | string | null;
+      units?: { unit?: { id: string }; unitId?: string; isBaseUnit?: boolean }[];
+    }[]
+  >(['items', 'sales-order'], '/inventory/items', { limit: 200, isActive: true });
   const items = itemsResponse?.data ?? [];
+  const enforceBelowCost = !isManufacturing && salesTxSettings?.preventSellingBelowCost !== false;
 
   const skipUrlHydrateRef = useRef(false);
 
@@ -432,7 +474,8 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
         };
       })
     );
-  }, [loaded, selectedId, currencyId]);
+    loadAdjustments((loaded as { adjustments?: InvoiceAdjustmentApiRow[] }).adjustments);
+  }, [loaded, selectedId, currencyId, loadAdjustments]);
 
   const entered = useMemo(() => lines.filter(isEnteredCommercialLine), [lines]);
   const totals = useMemo(
@@ -450,6 +493,11 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
       ),
     [entered]
   );
+  const extrasNet = useMemo(
+    () => sumPartyInvoiceExtras(invoiceExtras, totals.gross - totals.discount, 1),
+    [invoiceExtras, totals.discount, totals.gross]
+  );
+  const orderNetTotal = totals.net + extrasNet;
   const status = orderStatus(loaded);
 
   const saveMutation = useApiMutation<OrderRecord, Record<string, unknown>>('/invoices', 'POST', {
@@ -457,9 +505,14 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
     onSuccess: (res) => {
       invalidateStockViews(invalidateQuery);
       const id = res.data?.id;
+      const shouldPost = postAfterSaveRef.current;
+      postAfterSaveRef.current = false;
+      const finish = (posted: boolean) => {
+      maybeAutoPrintAfterSave(salesTxSettings?.autoPrintOnSave, printOrder);
       finishDocumentSave({
         label: isManufacturing ? 'أمر البيع للتصنيع' : 'أمر بيع',
         number: res.data?.invoiceNumber || orderNumber,
+        posted,
         savedId: id,
         cleared: isManufacturing,
         clearDraft,
@@ -474,8 +527,24 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
             },
         reset: () => resetNew(),
       });
+      };
+      if (shouldPost && id) {
+        void postStoreDocumentAfterSave({
+          postPath: `/invoices/${id}/post`,
+          onPosted: () => {
+            invalidateQuery(['invoice', id]);
+            finish(true);
+          },
+          onPostFailed: (message) => setError(message),
+        });
+        return;
+      }
+      finish(false);
     },
-    onError: (err: ApiError) => setError(err.message || 'تعذر حفظ أمر البيع'),
+    onError: (err: ApiError) => {
+      postAfterSaveRef.current = false;
+      setError(err.message || 'تعذر حفظ أمر البيع');
+    },
   });
 
   const updateMutation = useApiMutation<OrderRecord, Record<string, unknown>>(
@@ -486,9 +555,14 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
       onSuccess: () => {
         invalidateStockViews(invalidateQuery);
         const id = selectedId;
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        const finish = (posted: boolean) => {
+        maybeAutoPrintAfterSave(salesTxSettings?.autoPrintOnSave, printOrder);
         finishDocumentSave({
           label: isManufacturing ? 'أمر البيع للتصنيع' : 'أمر بيع',
           number: orderNumber,
+          posted,
           savedId: id,
           cleared: isManufacturing,
           clearDraft,
@@ -503,8 +577,24 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
               },
           reset: () => resetNew(),
         });
+        };
+        if (shouldPost && id) {
+          void postStoreDocumentAfterSave({
+            postPath: `/invoices/${id}/post`,
+            onPosted: () => {
+              invalidateQuery(['invoice', id]);
+              finish(true);
+            },
+            onPostFailed: (message) => setError(message),
+          });
+          return;
+        }
+        finish(false);
       },
-      onError: (err: ApiError) => setError(err.message || 'تعذر تحديث أمر البيع'),
+      onError: (err: ApiError) => {
+        postAfterSaveRef.current = false;
+        setError(err.message || 'تعذر تحديث أمر البيع');
+      },
     }
   );
 
@@ -516,18 +606,44 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
       onSuccess: () => {
         setSuccess('تم إلغاء أمر البيع');
         invalidateQuery(['invoices']);
+        invalidateQuery(['sales-orders-browse']);
         invalidateQuery(['invoice', selectedId ?? '']);
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر إلغاء أمر البيع'),
     }
   );
 
+  const handleRestoreCancelledOrder = async () => {
+    if (!selectedId) return;
+    setRestorePending(true);
+    try {
+      if (isManufacturing) {
+        await apiClient.post(`/invoices/${selectedId}/restore`, {});
+      } else {
+        await restoreCancelledDocument({
+          restorePath: `/invoices/${selectedId}/restore`,
+          postPath: `/invoices/${selectedId}/post`,
+          kind: 'invoice',
+          autoPostOnSave: salesTxSettings?.autoPostOnSave,
+        });
+      }
+      invalidateQuery(['invoices']);
+      invalidateQuery(['sales-orders-browse']);
+      invalidateQuery(['invoice', selectedId]);
+      setSuccess('تم استعادة أمر البيع');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر استعادة أمر البيع');
+    } finally {
+      setRestorePending(false);
+    }
+  };
+
   const buildOrderBody = () => {
     const notes = [shippingTerms, paymentTerms].filter(Boolean).join(' — ');
     const desc = (description || '').trim();
     const notesWithInstallments = withPaymentInstallmentsNote(internalNotes, paymentInstallments);
     return {
-      invoiceNumber: orderNumber || undefined,
+      invoiceNumber: serialAutomatic && !selectedId ? undefined : orderNumber || undefined,
       description: notes ? `${desc} — ${notes}` : desc,
       date,
       dueDate: deliveryDate,
@@ -553,6 +669,7 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
         ),
         costCenterId: line.costCenterId || undefined,
       })),
+      adjustments: getExtrasPayload(),
     };
   };
 
@@ -615,8 +732,66 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
     }
   };
 
+  const postExistingOrder = () => {
+    if (!selectedId) {
+      requestExplicitPostAfterSave();
+      return;
+    }
+    setPostFlowPending(true);
+    void apiClient
+      .post(`/invoices/${selectedId}/post`)
+      .then(() => {
+        setSuccess('تم ترحيل أمر البيع');
+        invalidateQuery(['invoice', selectedId]);
+        invalidateStockViews(invalidateQuery);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'تعذر الترحيل');
+      })
+      .finally(() => setPostFlowPending(false));
+  };
+
+  const requestPostAfterSave = () => {
+    if (isPosted || loaded?.isCancelled || loaded?.convertedInvoiceId) return;
+    postAfterSaveRef.current = autoPostOnSave;
+    handleSave();
+  };
+
+  const requestExplicitPostAfterSave = () => {
+    if (isPosted || loaded?.isCancelled || loaded?.convertedInvoiceId) return;
+    postAfterSaveRef.current = true;
+    handleSave();
+  };
+
+  const printOrder = () => {
+    void printOperationalDocument({
+      title: 'أمر بيع',
+      documentNo: orderNumber || 'جديد',
+      documentDate: date,
+      buyerName: description || undefined,
+      currency: currencies.find((c) => c.id === currencyId)?.code,
+      lines: entered.map((line) => {
+        const parts = commercialLineParts(line);
+        return {
+          description: [line.itemCode, line.itemName].filter(Boolean).join(' — ') || 'صنف',
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          taxPercent: line.taxRate,
+          taxAmount: parts.taxValue,
+          total: parts.net,
+        };
+      }),
+    });
+  };
+
   const handleSave = () => {
     setError('');
+    const extrasValidation = validateExtras();
+    if (extrasValidation) {
+      setError(extrasValidation);
+      setExtrasOpen(true);
+      return;
+    }
     if (!customerId) {
       setError('يرجى اختيار العميل');
       return;
@@ -627,6 +802,14 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
     }
     if (entered.length === 0) {
       setError('أضف صنفاً واحداً على الأقل');
+      return;
+    }
+    if (enforceBelowCost && findBelowCostLine(entered, items)) {
+      setError(SELL_BELOW_COST_MESSAGE);
+      return;
+    }
+    if (!selectedId && !serialAutomatic && !orderNumber.trim()) {
+      setError('أدخل رقم أمر البيع — الترقيم يدوي في إعدادات المستند');
       return;
     }
     const form = buildOrderBody() as unknown as M5FormData;
@@ -676,7 +859,9 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
     setWorkOrderPanel(null);
     setCustomerId('');
     setLines([emptyCommercialLine()]);
+    setLoadedSourceId('');
     setSourceBarKey((k) => k + 1);
+    resetExtras();
     setError('');
     setSuccess('');
     if (isManufacturing) {
@@ -701,23 +886,24 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
     if (header.description) setDescription(header.description);
     const mapped = mapSourcePayloadToCommercialLines(payload);
     setLines(mapped.length ? mapped : [emptyCommercialLine()]);
+    setLoadedSourceId(payload.sourceId);
+    loadAdjustments(payload.adjustments);
     toast.success(`تم تحميل الأمر من ${payload.sourceNumber}`);
   };
 
   return (
     <ErpDocumentLayout>
-      {restoreOffer && !selectedId ? (
-        <PageDraftRestoreBanner
-          message="يوجد مسودة أمر بيع غير محفوظة."
-          onRestore={() => {
-            const payload = acceptRestore();
-            if (!payload) return;
-            applySalesOrderDraft(payload);
-            setSuccess('تم استعادة مسودة أمر البيع');
-          }}
-          onDismiss={dismissRestore}
-        />
-      ) : null}
+      <PageDraftRestoreGate<typeof salesOrderDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedId)}
+        message="يوجد مسودة أمر بيع غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applySalesOrderDraft(payload);
+          setSuccess('تم استعادة مسودة أمر البيع');
+        }}
+      />
       <div className="flex min-h-[calc(100dvh-3rem)] flex-col pb-4">
         <ErpDocumentPageHeader
           breadcrumbs={breadcrumbs}
@@ -725,12 +911,19 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
           docNumber={orderNumber || 'SO-XXXX'}
           statusTone={status.tone}
           statusLabel={status.label}
-          onSaveDraft={handleSave}
-          saveLabel={isManufacturing ? 'حفظ' : 'حفظ أمر البيع'}
+          onSaveDraft={isManufacturing ? handleSave : requestPostAfterSave}
+          saveLabel={salesOrderSaveLabel}
           savePending={saveMutation.isPending || updateMutation.isPending}
-          canSave={!loaded?.isCancelled && !loaded?.convertedInvoiceId}
+          canSave={!isPosted && !loaded?.isCancelled && !loaded?.convertedInvoiceId}
+          canPost={Boolean(selectedId) && !isPosted && !loaded?.isCancelled}
+          onPost={() => postExistingOrder()}
           hideStandalonePost
           lockWhenPosted={!isManufacturing}
+          lifecycle={{
+            documentId: selectedId,
+            isPosted,
+            isCancelled: Boolean(loaded?.isCancelled),
+          }}
           saveDisabledHint={
             isManufacturing
               ? 'أكمل العميل والمخزن والأصناف قبل الحفظ'
@@ -748,71 +941,61 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
           editDisabled={!selectedId || Boolean(loaded?.isCancelled)}
           favoriteHref={routeHref}
           favoriteLabel="أمر بيع"
-          moreMenuItems={[
-            { id: 'new', label: 'أمر جديد', onClick: resetNew },
-            {
-              id: 'print',
-              label: 'طباعة',
-              onClick: () => {
-                void printOperationalDocument({
-                  title: 'أمر بيع',
-                  documentNo: orderNumber || 'مسودة',
-                  documentDate: date,
-                  buyerName: description || undefined,
-                  currency: currencies.find((c) => c.id === currencyId)?.code,
-                  lines: entered.map((line) => {
-                    const parts = commercialLineParts(line);
-                    return {
-                      description: [line.itemCode, line.itemName].filter(Boolean).join(' — ') || 'صنف',
-                      quantity: line.quantity,
-                      unitPrice: line.unitPrice,
-                      taxPercent: line.taxRate,
-                      taxAmount: parts.taxValue,
-                      total: parts.net,
-                    };
-                  }),
-                });
-              },
+          currentId={selectedId}
+          standardActions={{
+            hasDocument: Boolean(selectedId),
+            isPosted,
+            isCancelled: Boolean(loaded?.isCancelled),
+            postPending: postFlowPending,
+            unpostPending: postFlowPending,
+            onPost: () => postExistingOrder(),
+            onUnpost: () => {
+              if (!selectedId) return;
+              setPostFlowPending(true);
+              void apiClient
+                .post(`/invoices/${selectedId}/unpost`)
+                .then(() => {
+                  setSuccess('تم فك ترحيل أمر البيع');
+                  invalidateQuery(['invoice', selectedId]);
+                })
+                .catch((err: unknown) => {
+                  setError(err instanceof Error ? err.message : 'تعذر فك الترحيل');
+                })
+                .finally(() => setPostFlowPending(false));
             },
-            {
-              id: 'duplicate',
-              label: 'تكرار',
-              onClick: () => {
-                setSelectedId(null);
-                setOrderNumber('');
-                setSuccess('تم تجهيز نسخة جديدة من الأمر');
-              },
+            onEdit: () => {
+              if (isPosted) setError('يجب فك الترحيل أولاً للتعديل');
             },
-            {
-              id: 'cancel',
-              label: isManufacturing ? 'إلغاء أمر البيع' : 'إلغاء الأمر',
-              disabled:
-                !selectedId ||
-                Boolean(
-                  loaded?.isCancelled ||
-                    loaded?.convertedInvoiceId ||
-                    (isManufacturing && hasLinkedManufacturingWorkOrder)
-                ),
-              onClick: async () => {
-                if (!selectedId) return;
-                if (isManufacturing && hasLinkedManufacturingWorkOrder) {
-                  setError(
-                    `لا يمكن إلغاء أمر البيع — مربوط بأمر الشغل ${linkedManufacturingWorkOrder?.orderNumber ?? ''}. ألغِ أمر الشغل من التخطيط أولاً.`
-                  );
-                  return;
-                }
-                const ok = await confirmAction({
-                  message: isManufacturing
-                    ? 'إلغاء أمر البيع للتصنيع؟ (لا يؤثر على فواتير المبيعات)'
-                    : 'إلغاء أمر البيع؟',
-                  confirmLabel: 'إلغاء',
-                  tone: 'danger',
-                });
-                if (!ok) return;
-                cancelMutation.mutate({});
-              },
+            onNew: resetNew,
+            newLabel: 'أمر جديد',
+            onPrint: printOrder,
+            onVoid: async () => {
+              if (!selectedId) return;
+              if (isManufacturing && hasLinkedManufacturingWorkOrder) {
+                setError(
+                  `لا يمكن إلغاء أمر البيع — مربوط بأمر الشغل ${linkedManufacturingWorkOrder?.orderNumber ?? ''}. ألغِ أمر الشغل من التخطيط أولاً.`
+                );
+                return;
+              }
+              const ok = await confirmAction({
+                message: isManufacturing
+                  ? 'إلغاء أمر البيع للتصنيع؟ (لا يؤثر على فواتير المبيعات)'
+                  : 'إلغاء أمر البيع؟',
+                confirmLabel: 'إلغاء',
+                tone: 'danger',
+              });
+              if (!ok) return;
+              cancelMutation.mutate({});
             },
-          ]}
+            voidPending: cancelMutation.isPending,
+            onRestore: () => void handleRestoreCancelledOrder(),
+            restorePending,
+            restoreLabel: 'استعادة الأمر',
+            transactionSettingsDocumentType: 'SALES_ORDER',
+            onTransactionSettingsSaved: () => {
+              invalidateAfterTransactionSettingsSave(invalidateQuery, 'SALES_ORDER');
+            },
+          }}
         />
 
         {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
@@ -828,33 +1011,56 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
         ) : null}
 
         <ErpFormHeaderCard
+          fieldsDisabled={lockLoadedSource}
           extrasLabel={isManufacturing ? undefined : 'خيارات إضافية'}
-          headerActions={
+          sourceActions={
             isManufacturing
               ? undefined
               : (
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" size="sm" variant="outline" onClick={() => setPaymentModalOpen(true)}>
-                    شروط الدفع
-                  </Button>
-                  <DocumentSourceLoadBar
-                    key={sourceBarKey}
-                    hasExistingLines={entered.length > 0}
-                    disabled={Boolean(loaded?.isPosted || loaded?.convertedInvoiceId)}
-                    onHydrate={handleSourceHydrate}
-                  />
-                </div>
+                <DocumentSourceLoadBar
+                  key={sourceBarKey}
+                  hasExistingLines={entered.length > 0}
+                  disabled={Boolean(loaded?.isPosted || loaded?.convertedInvoiceId)}
+                  currentAffectsStock={false}
+                  onHydrate={handleSourceHydrate}
+                />
               )
+          }
+          headerActions={
+            <div className="flex flex-wrap items-center gap-2">
+              <InternalNotesScratchpad
+                notes={internalNotes}
+                onChange={setInternalNotes}
+                disabled={Boolean(loaded?.isPosted || loaded?.convertedInvoiceId || lockLoadedSource)}
+                className="inline-flex"
+              />
+              {!isManufacturing ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => setPaymentModalOpen(true)}>
+                  شروط الدفع
+                </Button>
+              ) : null}
+            </div>
           }
           row1={
             <>
               <div className="space-y-1">
                 <label className={erpLabelClass}>رقم أمر البيع</label>
-                <input className={erpInputClass} value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} />
+                <input
+                  className={erpInputClass}
+                  value={orderNumber}
+                  onChange={(e) => setOrderNumber(e.target.value)}
+                  placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل الرقم يدوياً'}
+                  readOnly={serialAutomatic || Boolean(loaded?.isPosted)}
+                />
               </div>
               <div className="space-y-1">
                 <label className={erpLabelClass}>اسم العميل</label>
-                <CustomerSelect value={customerId} onChange={setCustomerId} className={erpInputClass} />
+                <CustomerSelect
+                  value={customerId}
+                  onChange={setCustomerId}
+                  className={erpInputClass}
+                  includeAllAccounts={shouldShowAllAccountsInPartyField(salesTxSettings)}
+                />
               </div>
               <div className="space-y-1">
                 <label className={erpLabelClass}>
@@ -868,6 +1074,7 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
                   emptyLabel="اختر المخزن"
                   disabled={Boolean(loaded?.isCancelled || loaded?.convertedInvoiceId)}
                 />
+                <WarehouseItemScopeToggle />
               </div>
               <DatePickerWithHijri label="التاريخ" value={date} onChange={setDate} />
               <div className="space-y-1">
@@ -946,10 +1153,27 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
             onChange={setLines}
             warehouseId={warehouseId}
             mode={isManufacturing ? 'manufacturing' : 'full'}
-            disabled={Boolean(loaded?.isCancelled || loaded?.convertedInvoiceId)}
+            disabled={Boolean(loaded?.isCancelled || loaded?.convertedInvoiceId || lockLoadedSource)}
             onImageError={(message) => setError(message)}
+            enforceBelowCost={enforceBelowCost}
           />
         </div>
+
+        {!isManufacturing ? (
+          <InvoiceExtrasPanel
+            open={extrasOpen}
+            onToggle={() => setExtrasOpen((v) => !v)}
+            rows={invoiceExtras}
+            onChange={setInvoiceExtras}
+            currencies={currencies}
+            defaultCurrency={currencies.find((c) => c.id === currencyId)?.code ?? 'EGP'}
+            defaultExchangeRate={1}
+            defaultCostCenterId={costCenterId || ''}
+            disabled={Boolean(loaded?.isPosted || loaded?.isCancelled || loaded?.convertedInvoiceId || lockLoadedSource)}
+            count={getExtrasPayload().length}
+            headerDescription={description}
+          />
+        ) : null}
 
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
@@ -988,7 +1212,7 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
           <PaymentInstallmentsModal
             open={paymentModalOpen}
             onClose={() => setPaymentModalOpen(false)}
-            remainingAmount={totals.net}
+            remainingAmount={orderNetTotal}
             startDate={date}
             initial={paymentInstallments}
             onConfirm={(rows) => {
@@ -1020,65 +1244,58 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
                 إصدار فاتورة مبيعات من هذا الأمر
               </Button>
             </div>
-            <div className="flex flex-wrap items-center gap-4 text-xs">
-              <span>قبل الضريبة: <b className="font-mono">{money(totals.gross)}</b></span>
-              <span>الخصم: <b className="font-mono">{money(totals.discount)}</b></span>
-              <span>ضريبة 14%: <b className="font-mono">{money(totals.tax)}</b></span>
-              <span className="text-sm">
-                الإجمالي: <b className="font-mono text-base text-emerald-600">{money(totals.net)} ج.م</b>
-              </span>
+            <div className="text-sm">
+              الإجمالي:{' '}
+              <b className="font-mono text-base text-emerald-600">{money(orderNetTotal)} ج.م</b>
             </div>
           </div>
         )}
 
         <DocumentBrowseDrawer open={browseOpen} onClose={() => setBrowseOpen(false)} title="أوامر البيع السابقة">
-          {previousOrders.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">لا توجد أوامر بيع سابقة</p>
-          ) : (
-            <ul className="divide-y divide-border/70">
-              {previousOrders.map((row) => (
-                <li key={row.id} className="flex items-center gap-2 px-2">
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-right text-sm hover:bg-muted/40"
-                    onClick={() => {
-                      setSelectedId(row.id);
-                      setBrowseOpen(false);
-                    }}
-                  >
-                    <span className="font-mono font-semibold text-primary">
-                      {row.invoiceNumber || row.id.slice(0, 8)}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {row.date ? new Date(row.date).toLocaleDateString('ar-EG') : '—'}
-                    </span>
-                  </button>
-                  {!row.isCancelled ? (
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      onClick={async () => {
-                        if (!(await confirmAction('حذف هذه المسودة؟'))) return;
-                        try {
-                          await deleteDraftDocument('/invoices', row.id);
-                          toast.success('تم حذف المسودة');
-                          invalidateQuery(['invoices']);
-                          if (selectedId === row.id) {
-                            setSelectedId(null);
-                            setBrowseOpen(false);
-                          }
-                        } catch (error) {
-                          toast.error(error instanceof Error ? error.message : 'تعذر حذف المسودة');
-                        }
-                      }}
-                    >
-                      حذف المسودة
-                    </Button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
+          <GenericRecordsList
+            apiPath="/invoices"
+            listKey="sales-orders-browse"
+            extraParams={{ invoiceKind: 'SALES_ORDER', includeCancelled: true }}
+            selectedId={selectedId}
+            columns={[
+              {
+                id: 'num',
+                header: 'الرقم',
+                getValue: (r) => String(r.invoiceNumber ?? r.id.slice(0, 8)),
+              },
+              {
+                id: 'date',
+                header: 'التاريخ',
+                getValue: (r) => (r.date ? new Date(String(r.date)).toLocaleDateString('ar-EG') : '—'),
+              },
+              {
+                id: 'party',
+                header: 'العميل',
+                getValue: (r) => {
+                  const c = r.customer as { arabicName?: string } | undefined;
+                  return c?.arabicName || '—';
+                },
+              },
+            ]}
+            resolveStatus={(r) => {
+              if (r.isCancelled) {
+                const st = savedDocumentRowStatus({ isCancelled: true, isPosted: false });
+                return { variant: st.tone, label: st.label };
+              }
+              if (r.convertedInvoiceId) {
+                return { variant: 'success' as const, label: 'تم التوريد بالكامل' };
+              }
+              const st = savedDocumentRowStatus({
+                isPosted: Boolean(r.isPosted),
+                isCancelled: false,
+              });
+              return { variant: st.tone, label: st.label };
+            }}
+            onSelect={(id) => {
+              setSelectedId(id);
+              setBrowseOpen(false);
+            }}
+          />
         </DocumentBrowseDrawer>
       </div>
     </ErpDocumentLayout>

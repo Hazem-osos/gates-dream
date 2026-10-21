@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Printer, Truck } from 'lucide-react';
 import TaxInfoOverlay from '@/components/TaxInfoOverlay';
 import { PartiesListSection, type PartyRow } from '@/app/components/accounting/PartiesListSection';
@@ -13,6 +15,7 @@ import {
 import { useClearDocumentQuery, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
+import { masterArchiveTarget } from '@/lib/attachments/archive-entity';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { ClientMountGate } from '@/lib/hooks/useClientMounted';
@@ -84,7 +87,7 @@ type SupplierRecord = {
 };
 
 function SupplierPageInner() {
-  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const { isReadOnly, unlockForEdit, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const quickCreate = useQuickCreateHost('supplier');
   const searchParams = useOwnTabSearchParams();
@@ -135,6 +138,24 @@ function SupplierPageInner() {
     discountType: '',
     priceListId: '',
     supplierCategoryId: '',
+  });
+
+  type SupplierCardDraft = typeof formData;
+  const editingSupplierId = selectedId || idFromUrl;
+  const draftSnapshot = useMemo(() => formData, [formData]);
+  const applySupplierCardDraft = useCallback((payload: SupplierCardDraft) => {
+    setFormData(payload);
+    setSelectedId(null);
+    setMode('create');
+    setError('');
+  }, [setMode]);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'supplier-card',
+    editingId: editingSupplierId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.arabicName.trim() && !d.code.trim() && !d.phone1.trim(),
+    applyRestore: applySupplierCardDraft,
+    restoreMessage: 'يوجد مسودة بطاقة مورد غير محفوظة',
   });
 
   useEffect(() => {
@@ -301,7 +322,7 @@ function SupplierPageInner() {
   });
 
   const hydrate = (row: SupplierRecord) => {
-    lockToView();
+    unlockForEdit();
     setSelectedId(row.id);
     setFormData({
       serial: row.serial || row.code || '',
@@ -372,6 +393,7 @@ function SupplierPageInner() {
           payload(),
           { skipSuccessNotify: true }
         );
+        clearDraft();
         toast.success('تم حفظ تعديلات المورد');
         invalidateQuery(['suppliers']);
         invalidateQuery(['suppliers', 'guide']);
@@ -393,6 +415,7 @@ function SupplierPageInner() {
             accountId: created.accountId,
           });
         }
+        clearDraft();
         toast.success('تم حفظ المورد — تقدر تضيف التالي');
       }
       invalidateQuery(['suppliers']);
@@ -412,6 +435,7 @@ function SupplierPageInner() {
   };
 
   const handleNew = () => {
+    clearDraft();
     setSelectedId(null);
     setFormData(blankForm());
     setIsTaxInfoChecked(false);
@@ -444,6 +468,15 @@ function SupplierPageInner() {
     <ErpDocumentLayout>
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+
+      <MasterCardDraftRestoreGate<SupplierCardDraft>
+        editingId={editingSupplierId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applySupplierCardDraft}
+        message="يوجد مسودة بطاقة مورد غير محفوظة."
+      />
 
       <ErpDocumentPageHeader
         compact
@@ -479,16 +512,14 @@ function SupplierPageInner() {
           unlockForEdit();
         }}
         editDisabled={!selectedId}
-        moreMenuItems={[
-          { id: 'new', label: 'جديد', onClick: handleNew },
-          {
-            id: 'del',
-            label: 'حذف',
-            onClick: () => void handleDelete(),
-            disabled: !selectedId,
-            destructive: true,
-          },
-        ]}
+        standardActions={{
+          hasDocument: Boolean(selectedId),
+          documentId: selectedId,
+          archiveTarget: masterArchiveTarget('SUPPLIER', selectedId),
+          onNew: handleNew,
+          onVoid: selectedId ? () => void handleDelete() : undefined,
+          voidLabel: 'حذف',
+        }}
         onBrowseList={() => setShowGuide(true)}
         browseListLabel="السابق"
         currentId={selectedId}

@@ -27,19 +27,24 @@ import type {
   InvoiceInstallmentSource,
   InvoiceInstallmentView,
 } from '@/lib/invoices/invoice-settlements';
+import { stockImpactItemLabel } from '@/lib/invoices/stock-impact-line';
 
 
 type Props = {
   summary: SummaryModel;
   applyTax: boolean;
-  lines: (InvoiceSummaryLine & { itemId?: string })[];
+  lines: (InvoiceSummaryLine & { itemId?: string; itemName?: string })[];
   /** Last successfully saved lines. The stock tab never reads the unsaved form. */
-  savedLines?: (InvoiceSummaryLine & { itemId?: string })[];
+  savedLines?: (InvoiceSummaryLine & { itemId?: string; itemName?: string })[];
   warehouseId?: string;
   journalEntryId?: string | null;
+  journalEmptyTitle?: string;
+  journalOptions?: { id: string; label: string }[];
+  onJournalIdChange?: (id: string) => void;
   selectedInvoiceId: string | null;
   isPosted: boolean;
   settlements?: InvoiceCashSettlement[];
+  settlementHistory?: InvoiceCashSettlement[];
   cheques?: InvoiceChequeSettlement[];
   installments?: InvoiceInstallmentSource[];
   paidAmount?: number;
@@ -55,6 +60,8 @@ type Props = {
   stockSign?: 1 | -1;
   settlementDirection?: 'RECEIPT' | 'PAYMENT';
   showEta?: boolean;
+  /** Price quote / purchase order / sales order style: totals only, no journal or stock tabs. */
+  totalsOnly?: boolean;
   cashPayment?: {
     paidAmount: number;
     method: InvoicePaymentMethod;
@@ -67,6 +74,7 @@ type Props = {
     onLinkAdvance?: () => void;
     linkHint?: string;
     splitSummary?: string;
+    cashVoucherHint?: string;
   };
 };
 
@@ -77,9 +85,13 @@ export function SalesInvoiceBottomSplit({
   savedLines = [],
   warehouseId,
   journalEntryId,
+  journalEmptyTitle,
+  journalOptions,
+  onJournalIdChange,
   selectedInvoiceId,
   isPosted,
   settlements = [],
+  settlementHistory = [],
   cheques = [],
   installments = [],
   paidAmount,
@@ -94,6 +106,7 @@ export function SalesInvoiceBottomSplit({
   stockSign = -1,
   settlementDirection = 'RECEIPT',
   showEta = true,
+  totalsOnly = false,
   cashPayment,
 }: Props) {
   const { data: savedInstallmentsResponse } = useApiQuery<InvoiceInstallmentSource[]>(
@@ -123,7 +136,7 @@ export function SalesInvoiceBottomSplit({
         <tr className={erpTableHeadRowClass}>
           <th className={erpTableHeadCellClass}>صنف</th>
           <th className={erpTableHeadCellClass}>كمية</th>
-          <th className={erpTableHeadCellClass}>Δ</th>
+          <th className={erpTableHeadCellClass}>التغيّر</th>
           <th className={erpTableHeadCellClass}>قيمة</th>
         </tr>
       </thead>
@@ -132,7 +145,7 @@ export function SalesInvoiceBottomSplit({
           const qty = Number(line.baseQuantity) || Number(line.quantity) || 0;
           return (
             <tr key={`${line.itemId}-${i}`} className="border-b border-slate-100">
-              <td className="py-2 font-mono text-xs text-slate-600">{line.itemId?.slice(0, 8)}…</td>
+              <td className="py-2 text-right text-slate-800">{stockImpactItemLabel(line)}</td>
               <td className="py-2 text-center">{qty}</td>
               <td className={`py-2 text-center font-medium ${stockSign < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
                 {stockSign < 0 ? `-${qty}` : `+${qty}`}
@@ -150,6 +163,7 @@ export function SalesInvoiceBottomSplit({
   const stanceContent = (
     <InvoiceSettlementsHistory
       settlements={settlements}
+      settlementHistory={settlementHistory}
       cheques={cheques}
       installments={installmentRows}
       paidAmount={paidAmount}
@@ -163,6 +177,7 @@ export function SalesInvoiceBottomSplit({
   const collectionsContent = (
     <InvoiceSettlementsHistory
       settlements={settlements}
+      settlementHistory={settlementHistory}
       cheques={cheques}
       paidAmount={paidAmount}
       remainingAmount={remainingAmount}
@@ -172,53 +187,71 @@ export function SalesInvoiceBottomSplit({
     />
   );
 
+  const auditTab = {
+    id: 'audit',
+    label: 'سجل النشاط',
+    content: (
+      <AuditActivityTab entityType="INVOICE" entityId={selectedInvoiceId}>
+        {showEta ? <EtaReadinessPanel invoiceId={selectedInvoiceId} isPosted={isPosted} /> : null}
+        {auditExtra}
+      </AuditActivityTab>
+    ),
+  };
+
   return (
     <div data-tour="invoice-impact-tabs">
     <ErpDocumentBottomSplit
-      financialRows={[
-        { label: 'المجموع قبل الضريبة', value: gross },
-        {
-          label: 'خصم تجاري',
-          value: -commercialDiscount,
-          suffix: (
-            <CalculationInspector
-              title="تفصيل الخصم المتسلسل"
-              triggerLabel="تفاصيل الخصم"
-              rows={[
-                {
-                  label: 'مجموع قبل الخصم',
-                  value: `${formatInvoiceMoney(gross)} ${currencyLabel}`,
-                },
-                {
-                  label: 'خصومات الأسطر',
-                  value: `− ${formatInvoiceMoney(commercialDiscount)} ${currencyLabel}`,
-                  tone: 'minus',
-                },
-                {
-                  label: 'الصافي بعد الخصم',
-                  value: `${formatInvoiceMoney(gross - commercialDiscount)} ${currencyLabel}`,
-                  tone: 'total',
-                  hint: 'كل خصم يُطبَّق على صافي السطر بعد الخصم السابق عندما يكون الخصم المتسلسل مفعّلاً.',
-                },
-              ]}
-            />
-          ),
-        },
-        { label: 'صافي خاضع للضريبة', value: summary.subtotalWithoutTax },
-        {
-          label: applyTax ? 'ضريبة القيمة المضافة (ض.ق.م)' : 'ضريبة القيمة المضافة (ض.ق.م) — معطّلة',
-          value: summary.taxAmount,
-        },
-        { label: 'رسم التنمية', value: summary.developmentFeeAmount },
-        { label: 'ضريبة أ.ت.ص (خصم منبع)', value: -summary.withholdingTaxAmount },
-        {
-          label: 'إضافات / خصومات أخرى',
-          value: summary.additionsAndDiscounts,
-          show: summary.additionsAndDiscounts !== 0,
-        },
-      ]}
+      hideLeftPanel={false}
+      netOnly={totalsOnly}
+      showJournalTab={!totalsOnly}
+      financialRows={
+        totalsOnly
+          ? []
+          : [
+              { label: 'الإجمالي قبل الخصم والضرائب', value: gross },
+              {
+                label: 'خصم تجاري',
+                value: -commercialDiscount,
+                suffix: (
+                  <CalculationInspector
+                    title="تفصيل الخصم المتسلسل"
+                    triggerLabel="تفاصيل الخصم"
+                    rows={[
+                      {
+                        label: 'مجموع قبل الخصم',
+                        value: `${formatInvoiceMoney(gross)} ${currencyLabel}`,
+                      },
+                      {
+                        label: 'خصومات الأسطر',
+                        value: `− ${formatInvoiceMoney(commercialDiscount)} ${currencyLabel}`,
+                        tone: 'minus',
+                      },
+                      {
+                        label: 'الصافي بعد الخصم',
+                        value: `${formatInvoiceMoney(gross - commercialDiscount)} ${currencyLabel}`,
+                        tone: 'total',
+                        hint: 'كل خصم يُطبَّق على صافي السطر بعد الخصم السابق عندما يكون الخصم المتسلسل مفعّلاً.',
+                      },
+                    ]}
+                  />
+                ),
+              },
+              { label: 'صافي خاضع للضريبة', value: summary.subtotalWithoutTax },
+              {
+                label: applyTax ? 'ضريبة القيمة المضافة (ض.ق.م)' : 'ضريبة القيمة المضافة (ض.ق.م) — معطّلة',
+                value: summary.taxAmount,
+              },
+              { label: 'رسم التنمية', value: summary.developmentFeeAmount },
+              { label: 'ضريبة أ.ت.ص (خصم منبع)', value: -summary.withholdingTaxAmount },
+              {
+                label: 'إضافات / خصومات أخرى',
+                value: summary.additionsAndDiscounts,
+                show: summary.additionsAndDiscounts !== 0,
+              },
+            ]
+      }
       netAmount={summary.netAmount}
-      netLabel="الصافي المستحق"
+      netLabel={totalsOnly ? 'الإجمالي' : 'الصافي المستحق'}
       currencyCode={currencyCode}
       showTafqeet
       highlightHeader={
@@ -233,23 +266,22 @@ export function SalesInvoiceBottomSplit({
       besideNet={cashPayment ? <InvoiceCashPaidControls {...cashPayment} netAmount={summary.netAmount} /> : null}
       financialFooter={termsAction}
       journalEntryId={journalEntryId}
+      journalEmptyTitle={journalEmptyTitle}
+      sourceDocumentId={selectedInvoiceId}
+      journalOptions={journalOptions}
+      onJournalIdChange={onJournalIdChange}
       activeTabId={activeTabId}
       onActiveTabChange={onActiveTabChange}
-      tabs={[
-        { id: 'stock', label: 'الأثر المخزني', content: stockContent },
-        { id: 'installments', label: 'موقف الدفعات', content: stanceContent },
-        { id: 'settlements', label: 'التحصيلات', content: collectionsContent },
-        {
-          id: 'audit',
-          label: 'سجل النشاط',
-          content: (
-            <AuditActivityTab entityType="INVOICE" entityId={selectedInvoiceId}>
-              {showEta ? <EtaReadinessPanel invoiceId={selectedInvoiceId} isPosted={isPosted} /> : null}
-              {auditExtra}
-            </AuditActivityTab>
-          ),
-        },
-      ]}
+      tabs={
+        totalsOnly
+          ? [auditTab]
+          : [
+              { id: 'stock', label: 'الأثر المخزني', content: stockContent },
+              { id: 'installments', label: 'موقف الدفعات', content: stanceContent },
+              { id: 'settlements', label: 'التحصيلات', content: collectionsContent },
+              auditTab,
+            ]
+      }
     />
     </div>
   );

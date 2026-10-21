@@ -152,7 +152,7 @@ export function ErpApp({ children }: { children: ReactNode }) {
                           <div className="shrink-0" style={{ marginTop: showMenuRow ? 80 : 0, transition: 'margin-top 0.3s' }}>
                             <AppTabs />
                           </div>
-                          <div className="relative z-40 shrink-0 bg-white">
+                          <div className="relative z-40 min-w-0 max-w-full shrink-0 bg-white">
                             <DocumentToolbarSlot />
                           </div>
                           <main

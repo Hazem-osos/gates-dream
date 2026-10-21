@@ -3,12 +3,19 @@
 import { useEffect, useState } from 'react';
 import { BodyPortal } from '@/components/ui/BodyPortal';
 import { SafeSelect } from '@/app/components/form/SafeSelect';
+import { useTransactionDocumentSettings } from '@/lib/transaction-settings/use-transaction-document-settings';
+import { documentSerialPlaceholder } from '@/lib/transaction-settings/serial-mode';
+import {
+  cashVoucherNumberLabel,
+  cashVoucherNumberRequiredMessage,
+} from '@/lib/invoices/payment-split.types';
 
 export type InvoiceCollectPayload = {
   amount: number;
   safeId: string;
   date: string;
   description?: string;
+  voucherNumber?: string;
 };
 
 type Safe = { id: string; arabicName?: string; code?: string | null; isDefault?: boolean };
@@ -62,7 +69,13 @@ export function InvoiceCollectModal({
   const [safeId, setSafeId] = useState(defaultSafeId ?? '');
   const [date, setDate] = useState(todayIsoDate);
   const [description, setDescription] = useState('');
+  const [voucherNumber, setVoucherNumber] = useState('');
   const [error, setError] = useState('');
+  const direction = pay ? 'PAYMENT' : 'RECEIPT';
+  const { serialManual: cashSerialManual } = useTransactionDocumentSettings(
+    pay ? 'PAYMENT_VOUCHER' : 'RECEIPT_VOUCHER'
+  );
+  const cashNumberLabel = cashVoucherNumberLabel(direction);
 
   useEffect(() => {
     if (!open) return;
@@ -70,6 +83,7 @@ export function InvoiceCollectModal({
     setSafeId(defaultSafeId ?? safes.find((safe) => safe.isDefault)?.id ?? safes[0]?.id ?? '');
     setDate(todayIsoDate());
     setDescription('');
+    setVoucherNumber('');
     setError('');
   }, [open, remaining, defaultSafeId, safes]);
 
@@ -89,12 +103,17 @@ export function InvoiceCollectModal({
       setError('اختر الخزينة');
       return;
     }
+    if (cashSerialManual && !voucherNumber.trim()) {
+      setError(cashVoucherNumberRequiredMessage(direction));
+      return;
+    }
     setError('');
     onConfirm({
       amount: Math.round(parsed * 100) / 100,
       safeId,
       date: new Date(`${date}T12:00:00`).toISOString(),
       description: description.trim() || undefined,
+      voucherNumber: cashSerialManual ? voucherNumber.trim() || undefined : undefined,
     });
   };
 
@@ -143,6 +162,18 @@ export function InvoiceCollectModal({
               emptyLabel="اختر الخزينة"
             />
           </label>
+          {cashSerialManual ? (
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-[#094C6B]">{cashNumberLabel}</span>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-gray-300 p-2 text-sm"
+                placeholder={documentSerialPlaceholder(false)}
+                value={voucherNumber}
+                onChange={(e) => setVoucherNumber(e.target.value)}
+              />
+            </label>
+          ) : null}
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-[#094C6B]">تاريخ التحصيل</span>
             <input

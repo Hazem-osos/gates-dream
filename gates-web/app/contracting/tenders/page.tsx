@@ -1,9 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ExtractsPageChrome } from '@/components/extracts/ExtractsPageChrome';
-import { EmptyState } from '@/components/ui/EmptyState';
+import { AppTable } from '@/components/ui';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { TENDER_STATUS_AR } from '@/components/contracting/tender/tender-labels';
@@ -15,7 +14,8 @@ type TenderRow = {
   status: string;
   location?: string | null;
   consultantName?: string | null;
-  submissionDeadline?: string | null;
+  issueDate?: string | null;
+  createdAt?: string;
   customer: { arabicName: string };
 };
 
@@ -37,58 +37,34 @@ export default function TendersListPage() {
       hideSave
       onNew={() => router.push('/contracting/tenders/new')}
     >
-      {q.isLoading ? (
-        <p className="text-sm text-muted-foreground">جاري التحميل…</p>
-      ) : rows.length === 0 ? (
-        <EmptyState
-          title="لا توجد عطاءات"
-          description="أنشئ عطاءاً جديداً لبدء الدراسة والتسعير والترسية."
-          action={
-            <Link href="/contracting/tenders/new" className="rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white">
-              عطاء جديد
-            </Link>
-          }
-        />
-      ) : (
-        <div className="overflow-x-auto rounded-2xl border bg-surface-1">
-          <table className="min-w-full text-sm">
-            <thead className="bg-[var(--info-soft)]">
-              <tr>
-                <th className="px-3 py-2 text-right">رقم العطاء</th>
-                <th className="px-3 py-2 text-right">المالك</th>
-                <th className="px-3 py-2 text-right">الاسم</th>
-                <th className="px-3 py-2 text-right">الاستشاري</th>
-                <th className="px-3 py-2 text-right">الموقع</th>
-                <th className="px-3 py-2 text-right">موعد التقديم</th>
-                <th className="px-3 py-2 text-right">الحالة</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((t) => (
-                <tr key={t.id} className="border-t">
-                  <td className="px-3 py-2">
-                    <Link href={`/contracting/tenders/${t.id}`} className="font-mono text-brand underline">
-                      {t.tenderNumber}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2">{t.customer.arabicName}</td>
-                  <td className="px-3 py-2">{t.nameAr}</td>
-                  <td className="px-3 py-2">{t.consultantName || '—'}</td>
-                  <td className="px-3 py-2">{t.location || '—'}</td>
-                  <td className="px-3 py-2">{t.submissionDeadline?.slice(0, 10) || '—'}</td>
-                  <td className="px-3 py-2">
-                    <StatusBadge
-                      label={TENDER_STATUS_AR[t.status] ?? t.status}
-                      tone={t.status === 'AWARDED' ? 'success' : t.status === 'LOST' ? 'danger' : 'info'}
-                      compact
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <AppTable
+        columns={[
+          { id: 'tenderNumber', header: 'رقم العطاء', accessor: 'tenderNumber' },
+          { id: 'customer', header: 'المالك', cell: (r) => r.customer.arabicName },
+          { id: 'nameAr', header: 'الاسم', accessor: 'nameAr' },
+          { id: 'consultantName', header: 'الاستشاري', cell: (r) => r.consultantName || '—' },
+          { id: 'location', header: 'الموقع', cell: (r) => r.location || '—' },
+          { id: 'issueDate', header: 'تاريخ التحرير', cell: (r) => (r.issueDate ?? r.createdAt)?.slice(0, 10) || '—' },
+          {
+            id: 'status',
+            header: 'الحالة',
+            cell: (r) => (
+              <StatusBadge
+                label={TENDER_STATUS_AR[r.status] ?? r.status}
+                tone={r.status === 'AWARDED' ? 'success' : r.status === 'LOST' ? 'danger' : 'info'}
+                compact
+              />
+            ),
+          },
+        ]}
+        data={rows}
+        getRowKey={(r) => r.id}
+        isLoading={q.isLoading}
+        emptyTitle="لا توجد عطاءات"
+        emptyDescription="أنشئ عطاءاً جديداً لبدء الدراسة والتسعير والترسية."
+        exportFileName="tenders"
+        onRowClick={(r) => router.push(`/contracting/tenders/${r.id}`)}
+      />
     </ExtractsPageChrome>
   );
 }

@@ -95,4 +95,32 @@ describe('computeLiveClientBreakdown', () => {
     });
     expect(live.grossCurrentWorks).toBe(200_000);
   });
+
+  it('folds preliminary and final works insurance plus other contract deductions', () => {
+    const live = computeLiveClientBreakdown({
+      contract: {
+        ...contract,
+        retentionRate: 0.05,
+        finalRetentionRate: 0.02,
+        otherDeductionsRate: 0.01,
+      },
+      boqItems: [
+        {
+          ...parent,
+          id: 'leaf',
+          isExecutable: true,
+          itemCode: '1.1',
+          unitSellingPrice: 1000,
+          totalSellingPrice: 1000,
+        },
+      ],
+      lines: [{ projectBOQItemId: 'leaf', currentQuantity: 1 }],
+      siteStock: [],
+      claimIds: [],
+      installIds: [],
+      otherClientPenalties: 10,
+    });
+    expect(live.retentionDeduction).toBe(70);
+    expect(live.otherClientPenalties).toBe(20);
+  });
 });

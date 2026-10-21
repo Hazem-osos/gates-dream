@@ -1,7 +1,9 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { destinationAppTabHref, pinDocumentTabQuery } from '@/lib/navigation/tab-memory';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { GenericRecordsList } from '@/components/erp/GenericRecordsList';
@@ -32,9 +34,25 @@ import {
 import type { ApiResponse } from '@/lib/api/types';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { printManufacturingVoucher } from '@/lib/print/printManufacturingVoucher';
+import { maybeAutoPrintAfterSave } from '@/lib/printer/print-prefs';
 import { useStoreDocumentSerial } from '@/lib/inventory/use-store-document-serial';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
+import {
+  useApplyDefaultWarehouseFromTransactionSettings,
+  useTransactionDocumentSettings,
+} from '@/lib/transaction-settings/use-transaction-document-settings';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
 import type { AssemblyPricingMethod } from '@/lib/inventory/assembly-pricing';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { isUnsetOrDefaultWarehouse } from '@/lib/drafts/form-lines-draft';
+import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
+import { toast } from '@/lib/feedback/toast';
+import {
+  assemblySalesInvoiceDraftHref,
+  storeAssemblySalesInvoiceDraft,
+} from '@/lib/inventory/assembly-sales-invoice-draft';
 
 type AssemblyParentItem = {
   id: string;
@@ -85,16 +103,57 @@ function todayIso() {
   return new Date().toISOString().split('T')[0];
 }
 
+type AssemblyDraft = {
+  serial: string;
+  description: string;
+  date: string;
+  parentItemId: string;
+  assemblyQuantity: number;
+  sourceWarehouseId: string;
+  targetWarehouseId: string;
+  costCenterId: string;
+  pricingMethod: AssemblyPricingMethod;
+  lines: AssemblyComponentLine[];
+};
+
+function isAssemblyDraftEmpty(
+  draft: AssemblyDraft,
+  defaultWarehouseId?: string | null,
+): boolean {
+  return (
+    !draft.serial.trim() &&
+    !draft.description.trim() &&
+    !draft.parentItemId &&
+    isUnsetOrDefaultWarehouse(draft.sourceWarehouseId, defaultWarehouseId) &&
+    isUnsetOrDefaultWarehouse(draft.targetWarehouseId, defaultWarehouseId) &&
+    !draft.costCenterId.trim() &&
+    !draft.lines.some(isEnteredAssemblyLine)
+  );
+}
+
 function AssemblyPageInner() {
+  const router = useRouter();
   const searchParams = useOwnTabSearchParams();
   const invalidateQuery = useInvalidateQuery();
-  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
+  const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
+  const {
+    settings: assemblyTxSettings,
+    autoPostOnSave,
+    autoPrintOnSave,
+    saveLabel: legacySaveLabel,
+    defaultWarehouseId: txDefaultWarehouseId,
+  } = useTransactionDocumentSettings('STOCK_ASSEMBLY');
+  const assemblySaveLabel = autoPostOnSave ? 'حفظ وترحيل التجميع' : legacySaveLabel;
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost(
+    autoPostOnSave
+  );
   const [selectedId, setSelectedId] = useState<string | null>(
     () => searchParams.get('id')?.trim() || null
   );
   const [browseOpen, setBrowseOpen] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [restorePending, setRestorePending] = useState(false);
   const [explodePending, setExplodePending] = useState(false);
   const postAfterSaveRef = useRef(false);
 
@@ -112,12 +171,21 @@ function AssemblyPageInner() {
   const [glSkipped, setGlSkipped] = useState(false);
   const [lines, setLines] = useState<AssemblyComponentLine[]>([emptyAssemblyComponentLine()]);
   const [pricingMethod, setPricingMethod] = useState<AssemblyPricingMethod>('AVERAGE_COST');
-  const [viewLocked, setViewLocked] = useState(false);
 
   const { serialAutomatic, invalidateNextSerial } = useStoreDocumentSerial({
     kind: 'assembly',
     enabled: !selectedId,
     setSerial,
+  });
+
+  useApplyDefaultWarehouseFromTransactionSettings({
+    selectedId,
+    warehouseId: sourceWarehouseId,
+    defaultWarehouseId: txDefaultWarehouseId,
+    setWarehouseId: (id) => {
+      setSourceWarehouseId(id);
+      if (!targetWarehouseId) setTargetWarehouseId(id);
+    },
   });
 
   const { data: itemsResponse } = useApiQuery<AssemblyParentItem[]>(
@@ -169,27 +237,99 @@ function AssemblyPageInner() {
         notes: '',
       }))
     );
-    setViewLocked(true);
   }, [loaded, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setMode('create');
+      return;
+    }
+    if (isCancelled || isPosted) lockToView();
+    else setMode('edit');
+  }, [isCancelled, isPosted, lockToView, selectedId, setMode]);
 
   const entered = useMemo(() => lines.filter(isEnteredAssemblyLine), [lines]);
   const totalComponentsCost = useMemo(
     () => entered.reduce((sum, line) => sum + assemblyLineTotal(line), 0),
     [entered]
   );
-  const readOnly = isPosted || isCancelled || viewLocked;
+  const readOnly = isPosted || isCancelled || isReadOnly;
+
+  const draftSnapshot = useMemo<AssemblyDraft>(
+    () => ({
+      serial,
+      description,
+      date,
+      parentItemId,
+      assemblyQuantity,
+      sourceWarehouseId,
+      targetWarehouseId,
+      costCenterId,
+      pricingMethod,
+      lines,
+    }),
+    [
+      serial,
+      description,
+      date,
+      parentItemId,
+      assemblyQuantity,
+      sourceWarehouseId,
+      targetWarehouseId,
+      costCenterId,
+      pricingMethod,
+      lines,
+    ]
+  );
+
+  const applyAssemblyDraft = useCallback((payload: AssemblyDraft) => {
+    setMode('create');
+    setSelectedId(null);
+    setSerial(payload.serial);
+    setDescription(payload.description);
+    setDate(payload.date || todayIso());
+    setParentItemId(payload.parentItemId);
+    setAssemblyQuantity(payload.assemblyQuantity || 1);
+    setSourceWarehouseId(payload.sourceWarehouseId);
+    setTargetWarehouseId(payload.targetWarehouseId);
+    setCostCenterId(payload.costCenterId);
+    setPricingMethod(payload.pricingMethod || 'AVERAGE_COST');
+    setLines(payload.lines?.length ? payload.lines : [emptyAssemblyComponentLine()]);
+    setIsPosted(false);
+    setIsCancelled(false);
+    setJournalEntryId(null);
+    setGlSkipped(false);
+    setError('');
+    pinDocumentTabQuery(null);
+  }, []);
+
+  const {
+    restoreOffer,
+    acceptRestore,
+    dismissRestore,
+    clearDraft,
+  } = useDraftAutosave({
+    documentType: 'stock-assembly',
+    mode: selectedId ? 'edit' : 'new',
+    documentId: selectedId,
+    value: draftSnapshot,
+    enabled: !selectedId && !isPosted && !isCancelled,
+    applyRestore: applyAssemblyDraft,
+    isEmpty: (draft) => isAssemblyDraftEmpty(draft, txDefaultWarehouseId),
+    restoreMessage: 'تم استعادة مسودة أمر التجميع',
+  });
 
   const stayOnAssembly = (id?: string | null, serialNumber?: string | null) => {
     if (!id) return;
     setSelectedId(id);
     if (serialNumber) setSerial(serialNumber);
-    window.history.replaceState(null, '', `?id=${id}`);
+    pinDocumentTabQuery(id);
     invalidateStockViews(invalidateQuery);
   };
 
   const openAssembly = (id: string) => {
     setSelectedId(id);
-    window.history.replaceState(null, '', `?id=${id}`);
+    pinDocumentTabQuery(id);
   };
 
   const applyPostResponse = (res: ApiResponse<unknown>) => {
@@ -198,16 +338,80 @@ function AssemblyPageInner() {
     setGlSkipped(skipped);
   };
 
+  const printAssembly = () => {
+    const parent = items.find((i) => i.id === parentItemId);
+    printManufacturingVoucher({
+      title: 'أمر التجميع',
+      number: serial,
+      date,
+      description,
+      parentItemLabel: parent?.arabicName,
+      quantity: assemblyQuantity,
+      rows: entered.map((line) => ({
+        code: line.itemCode,
+        name: line.itemName,
+        quantity: line.quantity,
+        unitCost: line.unitCost,
+        total: assemblyLineTotal(line),
+      })),
+      totalAmount: totalComponentsCost,
+      totalsLabel: 'إجمالي تكلفة المكونات',
+    });
+  };
+
+  const offerAssemblySalesInvoice = useCallback(
+    (savedNumber?: string | null) => {
+      if (assemblyTxSettings?.warnSalesInvoiceOnAssemblySave !== true || !parentItemId) return;
+      const warehouseId = (targetWarehouseId || sourceWarehouseId).trim();
+      if (!warehouseId) return;
+      const parent = items.find((i) => i.id === parentItemId);
+      const num = String(savedNumber ?? serial).trim();
+      storeAssemblySalesInvoiceDraft({
+        warehouseId,
+        assemblySerial: num || null,
+        description: num ? `من تجميع ${num}` : 'من عملية تجميع أصناف',
+        lines: [
+          {
+            itemId: parentItemId,
+            itemName: parent?.arabicName ?? '',
+            quantity: assemblyQuantity,
+          },
+        ],
+      });
+      toast('الصنف المجمع جاهز للبيع', {
+        description: 'افتح فاتورة مبيعات بالمخزن والصنف والكمية — اختر العميل ليُملأ السعر من قائمة الأسعار.',
+        duration: 12000,
+        action: {
+          label: 'فاتورة مبيعات',
+          onClick: () => router.push(destinationAppTabHref(assemblySalesInvoiceDraftHref())),
+        },
+      });
+    },
+    [
+      assemblyQuantity,
+      assemblyTxSettings?.warnSalesInvoiceOnAssemblySave,
+      items,
+      parentItemId,
+      router,
+      serial,
+      sourceWarehouseId,
+      targetWarehouseId,
+    ]
+  );
+
   const finishAssemblySave = (posted: boolean, id?: string | null, number?: string | null) => {
+    maybeAutoPrintAfterSave(autoPrintOnSave, printAssembly);
     finishDocumentSave({
       label: 'تجميع',
       number,
       posted,
       savedId: id,
+      clearDraft,
       onOpen: openAssembly,
       onSavedOpen: (saved) => invalidateQuery(['assembly', saved]),
       reset: resetNew,
     });
+    offerAssemblySalesInvoice(number ?? serial);
   };
 
   const postAssemblyAfterSave = (id: string, number?: string | null) => {
@@ -295,6 +499,31 @@ function AssemblyPageInner() {
 
   const unpostMutation = useDocumentPostMutation('/inventory/assemblies', selectedId, 'unpost');
 
+  const handleRestoreCancelled = async () => {
+    if (!selectedId || restorePending) return;
+    setRestorePending(true);
+    try {
+      await restoreCancelledDocument({
+        restorePath: `/inventory/assemblies/${selectedId}/restore`,
+        postPath: `/inventory/assemblies/${selectedId}/post`,
+        kind: 'named',
+        autoPostOnSave,
+      });
+      setIsCancelled(false);
+      const posted = autoPostOnSave === true;
+      setIsPosted(posted);
+      if (posted) lockToView();
+      else setMode('edit');
+      invalidateQuery(['assembly', selectedId]);
+      invalidateStockViews(invalidateQuery);
+      setSuccess(posted ? 'تمت الاستعادة والترحيل' : 'تمت الاستعادة — المستند غير مرحّل');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر الاستعادة');
+    } finally {
+      setRestorePending(false);
+    }
+  };
+
   const cancelMutation = useApiMutation<unknown, Record<string, never>>(
     selectedId ? `/inventory/assemblies/${selectedId}/cancel` : '/inventory/assemblies',
     'POST',
@@ -304,6 +533,7 @@ function AssemblyPageInner() {
         setIsCancelled(true);
         setSuccess('تم إلغاء أمر التجميع');
         invalidateQuery(['assemblies']);
+        if (selectedId) invalidateQuery(['assembly', selectedId]);
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر إلغاء التجميع'),
     }
@@ -348,6 +578,12 @@ function AssemblyPageInner() {
       postAfterSaveRef.current = false;
       setError(err instanceof Error ? err.message : 'تحقق من البيانات');
     }
+  };
+
+  const handleSaveDraft = () => {
+    if (isPosted || isCancelled) return;
+    postAfterSaveRef.current = autoPostOnSave;
+    handleSave();
   };
 
   const handleSaveAndPost = () => {
@@ -404,9 +640,10 @@ function AssemblyPageInner() {
     }
   };
 
-  const resetNew = () => {
+  const resetNew = useCallback(() => {
+    clearDraft();
     resetKeepPosted();
-    setViewLocked(false);
+    setMode('create');
     setSelectedId(null);
     setSerial('');
     void invalidateNextSerial();
@@ -425,8 +662,8 @@ function AssemblyPageInner() {
     setLines([emptyAssemblyComponentLine()]);
     setError('');
     setSuccess('');
-    window.history.replaceState(null, '', window.location.pathname);
-  };
+    pinDocumentTabQuery(null);
+  }, [clearDraft, invalidateNextSerial, resetKeepPosted]);
 
   const savePending = createMutation.isPending || updateMutation.isPending;
 
@@ -436,6 +673,18 @@ function AssemblyPageInner() {
         {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
         {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
+        <PageDraftRestoreGate<AssemblyDraft>
+          restoreOffer={restoreOffer}
+          hide={Boolean(selectedId)}
+          message="يوجد مسودة أمر تجميع غير محفوظة."
+          acceptRestore={acceptRestore}
+          dismissRestore={dismissRestore}
+          onRestored={(payload) => {
+            applyAssemblyDraft(payload);
+            setSuccess('تم استعادة مسودة أمر التجميع');
+          }}
+        />
+
         <ItemAssemblyHeader
           docNumber={serial}
           serialReadOnly={serialAutomatic || readOnly}
@@ -443,6 +692,7 @@ function AssemblyPageInner() {
           onSerialChange={setSerial}
           isPosted={isPosted}
           isCancelled={isCancelled}
+          documentId={selectedId}
           parentItemId={parentItemId}
           onParentItemId={setParentItemId}
           parentItems={items}
@@ -474,99 +724,69 @@ function AssemblyPageInner() {
           explodePending={explodePending}
           canExplode={Boolean(parentItemId) && assemblyQuantity > 0 && !isPosted && !isCancelled}
           onExplode={() => void handleExplodeBOM()}
-          onSaveDraft={handleSaveAndPost}
+          onSaveDraft={handleSaveDraft}
           onCancel={resetNew}
+          saveLabel={assemblySaveLabel}
           savePending={savePending}
           canSave={!readOnly && !savePending}
           onBrowseList={() => setBrowseOpen(true)}
-          moreMenuItems={[
-            { id: 'new', label: 'جديد', onClick: resetNew },
-            {
-              id: 'edit',
-              label: 'تعديل',
-              disabled: !selectedId || isPosted || isCancelled || !viewLocked,
-              onClick: () => {
-                if (isPosted) {
-                  setError('يجب فك الترحيل أولاً للتعديل');
-                  return;
+          onRestore={() => void handleRestoreCancelled()}
+          restorePending={restorePending}
+          menuActions={{
+            transactionSettingsDocumentType: 'STOCK_ASSEMBLY',
+            onTransactionSettingsSaved: () => {
+              invalidateAfterTransactionSettingsSave(invalidateQuery, 'STOCK_ASSEMBLY');
+              void invalidateNextSerial();
+            },
+            onNew: resetNew,
+            onEdit: () => {
+              if (isPosted || isCancelled) {
+                setError('يجب فك الترحيل أولاً للتعديل');
+                return;
+              }
+              unlockForEdit();
+              setSuccess('');
+            },
+            onPost: () => handleSaveAndPost(),
+            postLabel: 'ترحيل أمر التجميع',
+            postPending: savePending,
+            onUnpost: () => {
+              if (!selectedId) return;
+              unpostMutation.mutate(
+                {},
+                {
+                  onSuccess: () => {
+                    setIsPosted(false);
+                    setIsCancelled(false);
+                    setGlSkipped(false);
+                    setMode('edit');
+                    markUnpostedForEdit();
+                    setSuccess('تم فك ترحيل التجميع');
+                    stayOnAssembly(selectedId);
+                    invalidateQuery(['assembly', selectedId]);
+                    invalidateQuery(['journal-entries']);
+                    invalidateQuery(['journal-entry']);
+                  },
+                  onError: (err: ApiError) => setError(err.message || 'فشل فك الترحيل'),
                 }
-                setViewLocked(false);
-                setSuccess('');
-              },
+              );
             },
-            {
-              id: 'post',
-              label: 'ترحيل أمر التجميع',
-              disabled: isPosted || isCancelled || savePending,
-              onClick: () => handleSaveAndPost(),
+            unpostPending: unpostMutation.isPending,
+            onPrint: printAssembly,
+            printLabel: 'طباعة أمر التجميع',
+            onVoid: () => {
+              if (selectedId) cancelMutation.mutate({});
             },
-            {
-              id: 'unpost',
-              label: 'فك ترحيل التجميع',
-              disabled: !selectedId || !isPosted || unpostMutation.isPending,
-              onClick: () => {
-                if (!selectedId) return;
-                void confirmAction('فك ترحيل أمر التجميع؟ سيتم إرجاع الكميات للمخزن.').then((ok) => {
-                  if (ok)
-                    unpostMutation.mutate(
-                      {},
-                      {
-                        onSuccess: () => {
-                          setIsPosted(false);
-                          setJournalEntryId(null);
-                          setGlSkipped(false);
-                          setViewLocked(false);
-                          markUnpostedForEdit();
-                          setSuccess('تم فك ترحيل التجميع');
-                          stayOnAssembly(selectedId);
-                          invalidateQuery(['assembly', selectedId]);
-                        },
-                        onError: (err: ApiError) => setError(err.message || 'فشل فك الترحيل'),
-                      }
-                    );
-                });
-              },
-            },
-            {
-              id: 'print',
-              label: 'طباعة أمر التجميع',
-              onClick: () => {
-                const parent = items.find((i) => i.id === parentItemId);
-                printManufacturingVoucher({
-                  title: 'أمر التجميع',
-                  number: serial,
-                  date,
-                  description,
-                  parentItemLabel: parent?.arabicName,
-                  quantity: assemblyQuantity,
-                  rows: entered.map((line) => ({
-                    code: line.itemCode,
-                    name: line.itemName,
-                    quantity: line.quantity,
-                    unitCost: line.unitCost,
-                    total: assemblyLineTotal(line),
-                  })),
-                  totalAmount: totalComponentsCost,
-                  totalsLabel: 'إجمالي تكلفة المكونات',
-                });
-              },
-            },
-            {
-              id: 'cancel',
-              label: 'إلغاء التجميع',
-              disabled: !selectedId || isPosted || isCancelled,
-              destructive: true,
-              onClick: () => {
-                if (selectedId) cancelMutation.mutate({});
-              },
-            },
-          ]}
+            voidLabel: 'إلغاء التجميع',
+            voidPending: cancelMutation.isPending,
+          }}
         />
 
         <AssemblyLinesTable
           lines={lines}
           onChange={setLines}
           warehouseId={sourceWarehouseId}
+          asOfDate={date}
           pricingMethod={pricingMethod}
           disabled={readOnly}
           headerDescription={description}
@@ -612,18 +832,10 @@ function AssemblyPageInner() {
                 getValue: (r) => Number(r.totalAmount ?? 0).toLocaleString('ar-EG'),
               },
             ]}
-            resolveStatus={(r) =>
-              r.isCancelled
-                ? { variant: 'danger', label: 'ملغي' }
-                : r.isPosted
-                  ? { variant: 'success', label: 'مرحّل' }
-                  : { variant: 'warning', label: selectedId ? 'غير مرحّل' : 'جديد' }
-            }
             onSelect={(id) => {
               setSelectedId(id);
-              setViewLocked(true);
               setBrowseOpen(false);
-              window.history.replaceState(null, '', `?id=${id}`);
+              pinDocumentTabQuery(id);
             }}
           />
         </DocumentBrowseDrawer>
@@ -634,8 +846,10 @@ function AssemblyPageInner() {
 
 export default function AssemblyPage() {
   return (
-    <Suspense fallback={<p className="p-6 text-sm text-muted-foreground">جاري فتح شاشة التجميع…</p>}>
-      <AssemblyPageInner />
-    </Suspense>
+    <DocumentModeProvider>
+      <Suspense fallback={<p className="p-6 text-sm text-muted-foreground">جاري فتح شاشة التجميع…</p>}>
+        <AssemblyPageInner />
+      </Suspense>
+    </DocumentModeProvider>
   );
 }

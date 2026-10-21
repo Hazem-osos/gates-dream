@@ -1,5 +1,8 @@
 'use client';
 
+import { AccountLedgerLink } from '@/components/report/AccountLedgerLink';
+import { BalanceRowEye } from '@/components/report/BalanceAnalysisProvider';
+
 type Row = Record<string, unknown>;
 
 function amount(value: unknown): number {
@@ -22,16 +25,18 @@ export function BudgetSheet({
   currentYearLabel,
   compareYearLabel,
   entity = 'account',
+  drillQuery,
 }: {
   rows: Row[];
   compareRows?: Row[];
   currentYearLabel?: string;
   compareYearLabel?: string;
   entity?: 'account' | 'costCenter';
+  drillQuery?: Record<string, string>;
 }) {
   const showCompare = Boolean(compareYearLabel);
   const groups = [
-    { label: entity === 'costCenter' ? 'مركز التكلفة' : 'الحساب', span: 5 },
+    { label: entity === 'costCenter' ? 'مركز التكلفة' : 'الحساب', span: 6 },
     { label: 'الموازنة', span: 2 },
     { label: 'الرصيد السابق', span: 2 },
     { label: currentYearLabel || 'رصيد آخر الفترة', span: 2 },
@@ -86,6 +91,7 @@ export function BudgetSheet({
             </tr>
             <tr className="bg-[#1787B8] text-xs text-white">
               {[
+                'تحليل',
                 ...(entity === 'costCenter'
                   ? ['مسار مركز التكلفة', 'رمز مركز التكلفة', 'اسم مركز التكلفة']
                   : ['مسار الحساب', 'رمز الحساب', 'اسم الحساب']),
@@ -118,9 +124,35 @@ export function BudgetSheet({
               const over = amount(row.negativeVariance) > 0;
               return (
                 <tr key={String(row.accountId ?? index)} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                  <td className="border-b border-slate-100 px-1 py-2 text-center no-print">
+                    <BalanceRowEye
+                      accountId={typeof row.accountId === 'string' ? row.accountId : undefined}
+                      label={[String(row.code ?? ''), String(row.account ?? '')].filter(Boolean).join(' — ')}
+                      query={drillQuery}
+                      kind={entity === 'costCenter' ? 'costCenter' : 'account'}
+                    />
+                  </td>
                   <td className="max-w-64 truncate border-b border-slate-100 px-2 py-2 text-slate-500">{String(row.accountPath ?? '')}</td>
-                  <td className="border-b border-slate-100 px-2 py-2 tabular-nums text-slate-600">{String(row.code ?? '')}</td>
-                  <td className="border-b border-slate-100 px-2 py-2 font-medium text-slate-800">{String(row.account ?? '')}</td>
+                  <td className="border-b border-slate-100 px-2 py-2 tabular-nums text-slate-600">
+                    <AccountLedgerLink
+                      accountId={typeof row.accountId === 'string' ? row.accountId : undefined}
+                      query={drillQuery}
+                      kind={entity === 'costCenter' ? 'costCenter' : 'account'}
+                      showIcon={false}
+                    >
+                      {String(row.code ?? '')}
+                    </AccountLedgerLink>
+                  </td>
+                  <td className="border-b border-slate-100 px-2 py-2 font-medium text-slate-800">
+                    <AccountLedgerLink
+                      accountId={typeof row.accountId === 'string' ? row.accountId : undefined}
+                      query={drillQuery}
+                      kind={entity === 'costCenter' ? 'costCenter' : 'account'}
+                      showIcon={false}
+                    >
+                      {String(row.account ?? '')}
+                    </AccountLedgerLink>
+                  </td>
                   <td className="border-b border-slate-100 px-2 py-2 text-slate-600">{String(row.classification ?? '')}</td>
                   <td className="border-b border-e border-slate-100 px-2 py-2 text-center">{String(row.budgetLevel ?? '')}</td>
                   <Money value={amount(row.budgetDebit)} />
@@ -149,7 +181,7 @@ export function BudgetSheet({
           </tbody>
           <tfoot>
             <tr className="bg-[#0E4C6E] font-semibold text-white">
-              <td className="px-2 py-3" colSpan={5}>المجموع</td>
+              <td className="px-2 py-3" colSpan={6}>المجموع</td>
               <td className="px-2 py-3 text-center tabular-nums">{money(totals.budgetDebit)}</td>
               <td className="px-2 py-3 text-center tabular-nums">{money(totals.budgetCredit)}</td>
               <td className="px-2 py-3 text-center tabular-nums">{money(totals.openingDebit)}</td>

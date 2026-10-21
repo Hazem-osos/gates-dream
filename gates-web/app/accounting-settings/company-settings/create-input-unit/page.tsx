@@ -1,4 +1,5 @@
 'use client';
+import { AccountingSettingsPageHeader } from '@/components/accounting-settings';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 
 import OuterCard from '@/components/OuterCard';
@@ -68,14 +69,8 @@ export default function CreateInputUnitPage() {
   const total = unitsRes?.pagination?.total ?? unitsRes?.meta?.total ?? units.length;
 
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen" style={{ direction: 'rtl' }}>
-      <div className="mb-8">
-        <div className="text-right">
-          <h1 className="text-2xl font-bold text-[#0E78AA] mb-3">إنشاء وحدة إدخال جديدة</h1>
-          <div className="h-1 bg-[#0E78AA] rounded-full w-full shadow-sm"></div>
-        </div>
-      </div>
-
+    <>
+      <AccountingSettingsPageHeader title="إنشاء وحدة إدخال جديدة" />
       <div className="flex justify-end items-center mb-4">
         <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
       </div>
@@ -158,6 +153,6 @@ export default function CreateInputUnitPage() {
 
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-    </div>
+    </>
   );
 }

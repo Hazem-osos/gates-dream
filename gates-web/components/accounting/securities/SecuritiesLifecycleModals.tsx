@@ -294,6 +294,7 @@ export function SecuritiesBounceModal({
 
 export function SecuritiesEndorseModal({
   open,
+  kind = 'receipt',
   apiPath,
   paperId,
   chequeNumber,
@@ -303,6 +304,7 @@ export function SecuritiesEndorseModal({
   onDone,
 }: {
   open: boolean;
+  kind?: PaperKind;
   apiPath: string;
   paperId: string | null;
   chequeNumber?: string;
@@ -334,7 +336,7 @@ export function SecuritiesEndorseModal({
   if (!paperId) {
     return (
       <Shell
-        title="تظهير ورقة مقبوضات"
+        title={kind === 'payment' ? 'تظهير ورقة مدفوعات' : 'تظهير ورقة مقبوضات'}
         onClose={onClose}
         footer={<ActionFooter pending={false} saveLabel="إغلاق" onSave={onClose} onClose={onClose} />}
       >
@@ -367,7 +369,7 @@ export function SecuritiesEndorseModal({
 
   return (
     <Shell
-      title="تظهير ورقة مقبوضات"
+      title={kind === 'payment' ? 'تظهير ورقة مدفوعات' : 'تظهير ورقة مقبوضات'}
       onClose={onClose}
       footer={<ActionFooter pending={pending} saveLabel="حفظ التظهير" onSave={() => void save()} onClose={onClose} />}
     >
@@ -377,7 +379,11 @@ export function SecuritiesEndorseModal({
           className={erpInputClass}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="تظهير شيك رقم … من العميل … يستحق بتاريخ …"
+          placeholder={
+            kind === 'payment'
+              ? 'تظهير شيك رقم … إلى المورد … يستحق بتاريخ …'
+              : 'تظهير شيك رقم … من العميل … يستحق بتاريخ …'
+          }
         />
       </div>
       <DatePickerWithHijri label="تاريخ التظهير" value={date} onChange={setDate} />
@@ -387,13 +393,13 @@ export function SecuritiesEndorseModal({
           value={accountId}
           onChange={setAccountId}
           className={erpInputClass}
-          leafOnly={false}
+          leafOnly
           allowEmpty
-          emptyLabel="اختر الحساب من الشجرة"
-          placeholder="ابحث في شجرة الحسابات"
+          emptyLabel="اختر حساب حركة"
+          placeholder="حسابات الحركة فقط"
         />
         <p className="mt-1 text-[11px] leading-4 text-slate-500">
-          تظهر كل شجرة الحسابات. اختَر حساب حركة، وليس حساباً رئيسياً.
+          تظهر حسابات الحركة فقط. الحسابات الرئيسية لا تُعرض.
         </p>
       </div>
       {error ? <p className="sm:col-span-2 text-sm text-red-600">{error}</p> : null}

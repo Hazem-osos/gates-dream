@@ -19,7 +19,7 @@ import { usePageFavorites } from '@/lib/hooks/usePageFavorites';
 import { getRecentForPalette, useCommandRecent } from '@/lib/hooks/useCommandRecent';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
 import { GATES_AI_OPEN_EVENT } from '@/lib/hooks/useGatesAi';
-import { settingsHrefForNav } from '@/lib/transaction-settings/types';
+import { documentSettingsOpenHref } from '@/lib/transaction-settings/types';
 import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 
 function displayPageLabel(href: string, stored?: string) {
@@ -119,7 +119,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   );
 
   const renderCommandLabel = (label: string, href?: string) => {
-    const settingsHref = settingsHrefForNav(href);
+    const settingsHref = documentSettingsOpenHref(href);
     return (
       <span className="flex w-full items-center justify-between gap-2">
         <span>{label}</span>

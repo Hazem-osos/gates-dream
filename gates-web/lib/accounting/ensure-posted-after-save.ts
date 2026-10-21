@@ -80,8 +80,11 @@ export async function postNamedDocumentAfterSave(
   }
 }
 
-/** After فك الترحيل, the next successful save must re-post the journal. */
-export function useRepostAfterUnpost() {
+/**
+ * After فك الترحيل, the next successful save re-posts the same journal —
+ * unless the document settings turn auto-post on save off.
+ */
+export function useRepostAfterUnpost(autoPostOnSave?: boolean) {
   const keepPostedRef = useRef(false);
 
   const markUnpostedForEdit = useCallback(() => {
@@ -89,10 +92,10 @@ export function useRepostAfterUnpost() {
   }, []);
 
   const consumeShouldRepost = useCallback(() => {
-    const should = keepPostedRef.current;
+    const should = keepPostedRef.current && autoPostOnSave !== false;
     keepPostedRef.current = false;
     return should;
-  }, []);
+  }, [autoPostOnSave]);
 
   const resetKeepPosted = useCallback(() => {
     keepPostedRef.current = false;

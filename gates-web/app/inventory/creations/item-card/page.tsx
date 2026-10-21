@@ -28,6 +28,7 @@ import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { ItemGroupSelect } from '@/components/form/ItemGroupSelect';
 import { QuickCreateItemModal, type QuickCreatedItem } from '@/app/components/form/QuickCreateItemModal';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
 import { UnitSelect } from '@/components/form/UnitSelect';
 import { useCompanyGlDefaults } from '@/lib/hooks/useCompanyGlDefaults';
@@ -38,7 +39,7 @@ import { formatMoneyAr } from '@/lib/formatMoney';
 import { useItemCardTourPrepare } from '@/lib/onboarding/useItemCardTourPrepare';
 import { queryKeys } from '@/lib/query/query-keys';
 import { rememberCreatedItemCategory } from '@/lib/inventory/remember-item-category';
-import { resolveItemBarcode } from '@/lib/inventory/item-barcode-default';
+import { barcodeFieldDisplay, resolveItemBarcode } from '@/lib/inventory/item-barcode-default';
 import { BarcodePrintModal } from '@/app/components/print/BarcodePrintModal';
 import { EtaDetailsDialog } from '@/components/electronic-invoices/EtaDetailsDialog';
 import { UnitDefinitionDialog } from '@/components/inventory/UnitDefinitionDialog';
@@ -151,7 +152,7 @@ const TABS = [
 ] as const;
 
 const OPTION_FLAGS = [
-  ['useExpirationDate', 'استخدام تاريخ الصلاحية'],
+  ['useExpirationDate', 'خاضع لتاريخ الصلاحية (باتش / تشغيلة)'],
   ['inactiveItem', 'صنف غير نشط'],
   ['notSubjectToTerms', 'لا يخضع للعروض والخصومات'],
   ['cannotBeReturned', 'لا يمكن إرجاعه'],
@@ -312,7 +313,7 @@ function ItemCardPageInner() {
   const queryClient = useQueryClient();
   const invalidateQuery = useInvalidateQuery();
   const router = useRouter();
-  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const { isReadOnly, unlockForEdit, setMode } = useDocumentMode();
   const quickCreate = useQuickCreateHost('item');
   const [activeTab, setActiveTab] = useState<string | null>(null);
   useItemCardTourPrepare(setActiveTab);
@@ -413,17 +414,6 @@ function ItemCardPageInner() {
   }, [activeItemId, itemAuto, nextItemSerial]);
 
   useEffect(() => {
-    setFormData((prev) => {
-      const serial = prev.serial.trim();
-      if (!serial) return prev;
-      const barcode = prev.barcode.trim();
-      if (barcode && barcode !== serial) return prev;
-      const nextBarcode = resolveItemBarcode(prev.barcode, serial);
-      return prev.barcode === nextBarcode ? prev : { ...prev, barcode: nextBarcode };
-    });
-  }, [formData.serial]);
-
-  useEffect(() => {
     if (!quickCreate.prefillName || activeItemId) return;
     setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
   }, [activeItemId, quickCreate.prefillName]);
@@ -465,7 +455,7 @@ function ItemCardPageInner() {
     setMode('create');
   }, [setMode]);
 
-  const { clearDraft } = useDraftAutosave({
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
     documentType: 'item-card',
     mode: 'new',
     value: itemCardDraft,
@@ -716,8 +706,8 @@ function ItemCardPageInner() {
     hydratedIdRef.current = itemDetail.id;
     setSavedItemId(itemDetail.id);
     hydrateFromItem(itemDetail);
-    lockToView();
-  }, [activeItemId, itemDetail, lockToView]);
+    unlockForEdit();
+  }, [activeItemId, itemDetail, unlockForEdit]);
 
   const { data: glDefaultsResponse } = useCompanyGlDefaults();
   const glDefaults = glDefaultsResponse?.data;
@@ -798,19 +788,12 @@ function ItemCardPageInner() {
     if (id) {
       await persistExtraUnits(id, localUnits);
       await persistUnitPrices(id, localUnits);
-      await pinSavedItem(id, saved);
     }
     invalidateStockViews(invalidateQuery);
     invalidateQuery(['items']);
     invalidateQuery(['items', 'serials']);
     invalidateQuery(['items', 'guide']);
     invalidateQuery(queryKeys.itemCategories({ limit: 200 }));
-    if (id) {
-      dismissedItemIdRef.current = null;
-      setSavedItemId(id);
-      hydratedIdRef.current = id;
-      hydrateFromItem(saved);
-    }
     if (quickCreate.isQuickCreate) {
       clearDraft();
       if (id) {
@@ -824,38 +807,22 @@ function ItemCardPageInner() {
       setSuccess('تم حفظ الصنف');
       return;
     }
+    const savedSerial = saved?.serial ?? formData.serial;
     clearDraft();
-    setMode('edit');
-    if (id) {
-      router.replace(`/inventory/creations/item-card?id=${id}`);
-    }
     finishDocumentSave({
       label: 'بطاقة صنف',
-      number: saved?.serial ?? formData.serial,
+      number: savedSerial,
       savedId: id,
-      cleared: false,
+      cleared: true,
       onOpen: (savedId) => router.replace(`/inventory/creations/item-card?id=${savedId}`),
-      reset: () => undefined,
+      reset: () => startNewItem(savedSerial),
     });
-    setSuccess('تم حفظ الصنف');
   };
 
   const [saving, setSaving] = useState(false);
   const loading = saving;
   const fieldsLocked = isReadOnly && Boolean(activeItemId);
-  const patch = (next: Partial<ItemCardForm>) =>
-    setFormData((prev) => {
-      const merged = { ...prev, ...next };
-      if (next.serial !== undefined && next.barcode === undefined) {
-        const serial = String(next.serial ?? '').trim();
-        const prevBarcode = prev.barcode.trim();
-        const prevSerial = prev.serial.trim();
-        if (!prevBarcode || prevBarcode === prevSerial) {
-          merged.barcode = serial;
-        }
-      }
-      return merged;
-    });
+  const patch = (next: Partial<ItemCardForm>) => setFormData((prev) => ({ ...prev, ...next }));
 
   const handleSave = async () => {
     setError('');
@@ -928,7 +895,7 @@ function ItemCardPageInner() {
     }
   };
 
-  const startNewItem = () => {
+  const startNewItem = (afterSerial?: string) => {
     const currentId = savedItemId ?? itemIdFromUrl;
     if (currentId) dismissedItemIdRef.current = currentId;
     clearDraft();
@@ -937,7 +904,10 @@ function ItemCardPageInner() {
     setError('');
     setSuccess('');
     const pieceUnitId = findDefaultPieceUnitId(units);
-    setFormData({ ...EMPTY_ITEM_FORM, baseUnitId: pieceUnitId });
+    const serial = itemAuto
+      ? nextNumericSerial([afterSerial, ...(itemsSerialRes?.data ?? []).map((row) => row.serial)])
+      : '';
+    setFormData({ ...EMPTY_ITEM_FORM, baseUnitId: pieceUnitId, serial });
     setAssemblyRows(parseAssemblyRows(undefined));
     setSupplierRows(parseSupplierRows(undefined));
     setLocalUnits([emptyBaseUnitRow(pieceUnitId)]);
@@ -972,6 +942,18 @@ function ItemCardPageInner() {
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
+      <PageDraftRestoreGate<ItemCardDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(itemIdFromUrl || activeItemId)}
+        message="يوجد مسودة بطاقة صنف غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyItemCardDraft(payload);
+          setSuccess('تم استعادة مسودة بطاقة الصنف');
+        }}
+      />
+
       <MasterCardPageHeader
         title="بطاقة الصنف"
         breadcrumbs={[
@@ -994,6 +976,7 @@ function ItemCardPageInner() {
         canSave={!fieldsLocked && !loading}
         onNew={startNewItem}
         currentId={activeItemId}
+        masterArchiveEntityType="ITEM"
         onEdit={() => {
           if (!activeItemId) return;
           unlockForEdit();
@@ -1089,9 +1072,9 @@ function ItemCardPageInner() {
         <CompactFormField
           label="الباركود (للطباعة والمسح)"
           disabled={isReadOnly}
-          value={formData.barcode}
+          value={barcodeFieldDisplay(formData.barcode, formData.serial)}
           onChange={(e) => patch({ barcode: e.target.value })}
-          placeholder="افتراضيًا = المسلسل — يُحفظ ويُطبَع ويُبحَث بنفس الرقم"
+          placeholder="نفس المسلسل"
         />
         <CompactFormField label="المخزن الافتراضي">
           <WarehouseSelect
@@ -1896,7 +1879,7 @@ function ItemCardPageInner() {
             hydratedIdRef.current = null;
             setUnitsHydratedFor(null);
             setSavedItemId(itemId);
-            lockToView();
+            unlockForEdit();
             setShowFinder(false);
             router.replace(`/inventory/creations/item-card?id=${itemId}`);
             setSuccess('تم فتح الصنف');

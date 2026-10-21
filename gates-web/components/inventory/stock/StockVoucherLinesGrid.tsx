@@ -17,6 +17,10 @@ import {
 } from '@/components/erp/erpUiTokens';
 import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummary';
 import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
+import { useItemsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { BatchExpiryLineTrigger } from '@/components/invoices/BatchExpiryLineTrigger';
+import { itemUsesExpiryDate } from '@/lib/invoices/itemTracking';
+import type { InvoiceLineBatchAllocation } from '@/lib/invoices/invoiceLineColumns';
 import { resolveWarehouseAverageUnitCost } from '@/lib/inventory/assembly-pricing';
 
 export type StockVoucherLine = {
@@ -28,6 +32,9 @@ export type StockVoucherLine = {
   itemReservationId?: string;
   reservationFulfillQuantity?: number;
   reservationLabel?: string;
+  batchNumber?: string;
+  expiryDate?: string;
+  batchAllocations?: InvoiceLineBatchAllocation[];
 };
 
 export function blankStockVoucherLine(): StockVoucherLine {
@@ -50,6 +57,7 @@ export function seedStockVoucherLines(count = 4): StockVoucherLine[] {
 type Props = {
   lines: StockVoucherLine[];
   warehouseId?: string;
+  asOfDate?: string;
   hideExistingQty?: boolean;
   priceLabel: string;
   readOnly?: boolean;
@@ -59,11 +67,13 @@ type Props = {
   onAdd: () => void;
   onRemove: (index: number) => void;
   onChange: (index: number, field: keyof StockVoucherLine, value: string | number) => void;
+  onPatchLine?: (index: number, patch: Partial<StockVoucherLine>) => void;
 };
 
 export function StockVoucherLinesGrid({
   lines,
   warehouseId,
+  asOfDate,
   hideExistingQty,
   priceLabel,
   readOnly,
@@ -72,7 +82,10 @@ export function StockVoucherLinesGrid({
   onAdd,
   onRemove,
   onChange,
+  onPatchLine,
 }: Props) {
+  const { data: itemsRes } = useItemsQuery(800);
+  const catalogItems = itemsRes?.data ?? [];
   const totalAmount = lines.reduce((sum, line) => sum + (Number(line.total) || 0), 0);
 
   return (
@@ -105,24 +118,41 @@ export function StockVoucherLinesGrid({
               <tr key={`stock-line-${index}`} className="bg-white">
                 <td className={`${erpTableBodyCellClass} text-center text-slate-500`}>{index + 1}</td>
                 <td className={erpTableBodyCellClass}>
-                  <ItemSelect
-                    className={erpLineGridInputClass}
-                    value={line.itemId}
-                    warehouseId={warehouseId}
-                    onChange={(id) => onChange(index, 'itemId', id)}
-                    disabled={itemsLoading || readOnly}
-                    onItemResolved={(item) => {
-                      if (!lockUnitPrice || !item || !('id' in item)) return;
-                      const catalog = item as ItemOption;
-                      void resolveWarehouseAverageUnitCost(
-                        catalog.id,
-                        warehouseId,
-                        catalog
-                      ).then((unitPrice) => {
-                        onChange(index, 'unitPrice', unitPrice);
-                      });
-                    }}
-                  />
+                  <div className="flex items-center gap-1">
+                    <ItemSelect
+                      className={`${erpLineGridInputClass} min-w-0 flex-1`}
+                      value={line.itemId}
+                      warehouseId={warehouseId}
+                      onChange={(id) => onChange(index, 'itemId', id)}
+                      disabled={itemsLoading || readOnly}
+                      onItemResolved={(item) => {
+                        if (!lockUnitPrice || !item || !('id' in item)) return;
+                        const catalog = item as ItemOption;
+                        void resolveWarehouseAverageUnitCost(
+                          catalog.id,
+                          warehouseId,
+                          catalog,
+                          asOfDate
+                        ).then((unitPrice) => {
+                          onChange(index, 'unitPrice', unitPrice);
+                        });
+                      }}
+                    />
+                    {warehouseId && line.itemId && itemUsesExpiryDate(catalogItems.find((i) => i.id === line.itemId)) ? (
+                      <BatchExpiryLineTrigger
+                        mode="issue"
+                        item={catalogItems.find((i) => i.id === line.itemId)}
+                        itemId={line.itemId}
+                        warehouseId={warehouseId}
+                        quantity={Number(line.quantity) || 0}
+                        batchNumber={line.batchNumber}
+                        expiryDate={line.expiryDate}
+                        allocations={line.batchAllocations}
+                        readOnly={readOnly}
+                        onChange={(patch) => onPatchLine?.(index, patch)}
+                      />
+                    ) : null}
+                  </div>
                 </td>
                 {hideExistingQty ? null : (
                   <td className={`${erpTableBodyCellClass} text-center`}>

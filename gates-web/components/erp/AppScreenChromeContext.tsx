@@ -41,7 +41,7 @@ export function AppScreenChromeProvider({ children }: { children: ReactNode }) {
 /** Sits above the scrolling pane. Document toolbars render here so they stay put. */
 export function DocumentToolbarSlot() {
   const { setToolbarSlot } = useContext(AppScreenChromeContext);
-  return <div ref={setToolbarSlot} className="empty:hidden" />;
+  return <div ref={setToolbarSlot} className="empty:hidden min-w-0 max-w-full" />;
 }
 
 export function useDocumentToolbarSlot() {

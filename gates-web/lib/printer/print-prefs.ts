@@ -43,3 +43,9 @@ export function dispatchAutoPrintAfterSave(): void {
     new Event(prefs.kind === 'thermal' ? AUTO_PRINT_THERMAL_EVENT : AUTO_PRINT_A4_EVENT)
   );
 }
+
+/** Run the screen's print handler after a successful save when إعدادات المستند enable auto-print. */
+export function maybeAutoPrintAfterSave(enabled: boolean | undefined, print: () => void): void {
+  if (!enabled) return;
+  print();
+}

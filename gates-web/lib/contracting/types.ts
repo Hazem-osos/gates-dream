@@ -168,7 +168,10 @@ export type ClientContractDetail = {
   advancePaymentAmount: Moneyish;
   advanceRecoveryRate: Moneyish;
   retentionRate: Moneyish;
+  finalRetentionRate?: Moneyish;
   engineeringStampsRate: Moneyish;
+  otherDeductionsRate?: Moneyish;
+  otherDeductionsNotes?: string | null;
   status: ClientContractStatus;
   client?: { id: string; arabicName: string } | null;
   project?: ContractingProject | null;

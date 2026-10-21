@@ -70,7 +70,7 @@ export default function AppTabs() {
   const tabLabel = (path: string, fallback?: string) => resolveTabLabel(path) || fallback || path;
 
   return (
-    <div className="relative z-50" style={{ direction: 'rtl' }}>
+    <div className="relative z-50 min-w-0 max-w-full" style={{ direction: 'rtl' }}>
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -left-8 -top-6 w-40 h-40 rounded-full blur-2xl" style={{ background: 'radial-gradient(circle, rgba(14,121,170,0.15) 0%, rgba(14,121,170,0) 60%)' }} />
         <div className="absolute right-8 -bottom-10 w-48 h-48 rounded-full blur-3xl" style={{ background: 'radial-gradient(circle, rgba(23,135,184,0.15) 0%, rgba(23,135,184,0) 60%)' }} />

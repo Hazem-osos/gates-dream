@@ -1,4 +1,5 @@
 'use client';
+import { AccountingSettingsPageHeader } from '@/components/accounting-settings';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 
 import OuterCard from '@/components/OuterCard';
@@ -52,14 +53,8 @@ export default function LatePaymentPenaltyPage() {
   };
 
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen" style={{ direction: 'rtl' }}>
-      <div className="mb-8">
-        <div className="text-right">
-          <h1 className="text-2xl font-bold text-[#0E78AA] mb-3">غرامة التأخير في السداد</h1>
-          <div className="h-1 bg-[#0E78AA] rounded-full w-full shadow-sm"></div>
-        </div>
-      </div>
-
+    <>
+      <AccountingSettingsPageHeader title="غرامة التأخير في السداد" />
       <OuterCard>
         <InnerCard>
           <div className="p-4 space-y-6">
@@ -116,6 +111,6 @@ export default function LatePaymentPenaltyPage() {
 
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-    </div>
+    </>
   );
 }

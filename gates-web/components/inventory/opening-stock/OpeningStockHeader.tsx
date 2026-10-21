@@ -1,17 +1,20 @@
 'use client';
 
-import type { ReactNode } from 'react';
 import { Download } from 'lucide-react';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { Button } from '@/components/ui';
 import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
+import { resolveDocumentLifecycleStatus } from '@/lib/documents/document-status-labels';
+import { useInvalidateQuery } from '@/lib/hooks/useApi';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
 
 type Props = {
   docNumber?: string;
   isPosted: boolean;
   isReadOnly: boolean;
   hasDocument: boolean;
+  documentId?: string | null;
   canPost?: boolean;
   date: string;
   dateError?: boolean;
@@ -20,6 +23,7 @@ type Props = {
   canSave?: boolean;
   loadPending?: boolean;
   onSave: () => void;
+  saveLabel?: string;
   onBrowseList: () => void;
   onLoadItems: () => void;
   onPost: () => void;
@@ -37,7 +41,6 @@ type Props = {
   onVoid?: () => void;
   onRestore?: () => void;
   isCancelled?: boolean;
-  sourceLoadBar?: ReactNode;
 };
 
 export function OpeningStockHeader({
@@ -45,6 +48,7 @@ export function OpeningStockHeader({
   isPosted,
   isReadOnly,
   hasDocument,
+  documentId,
   canPost,
   date,
   dateError,
@@ -53,6 +57,7 @@ export function OpeningStockHeader({
   canSave,
   loadPending,
   onSave,
+  saveLabel: saveLabelProp,
   onBrowseList,
   onLoadItems,
   onPost,
@@ -70,8 +75,15 @@ export function OpeningStockHeader({
   onVoid,
   onRestore,
   isCancelled,
-  sourceLoadBar,
 }: Props) {
+  const invalidateQuery = useInvalidateQuery();
+  const lifecycle = {
+    documentId: documentId ?? (hasDocument ? 'saved' : null),
+    isPosted,
+    isCancelled: Boolean(isCancelled),
+  };
+  const lifecycleStatus = resolveDocumentLifecycleStatus(lifecycle);
+
   return (
     <>
       <ErpDocumentPageHeader
@@ -83,10 +95,11 @@ export function OpeningStockHeader({
         ]}
         title="بضاعة أول المدة"
         docNumber={docNumber || 'OS-XXXX'}
-        statusTone={isCancelled ? 'danger' : isPosted ? 'success' : 'warning'}
-        statusLabel={isCancelled ? 'ملغي' : isPosted ? 'مرحل ومثبت (Posted)' : 'مسودة (Draft)'}
+        statusTone={lifecycleStatus.tone}
+        statusLabel={lifecycleStatus.label}
+        lifecycle={lifecycle}
         onSaveDraft={onSave}
-        saveLabel={STORE_SAVE_AND_POST_LABEL}
+        saveLabel={saveLabelProp ?? STORE_SAVE_AND_POST_LABEL}
         savePending={savePending}
         canSave={canSave}
         hideStandalonePost
@@ -96,7 +109,6 @@ export function OpeningStockHeader({
         favoriteLabel="بضاعة أول المدة"
         extraActions={
           <div className="flex flex-wrap items-center gap-2">
-            {sourceLoadBar}
             <Button
               type="button"
               variant="secondary"
@@ -145,6 +157,10 @@ export function OpeningStockHeader({
           restoreLabel: 'استعادة الكشف',
           restoreConfirmMessage:
             'سيتم استعادة نفس كشف بضاعة أول المدة. لو فيه كشف تاني شغال لازم تلغيه الأول.',
+          transactionSettingsDocumentType: 'OPENING_STOCK',
+          onTransactionSettingsSaved: () => {
+            invalidateAfterTransactionSettingsSave(invalidateQuery, 'OPENING_STOCK');
+          },
           extraItems: [
             { id: 'excel', label: 'تصدير إلى إكسيل', onClick: onExportExcel },
             {
@@ -170,8 +186,8 @@ export function OpeningStockHeader({
           {fiscalYearName ? ` (${fiscalYearName})` : ''}
         </p>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          الحفظ يُنشئ مسودة فقط. الترحيل يُدخل الكميات للمخزون في أي وقت — لا يلزم إنشاء قيد
-          الرصيد الافتتاحي أولاً. إن وُجدت مسودة قيد افتتاحي تُضاف بنود المخزون إليها تلقائياً؛ وإلا
+          الحفظ يسجّل الكشف غير مرحّل. الترحيل يُدخل الكميات للمخزون في أي وقت — لا يلزم إنشاء قيد
+          الرصيد الافتتاحي أولاً. إن وُجد قيد افتتاحي غير مرحّل تُضاف بنود المخزون إليه تلقائياً؛ وإلا
           يمكن جلبها لاحقاً من شاشة الرصيد الافتتاحي. أرصدة الحسابات تتأثر عند ترحيل القيد
           الافتتاحي من المحاسبة.
         </p>

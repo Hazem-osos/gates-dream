@@ -258,6 +258,14 @@ export const inventorySupplierInvoiceFormSchema = inventorySupplierWarehouseHead
 
 export type InventorySupplierInvoiceFormInput = z.infer<typeof inventorySupplierInvoiceFormSchema>;
 
+/** فاتورة مشتريات — المخزن إلزامي فقط عندما تؤثر المعاملة على المخازن. */
+export function inventorySupplierInvoiceFormSchemaForStockPolicy(affectsStock: boolean) {
+  if (affectsStock) return inventorySupplierInvoiceFormSchema;
+  return inventorySupplierInvoiceFormSchema.extend({
+    warehouseId: z.string().optional(),
+  });
+}
+
 export const inventorySupplierInvoiceHeaderFormSchema = inventorySupplierInvoiceFormSchema.omit({ lines: true });
 export type InventorySupplierInvoiceHeaderFormInput = z.infer<typeof inventorySupplierInvoiceHeaderFormSchema>;
 
@@ -466,7 +474,60 @@ export function dropBlankInvoiceLines<T extends { itemId?: string | null }>(valu
   return value.filter((line): line is T => Boolean(String((line as T | undefined)?.itemId ?? '').trim()));
 }
 
-export const salesInvoiceSchema = z.object({
+function refineSalesInvoicePaymentFields(
+  data: {
+    paymentMethod?: string;
+    cashTenderKind?: string;
+    cashBankAccountId?: string;
+    advancePaidAmount?: number;
+    advanceSafeId?: string;
+    treasuryId?: string;
+    allowReturn?: boolean;
+    returnDays?: number;
+  },
+  ctx: z.RefinementCtx,
+  opts?: { skipTenderFields?: boolean }
+) {
+  if (!opts?.skipTenderFields) {
+    const method = String(data.paymentMethod ?? '').toLowerCase();
+    const cashKind = data.cashTenderKind ?? 'treasury';
+    const hasBank = Boolean(String(data.cashBankAccountId ?? '').trim());
+    if (method === 'cash') {
+      if (cashKind === 'bank' && !hasBank) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'يجب تحديد الحساب البنكي في الفاتورة النقدية',
+          path: ['cashBankAccountId'],
+        });
+      }
+    }
+    if (method === 'credit' && (Number(data.advancePaidAmount) || 0) > 0) {
+      if (cashKind === 'treasury' && !String(data.advanceSafeId ?? data.treasuryId ?? '').trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'حدد الخزينة عند دفع مبلغ في الأول',
+          path: ['advanceSafeId'],
+        });
+      }
+      if (cashKind === 'bank' && !hasBank) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'حدد الحساب البنكي عند دفع مبلغ في الأول',
+          path: ['cashBankAccountId'],
+        });
+      }
+    }
+  }
+  if (data.allowReturn && !(Number(data.returnDays) > 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'أدخل عدد أيام الاسترجاع المتاحة',
+      path: ['returnDays'],
+    });
+  }
+}
+
+const salesInvoiceObjectSchema = z.object({
   customerId: z.string().min(1, 'اختر العميل'),
   date: z.string().min(1, 'التاريخ مطلوب'),
   /** Enterprise redesign: optional explicit due date — left blank lets the
@@ -482,7 +543,7 @@ export const salesInvoiceSchema = z.object({
     z.coerce.number().min(0, 'مبلغ المقدم لا يمكن أن يكون سالباً').optional()
   ),
   advanceSafeId: z.string().optional(),
-  warehouseId: z.string().min(1, 'اختر المخزن'),
+  warehouseId: z.string().optional(),
   invoiceNumber: z.string().optional(),
   description: z.string().optional(),
   hijriDate: z.string().optional(),
@@ -506,7 +567,7 @@ export const salesInvoiceSchema = z.object({
   allowReturn: z.boolean().optional(),
   returnDays: z.preprocess(
     emptyOptional,
-    z.coerce.number().int().positive('أدخل عدد أيام الاسترجاع').optional()
+    z.coerce.number().int().min(0, 'أدخل عدد أيام الاسترجاع').optional()
   ),
   isDelivered: z.boolean().optional(),
   handoverDate: z.string().optional(),
@@ -548,47 +609,31 @@ export const salesInvoiceSchema = z.object({
     dropBlankInvoiceLines,
     z.array(salesInvoiceLineSchema).min(1, 'أضف صنفاً واحداً على الأقل')
   ),
-}).superRefine((data, ctx) => {
-  const method = String(data.paymentMethod ?? '').toLowerCase();
-  // Cheque drafts live in React state, not this schema — trust cashTenderKind
-  // instead of collapsing شيكات back to treasury when no bank id is set.
-  const cashKind = data.cashTenderKind ?? 'treasury';
-  const hasBank = Boolean(String(data.cashBankAccountId ?? '').trim());
-  if (method === 'cash') {
-    // Treasury can be filled from the company default safe on submit.
-    // Blocking here made نقدي fail save when the picker was still empty.
-    if (cashKind === 'bank' && !hasBank) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'يجب تحديد الحساب البنكي في الفاتورة النقدية',
-        path: ['cashBankAccountId'],
-      });
-    }
-  }
-  if (method === 'credit' && (Number(data.advancePaidAmount) || 0) > 0) {
-    if (cashKind === 'treasury' && !String(data.advanceSafeId ?? data.treasuryId ?? '').trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'حدد الخزينة عند دفع مبلغ في الأول',
-        path: ['advanceSafeId'],
-      });
-    }
-    if (cashKind === 'bank' && !hasBank) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'حدد الحساب البنكي عند دفع مبلغ في الأول',
-        path: ['cashBankAccountId'],
-      });
-    }
-  }
-  if (data.allowReturn && !(Number(data.returnDays) > 0)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'أدخل عدد أيام الاسترجاع المتاحة',
-      path: ['returnDays'],
-    });
-  }
 });
+
+export function salesInvoiceSchemaForSave(opts: {
+  affectsStock: boolean;
+  /** Treasury settlements already linked — do not re-require cash/credit tender fields on save. */
+  skipPaymentTenderValidation?: boolean;
+}) {
+  return salesInvoiceObjectSchema
+    .extend({
+      warehouseId: opts.affectsStock
+        ? z.string().min(1, 'اختر المخزن')
+        : z.string().optional(),
+    })
+    .superRefine((data, ctx) =>
+      refineSalesInvoicePaymentFields(data, ctx, {
+        skipTenderFields: opts.skipPaymentTenderValidation === true,
+      })
+    );
+}
+
+export function salesInvoiceSchemaForStockPolicy(affectsStock: boolean) {
+  return salesInvoiceSchemaForSave({ affectsStock, skipPaymentTenderValidation: false });
+}
+
+export const salesInvoiceSchema = salesInvoiceSchemaForStockPolicy(true);
 
 export type SalesInvoiceFormValues = z.infer<typeof salesInvoiceSchema>;
 

@@ -1,7 +1,9 @@
 'use client';
 
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { Users } from 'lucide-react';
 import {
@@ -41,7 +43,25 @@ export default function DelegateGroupPage() {
   const [showGuide, setShowGuide] = useState(false);
   const rows = useMemo(() => readStoredGroups(), [success, saving]);
 
+  const editingGroupSerial = formData.serial.trim() || null;
+  type DelegateGroupDraft = typeof formData;
+  const draftSnapshot = useMemo(() => formData, [formData]);
+  const applyDelegateGroupDraft = useCallback((payload: DelegateGroupDraft) => {
+    setFormData(payload);
+    setError('');
+    setSuccess('');
+  }, []);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'delegate-group-card',
+    editingId: editingGroupSerial,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.arabicName.trim() && !d.englishName.trim(),
+    applyRestore: applyDelegateGroupDraft,
+    restoreMessage: 'يوجد مسودة مجموعة مندوبين غير محفوظة',
+  });
+
   const handleNew = () => {
+    clearDraft();
     setFormData({ ...EMPTY_FORM });
     setError('');
     setSuccess('');
@@ -66,6 +86,7 @@ export default function DelegateGroupPage() {
         { ...formData, serial },
       ];
       window.localStorage.setItem(key, JSON.stringify(next));
+      clearDraft();
       setFormData({ ...EMPTY_FORM });
       setSuccess('تم حفظ مجموعة المندوبين — تقدر تضيف التالي');
     } catch {
@@ -105,6 +126,14 @@ export default function DelegateGroupPage() {
       onBrowseList={() => setShowGuide(true)}
       favoriteHref="/accounting/cards/delegate-group"
     >
+      <MasterCardDraftRestoreGate<DelegateGroupDraft>
+        editingId={editingGroupSerial}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyDelegateGroupDraft}
+        message="يوجد مسودة مجموعة مندوبين غير محفوظة."
+      />
       <form className="w-full text-base">
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف مجموعة المندوبين" icon={Users}>
           <CompactFormField

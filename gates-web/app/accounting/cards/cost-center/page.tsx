@@ -1,6 +1,8 @@
 'use client';
 import * as React from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Layers } from "lucide-react";
 import {
   CompactFormField,
@@ -77,6 +79,23 @@ function CostCenterPage() {
   const [showGuide, setShowGuide] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  type CostCenterCardDraft = typeof formData;
+  const draftSnapshot = useMemo(() => formData, [formData]);
+  const applyCostCenterDraft = useCallback((payload: CostCenterCardDraft) => {
+    setFormData(payload);
+    setSelectedId(null);
+    setCodeTouched(false);
+    setError('');
+  }, []);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'cost-center-card',
+    editingId: selectedId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.arabicName.trim() && !d.code.trim(),
+    applyRestore: applyCostCenterDraft,
+    restoreMessage: 'يوجد مسودة مركز تكلفة غير محفوظة',
+  });
+
   useEffect(() => {
     if (!quickCreate.prefillName) return;
     setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
@@ -126,6 +145,7 @@ function CostCenterPage() {
     'POST',
     {
       onSuccess: (res) => {
+        clearDraft();
         const created = res?.data as { id?: string; arabicName?: string; code?: string } | undefined;
         if (created?.id) {
           quickCreate.complete({
@@ -209,6 +229,7 @@ function CostCenterPage() {
         await apiClient.put(`/accounting/cost-centers/${selectedId}`, requestBody, {
           skipSuccessNotify: true,
         });
+        clearDraft();
         toast.success('تم حفظ تعديلات مركز التكلفة');
         invalidateQuery(['cost-centers']);
         setSuccess('تم حفظ تعديلات مركز التكلفة');
@@ -223,6 +244,7 @@ function CostCenterPage() {
   };
 
   const handleCancel = () => {
+    clearDraft();
     setError('');
     setSuccess('');
     setSelectedId(null);
@@ -270,6 +292,15 @@ function CostCenterPage() {
     >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+
+      <MasterCardDraftRestoreGate<CostCenterCardDraft>
+        editingId={selectedId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyCostCenterDraft}
+        message="يوجد مسودة مركز تكلفة غير محفوظة."
+      />
 
       <div className="mb-4">
       </div>

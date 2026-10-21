@@ -18,7 +18,13 @@ import { SmartBatchExpiryCell } from '@/components/invoices/SmartBatchExpiryCell
 import { LineWithholdingTaxCell } from '@/components/invoices/LineWithholdingTaxCell';
 import { ApparelVariantCell } from '@/components/invoices/ApparelVariantCells';
 import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
-import { itemHasApparelVariants, itemIsBatchTracked, lineWithholdingAmount } from '@/lib/invoices/itemTracking';
+import { BatchExpiryLineTrigger } from '@/components/invoices/BatchExpiryLineTrigger';
+import {
+  itemHasApparelVariants,
+  itemIsBatchTracked,
+  itemUsesExpiryDate,
+  lineWithholdingAmount,
+} from '@/lib/invoices/itemTracking';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
 import { calculateRowTotals } from '@/lib/invoices/calculateInvoiceRowTotals';
 import { AverageCostInspector } from '@/components/inventory/AverageCostInspector';
@@ -48,7 +54,7 @@ const ItemQuickPeekDrawer = dynamic(
 
 import { useItemsQuery } from '@/lib/hooks/useMasterDataQueries';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
-import { isPriceBelowAverageCost } from '@/lib/accounting-settings/guardrail-hints';
+import { isPriceBelowAverageCost, resolveItemCostFloor } from '@/lib/accounting-settings/guardrail-hints';
 import { findItemByBarcode, itemBarcodeValue } from '@/lib/inventory/findItemByBarcode';
 import { toast } from '@/lib/feedback/toast';
 import {
@@ -101,6 +107,7 @@ interface Item {
     unit?: { id: string; arabicName: string };
   }[];
   defaultTaxPercent?: number | string | null;
+  isTaxExempt?: boolean | null;
   taxExemptionReason?: string | null;
   salesPrice?: number | null;
   averageCost?: number | string | null;
@@ -215,7 +222,7 @@ export function ProgressiveSalesInvoiceLineGrid({
 
   const [peekIndex, setPeekIndex] = useState<number | null>(null);
   const companyId = getTenantContext().companyId;
-  const gridContainerRef = useRef<HTMLDivElement>(null);
+  const gridContainerRef = useRef<HTMLFieldSetElement>(null);
 
   const handleClipboardPaste = useCallback(
     (text: string) => {
@@ -227,7 +234,7 @@ export function ProgressiveSalesInvoiceLineGrid({
   );
 
   useClipboardTablePaste(gridContainerRef, {
-    enabled: Boolean(clipboardItems?.length && onClipboardLines),
+    enabled: Boolean(!readOnly && clipboardItems?.length && onClipboardLines),
     onPaste: handleClipboardPaste,
   });
 
@@ -345,7 +352,7 @@ export function ProgressiveSalesInvoiceLineGrid({
     const next = new Set(visibleColumnIds);
     for (const line of linesW ?? []) {
       const item = itemsForConversion.find((i) => i.id === line?.itemId);
-      if (itemIsBatchTracked(item)) next.add('batchAndExpiry');
+      if (itemIsBatchTracked(item) && !itemUsesExpiryDate(item)) next.add('batchAndExpiry');
       if (itemHasApparelVariants(item)) {
         next.add('color');
         next.add('size');
@@ -380,6 +387,7 @@ export function ProgressiveSalesInvoiceLineGrid({
   }, [fields.length, onAppendLine, readOnly]);
 
   const applyBulkDiscount = () => {
+    if (readOnly) return;
     const raw = window.prompt('نسبة الخصم % لتطبيقها على كل السطور');
     if (raw == null) return;
     const n = Number(raw.replace(/,/g, ''));
@@ -392,6 +400,7 @@ export function ProgressiveSalesInvoiceLineGrid({
   };
 
   const applyBulkCostCenter = () => {
+    if (readOnly) return;
     const id = window.prompt('معرّف مركز التكلفة (أو اختر من القائمة في أي سطر ثم انسخ المعرف)');
     if (!id?.trim()) return;
     fields.forEach((_, i) => setValue(`lines.${i}.costCenterId`, id.trim(), { shouldDirty: true }));
@@ -434,12 +443,13 @@ export function ProgressiveSalesInvoiceLineGrid({
 
   return (
     <>
-      <div
+      <fieldset
         ref={gridContainerRef}
+        disabled={readOnly}
         className={
           modernUi
-            ? `${ERP_INVOICE_ITEMS_CARD_CLASS} rounded-xl border border-slate-200 bg-white shadow-sm`
-            : `${ERP_INVOICE_ITEMS_CARD_CLASS} rounded-2xl border border-[#D6EAF3] bg-white`
+            ? `${ERP_INVOICE_ITEMS_CARD_CLASS} m-0 min-w-0 rounded-xl border border-slate-200 bg-white p-0 shadow-sm`
+            : `${ERP_INVOICE_ITEMS_CARD_CLASS} m-0 min-w-0 rounded-2xl border border-[#D6EAF3] bg-white p-0`
         }
       >
         <div
@@ -453,7 +463,7 @@ export function ProgressiveSalesInvoiceLineGrid({
           <div className="flex flex-wrap items-center gap-2">
             {clipboardItems?.length ? (
               <span className="text-[11px] text-slate-500 hidden sm:inline">
-                Excel: الصق في الشبكة (Ctrl+V)
+                لصق من إكسل في الجدول
               </span>
             ) : null}
             <ColumnVisibilityPicker
@@ -527,6 +537,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                     value={f.value || warehouseId || ''}
                                     onChange={f.onChange}
                                     allowEmpty={false}
+                                    disabled={readOnly}
                                     className={`${lineInputCls} ${lineInputErr(!!lineErrors?.warehouseId)}`}
                                     nativeSelectProps={{
                                       ...lineGridDataAttrs(gridId, index, 'warehouse'),
@@ -554,19 +565,27 @@ export function ProgressiveSalesInvoiceLineGrid({
                             </td>
                           );
                         }
-                        case 'item':
+                        case 'item': {
+                          const pickedItem = itemsForConversion.find((it) => it.id === line?.itemId);
+                          const showExpiry = itemUsesExpiryDate(pickedItem);
                           return (
                             <td key={col.id} className={tdBase('item', 'text-right')}>
+                              <div className="flex items-start gap-1">
+                                <div className="min-w-0 flex-1">
                               <Controller
                                 control={control}
                                 name={`lines.${index}.itemId`}
                                 render={({ field: f }) => (
                                   <ItemSelect
                                     value={f.value ?? ''}
-                                    onChange={f.onChange}
-                                    disabled={itemsLoading}
+                                    onChange={(id) => {
+                                      if (readOnly) return;
+                                      if (!id) f.onChange('');
+                                    }}
+                                    disabled={itemsLoading || readOnly}
                                     className={`${lineInputCls} ${lineInputErr(!!lineErrors?.itemId)}`}
                                     onItemResolved={(picked) => {
+                                      if (readOnly) return;
                                       if (picked && 'units' in picked) {
                                         applyPickedItemToLine(index, picked as Item);
                                       } else if (
@@ -587,9 +606,14 @@ export function ProgressiveSalesInvoiceLineGrid({
                                             },
                                           ],
                                           defaultTaxPercent:
-                                            'defaultTaxPercent' in picked ? picked.defaultTaxPercent : undefined,
+                                            'defaultTaxPercent' in picked
+                                              ? (picked as { defaultTaxPercent?: number | string | null }).defaultTaxPercent
+                                              : undefined,
+                                          isTaxExempt: (picked as { isTaxExempt?: boolean | null }).isTaxExempt,
                                           taxExemptionReason:
-                                            'taxExemptionReason' in picked ? picked.taxExemptionReason : undefined,
+                                            'taxExemptionReason' in picked
+                                              ? (picked as { taxExemptionReason?: string | null }).taxExemptionReason
+                                              : undefined,
                                         });
                                         const listPrice = resolvePriceListSalePrice({
                                           itemPrices:
@@ -630,8 +654,38 @@ export function ProgressiveSalesInvoiceLineGrid({
                                 )}
                               />
                               <FieldError message={lineErrors?.itemId?.message} show={fieldErrShow} className={fieldErrClass} />
+                                </div>
+                                {showExpiry ? (
+                                  <BatchExpiryLineTrigger
+                                    mode="issue"
+                                    item={pickedItem}
+                                    itemId={line?.itemId}
+                                    warehouseId={line?.warehouseId || warehouseId || undefined}
+                                    quantity={Number(line?.quantity ?? 0)}
+                                    batchNumber={line?.batchNumber}
+                                    expiryDate={line?.expiryDate}
+                                    allocations={line?.batchAllocations}
+                                    readOnly={readOnly}
+                                    onChange={(patch) => {
+                                      if (readOnly) return;
+                                      if (patch.batchNumber !== undefined) {
+                                        setValue(`lines.${index}.batchNumber`, patch.batchNumber, { shouldDirty: true });
+                                      }
+                                      if (patch.expiryDate !== undefined) {
+                                        setValue(`lines.${index}.expiryDate`, patch.expiryDate, { shouldDirty: true });
+                                      }
+                                      if (patch.batchAllocations !== undefined) {
+                                        setValue(`lines.${index}.batchAllocations`, patch.batchAllocations, {
+                                          shouldDirty: true,
+                                        });
+                                      }
+                                    }}
+                                  />
+                                ) : null}
+                              </div>
                             </td>
                           );
+                        }
                         case 'quantity': {
                           const costItem = itemsForConversion.find((i) => i.id === line?.itemId);
                           const averageCost =
@@ -653,6 +707,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                         f.onChange(n);
                                         syncLineUnits(index, { quantity: n });
                                       }}
+                                      disabled={readOnly}
                                       className={`${lineInputCls} text-center ${lineInputErr(!!lineErrors?.quantity)}`}
                                       {...lineGridDataAttrs(gridId, index, 'quantity')}
                                       onKeyDown={(e) =>
@@ -672,7 +727,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                         }
                         case 'unitPrice': {
                           const pricedItem = itemsForConversion.find((i) => i.id === line?.itemId);
-                          const lineCost = Number(pricedItem?.averageCost ?? 0);
+                          const lineCost = resolveItemCostFloor(pricedItem);
                           const linePrice = Number(line?.unitPrice ?? 0);
                           const belowCost =
                             preventSellingBelowCost &&
@@ -719,9 +774,10 @@ export function ProgressiveSalesInvoiceLineGrid({
                                 control={control}
                                 name={`lines.${index}.discountValue`}
                                 render={({ field: f }) => (
-                                  <InvoiceLineDiscountInput
+                                    <InvoiceLineDiscountInput
                                     value={f.value ?? line?.discount}
                                     discountType={line?.discountType}
+                                    disabled={readOnly}
                                     onValueCommit={(n) => {
                                       f.onChange(n);
                                       setValue(`lines.${index}.discount`, n, {
@@ -776,6 +832,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                 className={`${lineInputCls}`}
                                 placeholder="مسح أو إدخال"
                                 autoComplete="off"
+                                disabled={readOnly}
                                 {...register(`lines.${index}.barcode`)}
                                 {...lineGridDataAttrs(gridId, index, 'barcode')}
                                 onKeyDown={(e) => {
@@ -829,6 +886,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                     itemId={line?.itemId ?? ''}
                                     value={f.value ?? ''}
                                     invoiceAffectsStock={invoiceAffectsStock}
+                                    disabled={readOnly}
                                     onChange={(unitId) => {
                                       f.onChange(unitId);
                                       syncLineUnits(index, { unitId });
@@ -866,7 +924,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                         f.onChange(n);
                                         syncLineUnits(index, { baseQuantity: n });
                                       }}
-                                      disabled={fixed}
+                                      disabled={readOnly || fixed}
                                       className={`${lineInputCls} text-center ${fixed ? 'bg-slate-50 text-slate-600' : ''}`}
                                       {...lineGridDataAttrs(gridId, index, 'baseQuantity')}
                                       onKeyDown={(e) =>
@@ -907,6 +965,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                   <TableNumberInput
                                     value={f.value as number | string | undefined}
                                     onValueCommit={(n) => f.onChange(n)}
+                                    disabled={readOnly}
                                     title={VAT_LABEL_AR}
                                     aria-label={VAT_LABEL_AR}
                                     className={`${lineInputCls} text-center ${lineInputErr(!!lineErrors?.taxRate)}`}
@@ -929,6 +988,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                   <CostCenterSelect
                                     value={f.value ?? ''}
                                     onChange={f.onChange}
+                                    disabled={readOnly}
                                     className={lineInputCls}
                                     nativeSelectProps={{
                                       ...lineGridDataAttrs(gridId, index, 'costCenter'),
@@ -953,6 +1013,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                       f.onChange(id);
                                       setValue(`lines.${index}.lineAccountId`, id, { shouldDirty: true });
                                     }}
+                                    disabled={readOnly}
                                     className={lineInputCls}
                                     leafOnly
                                   />
@@ -967,6 +1028,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                               <LineWithholdingTaxCell
                                 rate={Number(line?.withholdingTaxRate ?? 0)}
                                 lineAfterDiscount={row.lineAfterDiscount}
+                                disabled={readOnly}
                                 onChange={(patch) => {
                                   setValue(`lines.${index}.withholdingTaxRate`, patch.withholdingTaxRate, {
                                     shouldDirty: true,
@@ -995,6 +1057,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                               <TableNumberInput
                                 className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm tabular-nums"
                                 value={effectiveWht}
+                                disabled={readOnly}
                                 onValueCommit={(n) => {
                                   setValue(`lines.${index}.withholdingTaxAmount`, n, { shouldDirty: true });
                                   setValue(`lines.${index}.withholdingAmountManual`, true, { shouldDirty: true });
@@ -1019,6 +1082,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                 expiryDate={line?.expiryDate}
                                 allocations={line?.batchAllocations}
                                 onChange={(patch) => {
+                                  if (readOnly) return;
                                   if (patch.batchNumber !== undefined) {
                                     setValue(`lines.${index}.batchNumber`, patch.batchNumber, { shouldDirty: true });
                                   }
@@ -1043,9 +1107,10 @@ export function ProgressiveSalesInvoiceLineGrid({
                                 mode="color"
                                 color={line?.color}
                                 suggestedColor={item?.color ?? undefined}
-                                onChange={(patch) =>
-                                  setValue(`lines.${index}.color`, patch.color ?? '', { shouldDirty: true })
-                                }
+                                onChange={(patch) => {
+                                  if (readOnly) return;
+                                  setValue(`lines.${index}.color`, patch.color ?? '', { shouldDirty: true });
+                                }}
                               />
                             </td>
                           );
@@ -1058,9 +1123,10 @@ export function ProgressiveSalesInvoiceLineGrid({
                                 mode="size"
                                 size={line?.size}
                                 suggestedSize={item?.size ?? undefined}
-                                onChange={(patch) =>
-                                  setValue(`lines.${index}.size`, patch.size ?? '', { shouldDirty: true })
-                                }
+                                onChange={(patch) => {
+                                  if (readOnly) return;
+                                  setValue(`lines.${index}.size`, patch.size ?? '', { shouldDirty: true });
+                                }}
                               />
                             </td>
                           );
@@ -1070,6 +1136,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                             <td key={col.id} className={tdBase('batchNumber')}>
                               <input
                                 className={`${lineInputCls}`}
+                                disabled={readOnly}
                                 {...register(`lines.${index}.batchNumber`)}
                                 {...lineGridDataAttrs(gridId, index, 'batchNumber')}
                                 onKeyDown={(e) =>
@@ -1084,6 +1151,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                               <input
                                 type="date"
                                 className={`${lineInputCls}`}
+                                disabled={readOnly}
                                 {...register(`lines.${index}.expiryDate`)}
                                 {...lineGridDataAttrs(gridId, index, 'expiryDate')}
                                 onKeyDown={(e) =>
@@ -1097,6 +1165,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                             <td key={col.id} className={tdBase('notes')}>
                               <input
                                 className={`${lineInputCls}`}
+                                disabled={readOnly}
                                 {...register(`lines.${index}.lineNotes`)}
                                 {...lineGridDataAttrs(gridId, index, 'notes')}
                                 onKeyDown={(e) =>
@@ -1111,6 +1180,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                               <input
                                 type="date"
                                 className={`${lineInputCls}`}
+                                disabled={readOnly}
                                 {...register(`lines.${index}.productionDate`)}
                                 {...lineGridDataAttrs(gridId, index, 'productionDate')}
                                 onKeyDown={(e) =>
@@ -1125,6 +1195,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                               <input
                                 className={`${lineInputCls}`}
                                 placeholder="SN-1, SN-2…"
+                                disabled={readOnly}
                                 {...register(`lines.${index}.serialNumbers`)}
                                 {...lineGridDataAttrs(gridId, index, 'serialNumbers')}
                                 onKeyDown={(e) =>
@@ -1138,6 +1209,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                             <td key={col.id} className={tdBase('taxExemptionReason')}>
                               <input
                                 className={`${lineInputCls}`}
+                                disabled={readOnly}
                                 {...register(`lines.${index}.taxExemptionReason`)}
                                 {...lineGridDataAttrs(gridId, index, 'taxExemptionReason')}
                                 onKeyDown={(e) =>
@@ -1156,6 +1228,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                 <input
                                   type="checkbox"
                                   checked={isFree}
+                                  disabled={readOnly}
                                   onChange={(e) => {
                                     const n = e.target.checked ? 100 : 0;
                                     setValue(`lines.${index}.discountType`, 'PERCENTAGE', { shouldDirty: true });
@@ -1203,6 +1276,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                               >
                                 🔍
                               </button>
+                              {readOnly ? null : (
                               <button
                                 type="button"
                                 onClick={() => onRemoveLine(index)}
@@ -1212,6 +1286,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                               >
                                 🗑️
                               </button>
+                              )}
                             </td>
                           );
                         default:
@@ -1253,7 +1328,7 @@ export function ProgressiveSalesInvoiceLineGrid({
               .toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         ) : null}
-      </div>
+      </fieldset>
 
       {peekIndex != null ? (
         <ItemQuickPeekDrawer

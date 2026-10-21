@@ -1,6 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { useRouter } from 'next/navigation';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { erpInputClass, erpLabelClass } from '@/components/erp';
@@ -39,6 +41,17 @@ const STATUS_OPTIONS = [
   { value: 'PAID', label: 'مسددة' },
 ];
 
+type InstallmentsTrackerDraft = {
+  customerId: string;
+  status: string;
+  fromDate: string;
+  toDate: string;
+};
+
+function isInstallmentsTrackerDraftEmpty(draft: InstallmentsTrackerDraft): boolean {
+  return !draft.customerId && !draft.status && !draft.fromDate && !draft.toDate;
+}
+
 export default function InvoiceInstallmentsTrackerPage() {
   const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
@@ -47,6 +60,28 @@ export default function InvoiceInstallmentsTrackerPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [collectRow, setCollectRow] = useState<TrackerRow | null>(null);
+
+  const draftSnapshot = useMemo<InstallmentsTrackerDraft>(
+    () => ({ customerId, status, fromDate, toDate }),
+    [customerId, fromDate, status, toDate]
+  );
+
+  const applyInstallmentsTrackerDraft = useCallback((payload: InstallmentsTrackerDraft) => {
+    setCustomerId(payload.customerId ?? '');
+    setStatus(payload.status ?? '');
+    setFromDate(payload.fromDate ?? '');
+    setToDate(payload.toDate ?? '');
+  }, []);
+
+  const { restoreOffer, acceptRestore, dismissRestore } = useDraftAutosave({
+    documentType: 'invoice-installments-tracker',
+    mode: 'new',
+    value: draftSnapshot,
+    enabled: true,
+    applyRestore: applyInstallmentsTrackerDraft,
+    isEmpty: isInstallmentsTrackerDraftEmpty,
+    restoreMessage: 'تم استعادة فلاتر تتبع الأقساط',
+  });
 
   const params = useMemo(
     () => ({
@@ -89,6 +124,14 @@ export default function InvoiceInstallmentsTrackerPage() {
 
   return (
     <ErpDocumentLayout>
+      <PageDraftRestoreGate<InstallmentsTrackerDraft>
+        restoreOffer={restoreOffer}
+        hide={false}
+        message="تم حفظ فلاتر تتبع الأقساط — استعادتها؟"
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyInstallmentsTrackerDraft}
+      />
       <div className="rounded-2xl border border-[#E6F0F7] bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>

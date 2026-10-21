@@ -2,6 +2,8 @@
 
 import { useMemo } from 'react';
 import { useApiQuery } from '@/lib/hooks/useApi';
+import { AccountLedgerLink } from '@/components/report/AccountLedgerLink';
+import { BalanceAnalysisProvider, BalanceRowEye } from '@/components/report/BalanceAnalysisProvider';
 import { printDom } from '@/lib/print/printHtml';
 import {
   comparisonQuery,
@@ -12,6 +14,7 @@ import {
 } from '@/lib/reports/compareFiscalYear';
 
 type SheetRow = {
+  accountId?: string;
   code: string;
   arabicName: string;
   amount: number;
@@ -111,6 +114,7 @@ export function TradingAccountSheet({ query }: { query: Record<string, string> }
   const nameCell = `${cell} text-right text-slate-900`;
 
   return (
+    <BalanceAnalysisProvider query={query}>
     <div>
       <div className="mb-2 flex justify-start no-print">
         <button
@@ -146,19 +150,61 @@ export function TradingAccountSheet({ query }: { query: Record<string, string> }
                 {compareYearLabel ? (
                   <td className={amountCell}>{pair.debit ? money(pair.debit.compareAmount) : ''}</td>
                 ) : null}
-                <td className={amountCell}>{pair.debit ? money(pair.debit.amount) : ''}</td>
+                <td className={amountCell}>
+                  {pair.debit ? (
+                    <AccountLedgerLink accountId={pair.debit.accountId} query={query} showIcon={false}>
+                      {money(pair.debit.amount)}
+                    </AccountLedgerLink>
+                  ) : (
+                    ''
+                  )}
+                </td>
                 <td className={nameCell} style={{ paddingRight: pair.debit ? 8 + pair.debit.depth * 14 : undefined }}>
                   <span className={pair.debit?.depth === 0 ? 'font-semibold' : undefined}>
-                    {pair.debit ? accountLabel(pair.debit) : ''}
+                    {pair.debit ? (
+                      <span className="inline-flex items-center gap-1">
+                        <BalanceRowEye
+                          accountId={pair.debit.accountId}
+                          label={accountLabel(pair.debit)}
+                          query={query}
+                        />
+                        <AccountLedgerLink accountId={pair.debit.accountId} query={query} showIcon={false}>
+                          {accountLabel(pair.debit)}
+                        </AccountLedgerLink>
+                      </span>
+                    ) : (
+                      ''
+                    )}
                   </span>
                 </td>
                 {compareYearLabel ? (
                   <td className={amountCell}>{pair.credit ? money(pair.credit.compareAmount) : ''}</td>
                 ) : null}
-                <td className={amountCell}>{pair.credit ? money(pair.credit.amount) : ''}</td>
+                <td className={amountCell}>
+                  {pair.credit ? (
+                    <AccountLedgerLink accountId={pair.credit.accountId} query={query} showIcon={false}>
+                      {money(pair.credit.amount)}
+                    </AccountLedgerLink>
+                  ) : (
+                    ''
+                  )}
+                </td>
                 <td className={nameCell} style={{ paddingRight: pair.credit ? 8 + pair.credit.depth * 14 : undefined }}>
                   <span className={pair.credit?.depth === 0 ? 'font-semibold' : undefined}>
-                    {pair.credit ? accountLabel(pair.credit) : ''}
+                    {pair.credit ? (
+                      <span className="inline-flex items-center gap-1">
+                        <BalanceRowEye
+                          accountId={pair.credit.accountId}
+                          label={accountLabel(pair.credit)}
+                          query={query}
+                        />
+                        <AccountLedgerLink accountId={pair.credit.accountId} query={query} showIcon={false}>
+                          {accountLabel(pair.credit)}
+                        </AccountLedgerLink>
+                      </span>
+                    ) : (
+                      ''
+                    )}
                   </span>
                 </td>
               </tr>
@@ -191,5 +237,6 @@ export function TradingAccountSheet({ query }: { query: Record<string, string> }
         </table>
       </div>
     </div>
+    </BalanceAnalysisProvider>
   );
 }

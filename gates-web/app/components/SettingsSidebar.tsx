@@ -23,6 +23,7 @@ const items: MenuItem[] = [
   { icon: '🏢', label: 'بيانات الشركة', desc: 'الاسم، الضريبة، الشعار', href: '/settings/company' },
   { icon: '📦', label: 'النسخ الاحتياطي', desc: 'تصدير بيانات الشركة', href: '/settings/backup' },
   { icon: '🖨', label: 'تخطيط المستندات', desc: 'قوالب الطباعة والهوية', href: '/settings/document-layout' },
+  { icon: '📄', label: 'طباعة جماعية', desc: 'فواتير وقيود وسندات دفعة واحدة', href: '/settings/bulk-print' },
   { icon: '📑', label: 'أنماط الإدخال', desc: 'ترقيم وثوابت وأعمدة الفواتير', href: '/settings/document-profiles' },
   { icon: '⚙️', label: 'الإعدادات المحاسبية', desc: 'إعدادات النظام المتقدمة', href: '/accounting-settings/company-settings/accounting-settings' },
 ];

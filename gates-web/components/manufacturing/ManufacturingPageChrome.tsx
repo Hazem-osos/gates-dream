@@ -3,6 +3,8 @@
 import type { ReactNode } from 'react';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import type { DocumentActionMenuProps } from '@/components/common/document-shell';
+import type { DocumentLifecycleInput } from '@/lib/documents/document-status-labels';
+import { resolveDocumentLifecycleStatus } from '@/lib/documents/document-status-labels';
 import { compactControlClass, compactLabelClass } from '@/components/ui/forms/formTokens';
 import type { StatusTone } from '@/components/ui/StatusBadge';
 import { cn } from '@/lib/utils';
@@ -28,6 +30,7 @@ export function ManufacturingPageChrome({
   hideBrowseList,
   standardActions,
   saveDisabledHint,
+  lifecycle,
 }: {
   title: string;
   breadcrumbs?: { href?: string; label: string }[];
@@ -48,8 +51,10 @@ export function ManufacturingPageChrome({
   hideBrowseList?: boolean;
   standardActions?: DocumentActionMenuProps;
   saveDisabledHint?: string;
+  lifecycle?: DocumentLifecycleInput;
 }) {
   const crumbs = breadcrumbs ?? [{ href: '/manufacturing', label: 'التصنيع والإنتاج' }, { label: title }];
+  const lifecycleStatus = lifecycle ? resolveDocumentLifecycleStatus(lifecycle) : null;
 
   return (
     <ErpDocumentLayout>
@@ -60,8 +65,9 @@ export function ManufacturingPageChrome({
         title={title}
         showDocumentRef={Boolean(docNumber)}
         docNumber={docNumber}
-        statusTone={statusTone}
-        statusLabel={statusLabel}
+        statusTone={lifecycleStatus?.tone ?? statusTone}
+        statusLabel={lifecycleStatus?.label ?? statusLabel}
+        lifecycle={lifecycle}
         saveLabel={saveLabel}
         onSaveDraft={hideSave ? undefined : onSave}
         savePending={savePending}

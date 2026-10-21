@@ -76,6 +76,7 @@ export function VoucherSourceDocumentControl({
       transactionKind: selected?.kind,
       documentRole: 'ORDER',
       isCancelled: false,
+      isPosted: true,
       executionStatus: 'PENDING',
       fundType: selected?.fundType,
       search: search || undefined,
@@ -104,7 +105,7 @@ export function VoucherSourceDocumentControl({
   );
 
   return (
-    <div className="flex justify-end">
+    <div className="inline-flex">
       <DocumentSectionNumberPair>
         <div className="w-[9.25rem] shrink-0">
           <label className={sectionNumberLabelClass}>القسم</label>

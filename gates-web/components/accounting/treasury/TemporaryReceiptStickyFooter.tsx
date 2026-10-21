@@ -32,7 +32,7 @@ export function TemporaryReceiptStickyFooter({
       <div className="flex items-center gap-3 text-xs text-muted-foreground" dir="rtl">
         <div className="flex items-center gap-1 font-medium">
           <Clock className="h-3.5 w-3.5 text-primary" />
-          <span>حالة الإيصال: {isConfirmed ? 'تم التأكيد' : 'مسودة قيد المراجعة'}</span>
+          <span>حالة الإيصال: {isConfirmed ? 'تم التأكيد' : 'غير مؤكد'}</span>
         </div>
       </div>
       <div className="flex items-center gap-4" dir="rtl">

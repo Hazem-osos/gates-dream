@@ -23,6 +23,8 @@ import { ItemSelect } from '@/components/form/ItemSelect';
 import { ItemUnitSelect } from '@/components/form/ItemUnitSelect';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { SmartBatchExpiryCell } from '@/components/invoices/SmartBatchExpiryCell';
+import { BatchExpiryLineTrigger } from '@/components/invoices/BatchExpiryLineTrigger';
+import { itemUsesExpiryDate } from '@/lib/invoices/itemTracking';
 import { LineWithholdingTaxCell } from '@/components/invoices/LineWithholdingTaxCell';
 import { ApparelVariantCell } from '@/components/invoices/ApparelVariantCells';
 import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
@@ -32,6 +34,7 @@ import { syncLineUnitFields, type PricingCalculationBasis } from '@/lib/invoices
 import { findItemByBarcode, itemBarcodeValue } from '@/lib/inventory/findItemByBarcode';
 import { toast } from '@/lib/feedback/toast';
 import { useItemsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { invoiceLineVatRate } from '@/lib/invoices/item-vat-rate';
 import {
   INVOICE_LINE_COLUMN_DEFS,
   type InvoiceColumnStorageKey,
@@ -53,6 +56,7 @@ import {
   focusLineField,
   focusNextLineField,
 } from '@/lib/keyboard/gridLineFocus';
+import { planInvoiceLineItemPick } from '@/lib/inventory/invoice-line-pick-routing';
 import {
   ERP_INVOICE_ITEMS_CARD_CLASS,
   ERP_INVOICE_ITEMS_TABLE_WRAP_CLASS,
@@ -80,6 +84,10 @@ export type PurchaseInvoiceLine = InvoiceLineExtended & {
   discountValue?: number;
   discountType?: DiscountType | string;
   tax?: number;
+  sourceKind?: 'GOODS_RECEIPT' | 'PURCHASE_ORDER' | 'SALES_ORDER' | 'PRICE_QUOTE';
+  sourceLineId?: string;
+  returnableQty?: number;
+  soldQty?: number;
 };
 
 interface Item {
@@ -99,6 +107,7 @@ interface Item {
   averageCost?: number | string | null;
   onHandQuantity?: number | null;
   defaultTaxPercent?: number | string | null;
+  isTaxExempt?: boolean | null;
   useExpirationDate?: boolean | null;
   useSerialNumber?: boolean | null;
   clothingItem?: boolean | null;
@@ -130,6 +139,8 @@ type Props = {
   readOnly?: boolean;
   lockUnitPrice?: boolean;
   hideAddLine?: boolean;
+  /** Shown when the user tries to add a line while `hideAddLine` is true. */
+  addLineBlockedMessage?: string;
   allLinesForLandedCost?: PurchaseInvoiceLine[];
   headerDescription?: string;
   /** 14 when the purchase invoice is VAT taxable, otherwise 0. */
@@ -161,6 +172,7 @@ type PurchaseLineRowProps = {
   onPeek: (index: number) => void;
   onRemove: (index: number) => void;
   onAppend: () => void;
+  hideAddLine?: boolean;
   readOnly?: boolean;
   applyPickedItem: (index: number, picked: Item | undefined) => void;
   pricingCalculationBasis?: PricingCalculationBasis | string;
@@ -184,6 +196,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
   onPeek,
   onRemove,
   onAppend,
+  hideAddLine = false,
   readOnly = false,
   applyPickedItem,
   pricingCalculationBasis = 'SELECTED_UNIT_QTY',
@@ -238,6 +251,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                   value={line.warehouseId || warehouseId || ''}
                   onChange={(id) => onPatch(index, { warehouseId: id })}
                   allowEmpty={false}
+                  disabled={readOnly}
                   className={`${lineInputCls} text-sm py-2`}
                   nativeSelectProps={{
                     ...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'warehouse'),
@@ -265,34 +279,55 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
               </td>
             );
           }
-          case 'item':
+          case 'item': {
+            const itemLocked = Boolean(line.originalInvoiceLineId);
+            const pickedItem = itemsForBaseUnit.find((it) => it.id === line.itemId);
+            const showExpiry = itemUsesExpiryDate(pickedItem);
             return (
               <td key={col.id} className={`py-2 px-2 border-x border-[#D6EAF3] ${ERP_PURCHASE_COLUMN_WIDTH.item ?? 'min-w-[220px]'}`}>
-                <ItemSelect
-                  value={line.itemId}
-                  onChange={(id) => onPatch(index, { itemId: id })}
-                  disabled={itemsLoading}
-                  className={`${lineInputCls} text-sm`}
-                  onItemResolved={(picked) => {
-                    if (picked && 'units' in picked) {
-                      applyPickedItem(index, picked as Item);
-                    }
-                    if (picked) {
-                      focusNextLineField(PURCHASE_GRID_ID, index, fieldOrder, 'item', 16);
-                    }
-                  }}
-                  onAfterBarcodePick={() => {
-                    onPatch(index, { quantity: 1 });
-                    focusLineField(PURCHASE_GRID_ID, index, 'quantity');
-                  }}
-                  inputProps={{
-                    ...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'item'),
-                  }}
-                  onInputKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
-                  fallbackLabel={itemsForBaseUnit.find((it) => it.id === line.itemId)?.arabicName}
-                />
+                <div className="flex items-center gap-1">
+                  <ItemSelect
+                    warehouseId={line.warehouseId || warehouseId || undefined}
+                    value={line.itemId}
+                    onChange={(id) => {
+                      if (readOnly || itemLocked) return;
+                      if (!id) onPatch(index, { itemId: '' });
+                    }}
+                    disabled={itemsLoading || itemLocked || readOnly}
+                    className={`${lineInputCls} min-w-0 flex-1 text-sm ${itemLocked ? 'bg-slate-50 text-slate-500' : ''}`}
+                    onItemResolved={(picked) => {
+                      if (readOnly || itemLocked) return;
+                      if (picked && 'units' in picked) {
+                        applyPickedItem(index, picked as Item);
+                      }
+                    }}
+                    onAfterBarcodePick={() => {
+                      if (itemLocked) return;
+                      onPatch(index, { quantity: 1 });
+                      focusLineField(PURCHASE_GRID_ID, index, 'quantity');
+                    }}
+                    inputProps={{
+                      ...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'item'),
+                    }}
+                    onInputKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
+                    fallbackLabel={pickedItem?.arabicName}
+                  />
+                  {showExpiry ? (
+                    <BatchExpiryLineTrigger
+                      mode="receive"
+                      item={pickedItem}
+                      quantity={Number(line.quantity ?? 0)}
+                      batchNumber={line.batchNumber}
+                      expiryDate={line.expiryDate}
+                      allocations={line.batchAllocations}
+                      readOnly={readOnly || itemLocked}
+                      onChange={(patch) => onPatch(index, patch)}
+                    />
+                  ) : null}
+                </div>
               </td>
             );
+          }
           case 'quantity': {
             const costItem = itemsForBaseUnit.find((row) => row.id === line.itemId);
             const averageCost =
@@ -307,7 +342,16 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                   <TableNumberInput
                     className={`${lineInputCls} text-sm text-center`}
                     value={line.quantity}
-                    onValueCommit={(n) => onPatch(index, { quantity: n })}
+                    disabled={readOnly}
+                    onValueCommit={(n) => {
+                      const max = line.returnableQty;
+                      if (max != null && n > max + 1e-6) {
+                        toast.error(`الكمية لا تتجاوز المتاح للإرجاع [${max}]`);
+                        onPatch(index, { quantity: max });
+                        return;
+                      }
+                      onPatch(index, { quantity: n < 0 ? 0 : n });
+                    }}
                     {...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'quantity')}
                     onKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
                   />
@@ -325,10 +369,16 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
             return (
               <td key={col.id} className={`py-2 px-2 border-x border-[#D6EAF3] ${ERP_PURCHASE_COLUMN_WIDTH.unitPrice ?? ''}`}>
                 <TableNumberInput
-                  className={`${lineInputCls} text-sm text-center ${lockUnitPrice ? 'bg-slate-50 text-slate-500' : ''}`}
+                  className={`${lineInputCls} text-sm text-center ${lockUnitPrice || line.originalInvoiceLineId ? 'bg-slate-50 text-slate-500' : ''}`}
                   value={line.unitPrice}
-                  disabled={lockUnitPrice}
-                  title={lockUnitPrice ? 'السعر مثبت على سعر فاتورة البيع الأصلية' : undefined}
+                  disabled={readOnly || lockUnitPrice || Boolean(line.originalInvoiceLineId)}
+                  title={
+                    lockUnitPrice
+                      ? 'تعديل السعر غير مسموح في إعدادات الفاتورة'
+                      : line.originalInvoiceLineId
+                        ? 'السعر مثبت على سعر الفاتورة الأصلية'
+                        : undefined
+                  }
                   onValueCommit={(n) => onPatch(index, { unitPrice: n })}
                   {...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'unitPrice')}
                   onKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
@@ -362,6 +412,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                 <InvoiceLineDiscountInput
                   value={line.discountValue ?? line.discount ?? 0}
                   discountType={line.discountType}
+                  disabled={readOnly}
                   onValueCommit={(n) =>
                     onPatch(index, {
                       discount: n,
@@ -428,6 +479,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                   itemId={line.itemId}
                   value={line.unitId ?? ''}
                   invoiceAffectsStock={invoiceAffectsStock}
+                  disabled={readOnly}
                   onChange={(unitId) => onPatch(index, { unitId })}
                   className={`${lineInputCls} text-sm py-2`}
                   nativeSelectProps={{
@@ -561,6 +613,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
             return (
               <td key={col.id} className="py-2 px-2 border-x border-[#D6EAF3]">
                 <SmartBatchExpiryCell
+                  mode="receive"
                   item={item}
                   itemId={line.itemId}
                   warehouseId={line.warehouseId || warehouseId}
@@ -568,6 +621,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                   batchNumber={line.batchNumber}
                   expiryDate={line.expiryDate}
                   allocations={line.batchAllocations}
+                  readOnly={readOnly}
                   onChange={(patch) => onPatch(index, patch)}
                 />
               </td>
@@ -677,7 +731,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
           case 'rowDelete':
             return (
               <td key={col.id} className={`py-2 px-2 border-x border-[#D6EAF3] ${ERP_PURCHASE_COLUMN_WIDTH.rowDelete ?? ''}`}>
-                {readOnly ? null : (
+                {readOnly || hideAddLine ? null : (
                   <button
                     type="button"
                     onClick={onAppend}
@@ -696,9 +750,11 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                 >
                   🔍
                 </button>
-                <button type="button" onClick={() => onRemove(index)} aria-label="حذف">
-                  🗑️
-                </button>
+                {readOnly ? null : (
+                  <button type="button" onClick={() => onRemove(index)} aria-label="حذف">
+                    🗑️
+                  </button>
+                )}
               </td>
             );
           default:
@@ -729,6 +785,7 @@ export function ProgressivePurchaseInvoiceLineGrid({
   readOnly = false,
   lockUnitPrice = false,
   hideAddLine = false,
+  addLineBlockedMessage,
   headerDescription = '',
   defaultTaxPercent = 0,
   defaultWithholdingRate = 0,
@@ -736,7 +793,7 @@ export function ProgressivePurchaseInvoiceLineGrid({
   applyPickedItemToLine: applyPickedItemToLineProp,
   invoiceAffectsStock = true,
 }: Props) {
-  const gridContainerRef = useRef<HTMLDivElement>(null);
+  const gridContainerRef = useRef<HTMLFieldSetElement>(null);
 
   useFollowHeaderDescription({
     headerDescription,
@@ -757,7 +814,7 @@ export function ProgressivePurchaseInvoiceLineGrid({
   );
 
   useClipboardTablePaste(gridContainerRef, {
-    enabled: Boolean(clipboardItems?.length && onClipboardLines),
+    enabled: Boolean(!readOnly && clipboardItems?.length && onClipboardLines),
     onPaste: handleClipboardPaste,
   });
 
@@ -794,10 +851,9 @@ export function ProgressivePurchaseInvoiceLineGrid({
 
   const effectiveColumnIds = useMemo(() => {
     const next = new Set(visibleColumnIds);
-    if (storageKey === 'gates:columns:purchase-invoice') next.add('landedCost');
     for (const line of lines) {
       const item = itemsForBaseUnit.find((i) => i.id === line.itemId);
-      if (itemIsBatchTracked(item)) next.add('batchAndExpiry');
+      if (itemIsBatchTracked(item) && !itemUsesExpiryDate(item)) next.add('batchAndExpiry');
       if (itemHasApparelVariants(item)) {
         next.add('color');
         next.add('size');
@@ -846,31 +902,41 @@ export function ProgressivePurchaseInvoiceLineGrid({
     onChangeRef.current(patchLine(linesRef.current, index, next));
   }, []);
 
+  const makeBlankLine = useCallback(
+    (): PurchaseInvoiceLine => ({
+      itemId: '',
+      unitId: '',
+      quantity: 1,
+      baseQuantity: 1,
+      conversionFactor: 1,
+      baseUnitId: '',
+      unitPrice: 0,
+      discount: 0,
+      discountValue: 0,
+      discountType: 'PERCENTAGE',
+      tax: defaultTaxPercent > 0 ? defaultTaxPercent : 0,
+      warehouseId: warehouseId || '',
+      withholdingTaxRate: defaultWithholdingRate > 0 ? defaultWithholdingRate : undefined,
+    }),
+    [defaultTaxPercent, defaultWithholdingRate, warehouseId]
+  );
+
   const appendLine = useCallback(() => {
-    onChangeRef.current([
-      ...linesRef.current,
-      {
-        itemId: '',
-        unitId: '',
-        quantity: 1,
-        baseQuantity: 1,
-        conversionFactor: 1,
-        baseUnitId: '',
-        unitPrice: 0,
-        discount: 0,
-        discountValue: 0,
-        discountType: 'PERCENTAGE',
-        tax: defaultTaxPercent > 0 ? defaultTaxPercent : 0,
-        warehouseId: warehouseId || '',
-        withholdingTaxRate: defaultWithholdingRate > 0 ? defaultWithholdingRate : undefined,
-      },
-    ]);
-  }, [defaultTaxPercent, defaultWithholdingRate, warehouseId]);
+    if (readOnly) return;
+    if (hideAddLine) {
+      toast.error(
+        addLineBlockedMessage ??
+          'لا يمكن إضافة سطر جديد على هذا المستند.'
+      );
+      return;
+    }
+    onChangeRef.current([...linesRef.current, makeBlankLine()]);
+  }, [addLineBlockedMessage, hideAddLine, makeBlankLine, readOnly]);
 
   useEffect(() => {
-    if (readOnly) return;
+    if (readOnly || hideAddLine) return;
     if (lines.length === 0) appendLine();
-  }, [appendLine, lines.length, readOnly]);
+  }, [appendLine, hideAddLine, lines.length, readOnly]);
 
   const removeLine = useCallback((index: number) => {
     onChangeRef.current(linesRef.current.filter((_, i) => i !== index));
@@ -898,14 +964,7 @@ export function ProgressivePurchaseInvoiceLineGrid({
               : Number((picked as { averageCost?: number }).averageCost ?? 0) > 0
                 ? Number((picked as { averageCost?: number }).averageCost)
                 : existing?.unitPrice ?? 0,
-          tax:
-            picked.defaultTaxPercent != null
-              ? Number(picked.defaultTaxPercent)
-              : Number(existing?.tax) > 0
-                ? Number(existing?.tax)
-                : defaultTaxPercent > 0
-                  ? defaultTaxPercent
-                  : 0,
+          tax: invoiceLineVatRate(picked, defaultTaxPercent > 0),
           withholdingTaxRate:
             Number(existing?.withholdingTaxRate) > 0
               ? existing?.withholdingTaxRate
@@ -918,7 +977,22 @@ export function ProgressivePurchaseInvoiceLineGrid({
     [defaultTaxPercent, defaultWithholdingRate, warehouseId]
   );
 
-  const applyPickedItem = applyPickedItemToLineProp ?? defaultApplyPickedItem;
+  const applyPickedItemCore = applyPickedItemToLineProp ?? defaultApplyPickedItem;
+
+  const applyPickedItem = useCallback(
+    (index: number, picked: Item | undefined) => {
+      if (!picked?.id) return;
+      const plan = planInvoiceLineItemPick(linesRef.current, index, picked.id, makeBlankLine);
+      onChangeRef.current(plan.lines);
+      if (plan.mergedDuplicate) {
+        focusNextLineField(PURCHASE_GRID_ID, plan.targetIndex, fieldOrder, 'item', 16);
+        return;
+      }
+      applyPickedItemCore(plan.targetIndex, picked);
+      focusNextLineField(PURCHASE_GRID_ID, plan.targetIndex, fieldOrder, 'item', 16);
+    },
+    [applyPickedItemCore, fieldOrder, makeBlankLine]
+  );
 
   const openPeek = useCallback((index: number) => setPeekIndex(index), []);
 
@@ -946,12 +1020,13 @@ export function ProgressivePurchaseInvoiceLineGrid({
 
   return (
     <>
-      <div
+      <fieldset
         ref={gridContainerRef}
+        disabled={readOnly}
         className={
           modernUi
-            ? `${ERP_INVOICE_ITEMS_CARD_CLASS} rounded-xl border border-slate-200 bg-white shadow-sm`
-            : `${ERP_INVOICE_ITEMS_CARD_CLASS} rounded-2xl border border-[#D6EAF3] bg-white`
+            ? `${ERP_INVOICE_ITEMS_CARD_CLASS} m-0 min-w-0 rounded-xl border border-slate-200 bg-white p-0 shadow-sm`
+            : `${ERP_INVOICE_ITEMS_CARD_CLASS} m-0 min-w-0 rounded-2xl border border-[#D6EAF3] bg-white p-0`
         }
       >
         <div
@@ -994,7 +1069,9 @@ export function ProgressivePurchaseInvoiceLineGrid({
             {lines.length === 0 ? (
               <tr>
                 <td colSpan={colSpan} className="px-4 py-12 text-sm text-[#0A3D5E]">
-                  لا توجد أسطر. اضغط «إضافة سطر».
+                  {hideAddLine
+                    ? 'لا توجد بنود. حمّل الفاتورة الأصلية من القسم والرقم.'
+                    : 'لا توجد أسطر. اضغط «إضافة سطر».'}
                 </td>
               </tr>
             ) : (
@@ -1023,6 +1100,7 @@ export function ProgressivePurchaseInvoiceLineGrid({
                       onPeek={openPeek}
                       onRemove={removeLine}
                       onAppend={appendLine}
+                      hideAddLine={hideAddLine}
                       readOnly={readOnly}
                       applyPickedItem={applyPickedItem}
                       pricingCalculationBasis={pricingCalculationBasis}
@@ -1053,7 +1131,7 @@ export function ProgressivePurchaseInvoiceLineGrid({
             إضافة سطر جديد (Enter)
           </button>
         )}
-      </div>
+      </fieldset>
 
       {peekIndex != null ? (
         <ItemQuickPeekDrawer

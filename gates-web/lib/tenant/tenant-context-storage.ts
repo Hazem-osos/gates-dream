@@ -59,6 +59,12 @@ export function isOnboardingApiPath(url: string): boolean {
   return path === '/onboarding' || path.startsWith('/onboarding/');
 }
 
+/** Database migration wizard — company-scoped; no open FY required to configure SQL source. */
+export function isMigrationEngineApiPath(url: string): boolean {
+  const path = url.split('?')[0] ?? url;
+  return path === '/migration-engine' || path.startsWith('/migration-engine/');
+}
+
 /** Company identity / first branch / fiscal year / COA seed — only company header is required. */
 export function isCompanyBootstrapApiPath(url: string): boolean {
   const path = url.split('?')[0] ?? url;
@@ -68,6 +74,7 @@ export function isCompanyBootstrapApiPath(url: string): boolean {
     path === '/company/branches' ||
     path === '/company/fiscal-years' ||
     path.startsWith('/company/onboarding') ||
+    path === '/users/me/ui-preferences' ||
     path === '/accounting/settings' ||
     path === '/electronic-invoices/settings' ||
     path === '/accounting/accounts/seed-defaults' ||
@@ -106,6 +113,7 @@ export function isMutationTenantReady(url: string, ctx: TenantContextSnapshot): 
   if (isOnboardingApiPath(url)) return Boolean(ctx.companyId);
   if (isCompanyBootstrapApiPath(url)) return Boolean(ctx.companyId);
   if (isMasterCatalogApiPath(url)) return Boolean(ctx.companyId);
+  if (isMigrationEngineApiPath(url)) return Boolean(ctx.companyId);
   return Boolean(ctx.companyId && ctx.branchId && ctx.fiscalYearId);
 }
 

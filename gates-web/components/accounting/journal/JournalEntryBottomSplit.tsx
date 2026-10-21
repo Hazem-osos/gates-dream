@@ -24,7 +24,7 @@ export function JournalEntryBottomSplit({ debitTotal, creditTotal, journalEntryI
       netLabel={balanced ? 'القيد متوازن' : 'غير متوازن'}
       showTafqeet={false}
       financialFooter={
-        <DebitCreditTotals debit={debitTotal} credit={creditTotal} currencyCode={currencyCode} />
+        <DebitCreditTotals debit={debitTotal} credit={creditTotal} currencyCode={currencyCode} showIcons={false} />
       }
       journalEntryId={journalEntryId}
       tabs={[

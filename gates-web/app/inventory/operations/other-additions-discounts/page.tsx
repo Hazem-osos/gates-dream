@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { Percent, Plus, Trash2 } from 'lucide-react';
 import {
   Button,
@@ -82,6 +84,30 @@ const emptyForm = (): FormState => ({
   type: 'addition',
 });
 
+type OtherAddDiscDraft = {
+  form: FormState;
+  defaultRates: string[];
+  scopeRows: Record<ScopeTab, ScopeRow[]>;
+  activeTab: ScopeTab;
+};
+
+function isOtherAddDiscDraftEmpty(draft: OtherAddDiscDraft): boolean {
+  const f = draft.form;
+  const hasScope = (Object.keys(draft.scopeRows) as ScopeTab[]).some((tab) =>
+    draft.scopeRows[tab].some((row) => row.sourceId || row.sourceName || row.percentage.trim())
+  );
+  const hasDefault = draft.defaultRates.some((r) => r.trim());
+  return (
+    !f.name.trim() &&
+    !f.serial.trim() &&
+    !f.abbreviation.trim() &&
+    !f.accountId &&
+    !f.offsetAccountId &&
+    !hasScope &&
+    !hasDefault
+  );
+}
+
 const checkboxCls =
   'h-4 w-4 rounded border-[#0E78AA] text-[#0E78AA] focus:ring-2 focus:ring-[#0E78AA]/20';
 
@@ -109,6 +135,31 @@ export default function OtherAdditionsDiscountsPage() {
   const groups = groupsResponse?.data ?? [];
 
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
+
+  const draftSnapshot = useMemo<OtherAddDiscDraft>(
+    () => ({ form, defaultRates, scopeRows, activeTab }),
+    [activeTab, defaultRates, form, scopeRows]
+  );
+
+  const applyOtherAddDiscDraft = useCallback((payload: OtherAddDiscDraft) => {
+    setSelectedId(null);
+    setForm(payload.form);
+    setDefaultRates(Array.isArray(payload.defaultRates) ? payload.defaultRates : ['']);
+    setScopeRows(payload.scopeRows ?? emptyScope());
+    setActiveTab(payload.activeTab ?? 'customers');
+    setError('');
+  }, []);
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'other-additions-discount-type',
+    mode: selectedId ? 'edit' : 'new',
+    documentId: selectedId,
+    value: draftSnapshot,
+    enabled: !selectedId,
+    applyRestore: applyOtherAddDiscDraft,
+    isEmpty: isOtherAddDiscDraftEmpty,
+    restoreMessage: 'يوجد مسودة تعريف إضافة/خصم غير محفوظة',
+  });
 
   const applyRow = (row: OtherAdditionRow) => {
     setSelectedId(row.id);
@@ -216,6 +267,7 @@ export default function OtherAdditionsDiscountsPage() {
         if (created.data?.id) setSelectedId(created.data.id);
       }
       invalidateQuery(['other-addition-discount-types']);
+      clearDraft();
       setSuccess('تم حفظ الإضافة / الخصم');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
@@ -225,6 +277,7 @@ export default function OtherAdditionsDiscountsPage() {
   };
 
   const handleNew = () => {
+    clearDraft();
     setSelectedId(null);
     setForm(emptyForm());
     setDefaultRates(['']);
@@ -268,6 +321,18 @@ export default function OtherAdditionsDiscountsPage() {
     >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+
+      <PageDraftRestoreGate<OtherAddDiscDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedId)}
+        message="يوجد مسودة تعريف إضافة/خصم غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyOtherAddDiscDraft(payload);
+          setSuccess('تم استعادة مسودة الإضافة/الخصم');
+        }}
+      />
 
       <OtherAdditionsListSection onSelect={applyRow} selectedId={selectedId} />
 

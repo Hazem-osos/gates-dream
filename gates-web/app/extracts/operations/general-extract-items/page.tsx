@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { ListTree } from 'lucide-react';
@@ -11,7 +11,14 @@ import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/use
 import { apiClient } from '@/lib/api/client';
 import { notifyApiSuccess } from '@/lib/api/api-success-notify';
 import { confirmAction } from '@/lib/feedback/confirm';
-import { withItemCodeHierarchy, workItemHierarchyHints } from '@/lib/contracting/boq-hierarchy';
+import {
+  canEnterBoqLineQuantity,
+  isParentIdTreeRowVisible,
+  parentIdsWithChildren,
+  withItemCodeHierarchy,
+  workItemHierarchyHints,
+} from '@/lib/contracting/boq-hierarchy';
+import { BoqHierarchyTreeCell } from '@/components/contracting/BoqHierarchyTreeCell';
 import { inferWorkItemParentId } from '@/lib/contracting/mostakhlasat-contracts';
 import { formatEgp, formatQty, toMoney } from '@/lib/subcontracts/money';
 import ErrorToast from '@/components/ErrorToast';
@@ -61,6 +68,7 @@ export default function GeneralExtractItemsPage() {
   const [enQ, setEnQ] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(() => new Set());
 
   const { data: projectsRes } = useApiQuery<ProjectOption[]>(
     ['extracts-projects', 'work-item-create'],
@@ -95,6 +103,37 @@ export default function GeneralExtractItemsPage() {
       ),
     [filtered]
   );
+
+  const workItemById = useMemo(() => {
+    const map = new Map<string, WorkItemRow>();
+    for (const row of tableData) map.set(row.id, row);
+    return map;
+  }, [tableData]);
+
+  const parentIdsWithKids = useMemo(() => parentIdsWithChildren(tableData), [tableData]);
+
+  const visibleHierarchical = useMemo(
+    () =>
+      hierarchical.filter((row) =>
+        isParentIdTreeRowVisible(row, expandedParentIds, workItemById)
+      ),
+    [hierarchical, expandedParentIds, workItemById]
+  );
+
+  useEffect(() => {
+    const roots = new Set<string>();
+    for (const row of tableData) {
+      if (!row.parentId && parentIdsWithChildren(tableData).has(row.id)) roots.add(row.id);
+    }
+    setExpandedParentIds(roots);
+  }, [form.projectId, tableData]);
+
+  const selectedHierarchyRow = selectedId
+    ? hierarchical.find((row) => row.id === selectedId)
+    : null;
+  const quantityFieldDisabled = selectedHierarchyRow
+    ? !canEnterBoqLineQuantity(selectedHierarchyRow.__isParent)
+    : false;
 
   const qtyPreview = toMoney(form.quantity);
   const pricePreview = toMoney(form.unitPrice);
@@ -168,6 +207,10 @@ export default function GeneralExtractItemsPage() {
     }
     if (!form.itemNumber.trim() || !form.arabicName.trim()) {
       setError('رقم البند والاسم العربي مطلوبان');
+      return;
+    }
+    if (quantityFieldDisabled) {
+      setError('لا تُدخل الكمية على البنود الرئيسية — اختر بنداً تنفيذياً فرعياً');
       return;
     }
     const quantity = toMoney(form.quantity);
@@ -277,7 +320,13 @@ export default function GeneralExtractItemsPage() {
           type="number"
           min={0}
           step="0.001"
-          value={form.quantity}
+          value={quantityFieldDisabled ? '' : form.quantity}
+          readOnly={quantityFieldDisabled}
+          hint={
+            quantityFieldDisabled
+              ? 'الكمية تُدخل على البنود التنفيذية (الفرعية) فقط — وليس على الرؤوس.'
+              : undefined
+          }
           onChange={(e) => setForm((p) => ({ ...p, quantity: e.target.value }))}
         />
         <CompactFormField
@@ -335,24 +384,53 @@ export default function GeneralExtractItemsPage() {
         />
       </FormSectionCard>
 
+      <div className="mb-2 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setExpandedParentIds(new Set(parentIdsWithKids))}
+        >
+          توسيع الشجرة
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setExpandedParentIds(new Set())}>
+          طي الشجرة
+        </Button>
+      </div>
+
       <AppTable
         columns={[
           {
             id: 'code',
             header: 'الكود',
             cell: (row) => (
-              <span style={{ paddingInlineStart: row.__depth * 12 }}>
-                {row.itemNumber}
-                {row.__isParent ? (
-                  <span className="mr-1 text-[10px] text-[#0E78AA]"> رئيسي</span>
-                ) : null}
-              </span>
+              <BoqHierarchyTreeCell
+                code={row.itemNumber}
+                depth={row.__depth}
+                isParent={row.__isParent}
+                hasChildren={parentIdsWithKids.has(row.id)}
+                expanded={expandedParentIds.has(row.id)}
+                onToggleExpand={() => {
+                  setExpandedParentIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(row.id)) next.delete(row.id);
+                    else next.add(row.id);
+                    return next;
+                  });
+                }}
+              />
             ),
           },
           { id: 'group', header: 'البند العام', cell: (row) => row.itemGroupName || row.itemGroupCode || '—' },
           { id: 'ar', header: 'الإسم العربي', accessor: 'arabicName' },
           { id: 'en', header: 'الإسم الإنجليزي', accessor: 'englishName' },
-          { id: 'qty', header: 'الكمية', numeric: true, cell: (row) => (row.__isParent ? '—' : formatQty(row.quantity)) },
+          {
+            id: 'qty',
+            header: 'الكمية',
+            numeric: true,
+            cell: (row) =>
+              canEnterBoqLineQuantity(row.__isParent) ? formatQty(row.quantity) : '—',
+          },
           { id: 'unit', header: 'الوحدة', accessor: 'unit' },
           {
             id: 'price',
@@ -390,7 +468,7 @@ export default function GeneralExtractItemsPage() {
             ),
           },
         ]}
-        data={hierarchical}
+        data={visibleHierarchical}
         getRowKey={(row) => row.id}
         isLoading={isLoading}
         emptyTitle="لا توجد بنود"

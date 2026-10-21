@@ -1,5 +1,5 @@
 export type PaymentSplitLine =
-  | { type: 'CASH'; safeId: string; amount: number }
+  | { type: 'CASH'; safeId: string; amount: number; voucherNumber?: string }
   | {
       type: 'BANK';
       bankAccountId: string;
@@ -152,4 +152,42 @@ export function creditAdvanceToSplits(
     return withOnAccountRemainder([{ type: 'CASH', safeId: safe, amount: paid }], grandTotal);
   }
   return withOnAccountRemainder([], grandTotal);
+}
+
+export function cashVoucherNumberLabel(direction: 'RECEIPT' | 'PAYMENT'): string {
+  return direction === 'RECEIPT' ? 'رقم سند القبض' : 'رقم سند الصرف';
+}
+
+export function cashVoucherNumberRequiredMessage(direction: 'RECEIPT' | 'PAYMENT'): string {
+  return `${cashVoucherNumberLabel(direction)} مطلوب — الترقيم يدوي لهذا النوع من السندات`;
+}
+
+export function cashTenderNeedsManualVoucherNumber(
+  lines: PaymentSplitLine[] | undefined,
+  cashNumberingManual: boolean
+): boolean {
+  if (!cashNumberingManual) return false;
+  return (lines ?? []).some(
+    (line) =>
+      line.type === 'CASH' && Number(line.amount) > 0.009 && !String(line.voucherNumber ?? '').trim()
+  );
+}
+
+/** Keep typed cash-receipt numbers when the invoice rebuilds treasury tenders on save. */
+export function withCopiedCashVoucherNumbers(
+  splits: PaymentSplitLine[] | undefined,
+  source: PaymentSplitLine[] | undefined
+): PaymentSplitLine[] | undefined {
+  if (!splits?.length) return splits;
+  const numbers = (source ?? [])
+    .filter((line): line is Extract<PaymentSplitLine, { type: 'CASH' }> => line.type === 'CASH')
+    .map((line) => String(line.voucherNumber ?? '').trim())
+    .filter(Boolean);
+  if (!numbers.length) return splits;
+  let index = 0;
+  return splits.map((line) => {
+    if (line.type !== 'CASH') return line;
+    const voucherNumber = numbers[index++];
+    return voucherNumber ? { ...line, voucherNumber } : line;
+  });
 }

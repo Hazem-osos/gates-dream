@@ -82,6 +82,7 @@ export function QuickCreateBankAccountModal({
       parentAccount={parentAccount}
       initialArabicName={initialName}
       createKind="POSTING"
+      overlayZClass="z-[15000]"
       lockParentHint="الحساب البنكي الجديد بينزل تحت البنوك."
       lockParentMissingMessage="حساب البنوك غير جاهز. حدّث الصفحة ثم أعد المحاولة."
       lockParentEmptyLabel="البنوك"

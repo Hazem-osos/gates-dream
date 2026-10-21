@@ -9,6 +9,12 @@ const EXACT: Record<string, string> = {
   'validation error': 'بعض الحقول غير صحيحة. الحل: راجع الحقول المعلّمة ثم أعد الحفظ.',
   'company id is required': 'معرّف الشركة مطلوب',
   'company context is required': 'يجب اختيار الشركة',
+  'tenant id is required': 'يجب اختيار الشركة — حدّث الصفحة أو أعد تسجيل الدخول.',
+  'failed to set tenant context': 'تعذّر تحميل سياق الشركة. حدّث الصفحة أو أعد تسجيل الدخول.',
+  'failed to load preferences': 'تعذّر تحميل تفضيلات الواجهة (غير حرج).',
+  'failed to load profile': 'تعذّر تحميل بيانات المستخدم. أعد تسجيل الدخول.',
+  'failed to fetch. is the api running? check next_public_api_url and cors (same host as frontend_url on the backend).':
+    'تعذّر الاتصال بالخادم. تأكد أن gates-backend يعمل (محلياً: المنفذ 3001) ثم حدّث الصفحة.',
   'branch context is required for posting (send x-branch-id)': 'يجب اختيار الفرع قبل الترحيل',
   'branch context is required (x-branch-id or token branch_id)': 'يجب اختيار الفرع قبل الترحيل',
   'fiscal year context is required for posting (send x-fiscal-year-id)':
@@ -115,6 +121,10 @@ const EXACT: Record<string, string> = {
   'coupon was not found': 'كود الكوبون غير صحيح.',
   'account not found': 'الحساب غير موجود',
   'assembly not found': 'مستند التجميع غير موجود',
+  'cannot edit a posted assembly': 'لا يمكن تعديل تجميع مرحّل. فك الترحيل أولاً.',
+  'cannot edit a cancelled assembly': 'لا يمكن تعديل تجميع ملغى',
+  'cannot edit a posted disassembly': 'لا يمكن تعديل تفكيك مرحّل. فك الترحيل أولاً.',
+  'cannot edit a cancelled disassembly': 'لا يمكن تعديل تفكيك ملغى',
   'cannot post cancelled transfer': 'لا يمكن ترحيل نقل ملغى',
   'transfer is already posted': 'النقل مرحّل بالفعل',
   'transfer is not posted': 'النقل غير مرحّل',
@@ -209,9 +219,33 @@ const EXACT: Record<string, string> = {
   'cannot set headers after they are sent to the client':
     'انقطع رد المساعد أثناء الإرسال. أعد المحاولة.',
   'err_http_headers_sent': 'انقطع رد المساعد أثناء الإرسال. أعد المحاولة.',
+  'encryption failed': 'تعذّر تشفير إعدادات الاتصال على الخادم — راجع ENCRYPTION_KEY في gates-backend.',
+  'database and user are required': 'أكمل اسم قاعدة البيانات واسم المستخدم ثم احفظ.',
+  'no legacy sql source configured for this company. configure remote sql, connector, or complete backup restore.':
+    'مصدر Legacy غير مضبوط — احفظ واختبر اتصال SQL أو اختر موصل/نسخة .bak.',
 };
 
 const RULES: Rule[] = [
+  {
+    test: /private sql server addresses require/i,
+    ar: 'عنوان SQL داخلي (VPN/شبكة محلية). على السيرفر: MIGRATION_ALLOW_PRIVATE_SQL_HOSTS=true، أو استخدم backend في وضع development للتجربة المحلية.',
+  },
+  {
+    test: /remote sql source not configured/i,
+    ar: 'احفظ بيانات الاتصال أولاً ثم اضغط «اختبار الاتصال».',
+  },
+  {
+    test: /اتصال SQL محفوظ|اختبار الاتصال|مصدر Legacy|تعذّر الاتصال بقاعدة Legacy/i,
+    ar: (_m, raw) => raw,
+  },
+  {
+    test: /sql server host is not allowed|invalid sql server host/i,
+    ar: 'عنوان SQL غير مسموح. تحقق من Host (بدون مسافات) — localhost مسموح في التطوير المحلي.',
+  },
+  {
+    test: /connection successful/i,
+    ar: 'تم الاتصال بنجاح',
+  },
   {
     test: /account id must be a valid uuid/i,
     ar: 'اختر حساباً صحيحاً في السطر',
@@ -411,7 +445,11 @@ const RULES: Rule[] = [
     ar: 'تعذّر تحميل التقرير',
   },
   {
-    test: /failed to fetch|econnrefused|econnreset|socket hang up|enotfound|epipe|etimedout/i,
+    test: /getaddrinfo enotfound|could not be resolved|sql server host «/i,
+    ar: 'تعذّر التعرف على عنوان SQL — ضع اسم السيرفر أو IP في Host والمنفذ في Port (ليس host,1433 في حقل واحد).',
+  },
+  {
+    test: /failed to fetch|econnrefused|econnreset|socket hang up|epipe|etimedout/i,
     ar: 'تعذّر الاتصال بالخادم — شغّل gates-backend ثم حدّث الصفحة.',
   },
   {
@@ -562,6 +600,9 @@ export function localizeApiErrorMessage(message: string, httpStatus?: number): s
   if (/invalid username or password/i.test(raw)) {
     return 'اسم المستخدم أو كلمة المرور غير صحيحة.';
   }
+  if (/password login is only available with keycloak_enabled=false/i.test(raw)) {
+    return 'تسجيل الدخول المحلي غير مفعّل على السيرفر (Keycloak أو JWT_DEV_SECRET).';
+  }
   if (httpStatus === 401) {
     return 'انتهت صلاحية الجلسة — يرجى تسجيل الدخول مرة أخرى.';
   }
@@ -593,6 +634,7 @@ export function localizeApiErrorMessage(message: string, httpStatus?: number): s
   }
 
   if (looksLikeEnglishUserMessage(raw)) {
+    if (process.env.NODE_ENV === 'development') return raw;
     return 'تعذّر تنفيذ العملية. الحل: راجع البيانات المدخلة وأعد المحاولة. لو تكرر الخطأ بعد التصحيح حدّث الصفحة.';
   }
 

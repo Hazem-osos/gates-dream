@@ -18,6 +18,7 @@ import { useTenantContextReady, useCompanyContextReady } from './useTenantContex
 import {
   getTenantContext,
   isMasterCatalogApiPath,
+  isMigrationEngineApiPath,
   isMutationTenantReady,
 } from '../tenant/tenant-context-storage';
 import { sealDocumentPostingCache } from '@/lib/documents/posting-trust';
@@ -30,6 +31,8 @@ export type UseApiMutationExtraOptions = {
   successMessage?: string;
   /** Override the client request timeout (ms). */
   timeout?: number;
+  /** Skip the global red API error toast (screen handles errors locally). */
+  skipErrorNotify?: boolean;
 };
 
 // Wave 5 fix: `apiClient`'s `handleResponse` already calls `notifyApiError`
@@ -71,7 +74,7 @@ export function useApiQuery<T>(
   const requireFullTenant =
     options?.requireFullTenant !== undefined
       ? options.requireFullTenant
-      : !isMasterCatalogApiPath(url);
+      : !(isMasterCatalogApiPath(url) || isMigrationEngineApiPath(url));
   const userEnabled = options?.enabled ?? true;
   const userRetry = options?.retry;
   const requestTimeout = options?.requestTimeout;
@@ -134,6 +137,7 @@ export function useApiMutation<TData = unknown, TVariables = unknown>(
     showSuccessToast,
     successMessage,
     timeout,
+    skipErrorNotify,
     ...restOptions
   } = options ?? {};
   const queryClient = useQueryClient();
@@ -142,6 +146,7 @@ export function useApiMutation<TData = unknown, TVariables = unknown>(
     skipSuccessNotify: showSuccessToast === false,
     successMessage,
     ...(timeout != null ? { timeout } : {}),
+    ...(skipErrorNotify ? { skipErrorNotify: true } : {}),
   };
 
   return useMutation<ApiResponse<TData>, ApiError, TVariables>({

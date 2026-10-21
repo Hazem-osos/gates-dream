@@ -39,7 +39,7 @@ export function useStoreDocumentSerial(input: {
     { enabled, staleTime: 0 }
   );
 
-  const automatic = response?.data?.automatic !== false;
+  const automatic = response?.data?.automatic === true;
   const nextSerial = response?.data?.number?.trim() || '';
 
   useEffect(() => {
@@ -58,4 +58,4 @@ export function useStoreDocumentSerial(input: {
 }
 
 /** Status chip for unposted store vouchers (not a draft workflow). */
-export const STORE_DOCUMENT_UNPOSTED_LABEL = 'غير مرحّل';
+export { DOCUMENT_UNPOSTED_LABEL as STORE_DOCUMENT_UNPOSTED_LABEL } from '@/lib/documents/document-status-labels';

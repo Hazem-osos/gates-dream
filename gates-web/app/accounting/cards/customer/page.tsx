@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Printer, User } from 'lucide-react';
 import { EtaDetailsDialog } from '@/components/electronic-invoices/EtaDetailsDialog';
 import {
@@ -13,6 +15,7 @@ import { useClearDocumentQuery, useOwnTabSearchParams } from '@/lib/navigation/t
 import { apiClient } from '@/lib/api/client';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
+import { masterArchiveTarget } from '@/lib/attachments/archive-entity';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { ClientMountGate } from '@/lib/hooks/useClientMounted';
 import ErrorToast from '@/components/ErrorToast';
@@ -164,6 +167,33 @@ export default function CustomerPage() {
     linkedSupplierId: '',
   });
 
+  type CustomerCardDraft = { formData: typeof formData; etaProfile: Record<string, unknown> | null };
+  const editingCustomerId = selectedId || idFromUrl;
+
+  const draftSnapshot = useMemo<CustomerCardDraft>(
+    () => ({ formData, etaProfile }),
+    [etaProfile, formData]
+  );
+
+  const applyCustomerCardDraft = useCallback((payload: CustomerCardDraft) => {
+    setFormData(payload.formData);
+    setEtaProfile(payload.etaProfile ?? null);
+    etaEditedRef.current = Boolean(payload.etaProfile);
+    setSelectedId(null);
+    setSavedCustomerId(null);
+    setError('');
+  }, []);
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'customer-card',
+    editingId: editingCustomerId,
+    value: draftSnapshot,
+    isEmpty: (d) =>
+      !d.formData.arabicName.trim() && !d.formData.code.trim() && !d.formData.phone1.trim(),
+    applyRestore: applyCustomerCardDraft,
+    restoreMessage: 'يوجد مسودة بطاقة عميل غير محفوظة',
+  });
+
   const [offsetOpen, setOffsetOpen] = useState(false);
   const [savedCustomerId, setSavedCustomerId] = useState<string | null>(null);
   const tenantCtx = getTenantContext();
@@ -313,6 +343,7 @@ export default function CustomerPage() {
     {
       showSuccessToast: false,
       onSuccess: (res) => {
+        clearDraft();
         const created = res?.data as {
           id?: string;
           arabicName?: string;
@@ -401,6 +432,7 @@ export default function CustomerPage() {
         await apiClient.put<CustomerRecord>(`/accounting/customers/${selectedId}`, payload, {
           skipSuccessNotify: true,
         });
+        clearDraft();
         toast.success('تم حفظ تعديلات العميل');
         invalidateQuery(['customers']);
         invalidateQuery(['accounts']);
@@ -418,6 +450,7 @@ export default function CustomerPage() {
   };
 
   const handleCancel = () => {
+    clearDraft();
     setSelectedId(null);
     setSavedCustomerId(null);
     etaEditedRef.current = false;
@@ -504,16 +537,15 @@ export default function CustomerPage() {
         savePending={customerMutation.isPending}
         canSave={!customerMutation.isPending}
         hideStandalonePost
-        moreMenuItems={[
-          { id: 'new', label: 'جديد', onClick: handleCancel },
-          {
-            id: 'del',
-            label: 'حذف',
-            onClick: () => void handleDelete(),
-            disabled: !selectedId,
-            destructive: true,
-          },
-        ]}
+        currentId={selectedId ?? partyDrawer?.id ?? savedCustomerId}
+        standardActions={{
+          hasDocument: Boolean(selectedId ?? partyDrawer?.id ?? savedCustomerId),
+          documentId: selectedId,
+          archiveTarget: masterArchiveTarget('CUSTOMER', selectedId),
+          onNew: handleCancel,
+          onVoid: selectedId ? () => void handleDelete() : undefined,
+          voidLabel: 'حذف',
+        }}
         extraActions={
           <>
             <Button
@@ -547,7 +579,6 @@ export default function CustomerPage() {
         }
         onBrowseList={() => setShowGuide(true)}
         browseListLabel="السابق"
-        currentId={selectedId ?? partyDrawer?.id ?? savedCustomerId}
       />
 
       <ClientMountGate
@@ -991,6 +1022,14 @@ export default function CustomerPage() {
       ) : null}
 
       {/* Toast Notifications */}
+      <MasterCardDraftRestoreGate<CustomerCardDraft>
+        editingId={editingCustomerId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyCustomerCardDraft}
+        message="يوجد مسودة بطاقة عميل غير محفوظة."
+      />
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
     </ErpDocumentLayout>

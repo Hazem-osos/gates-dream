@@ -4,10 +4,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation';
 import { useOwnTabPathname, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import dynamic from 'next/dynamic';
-import { Check } from 'lucide-react';
 import { useForm, useWatch, type Resolver } from 'react-hook-form';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
-import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button, FormSectionCard } from '@/components/ui';
 import { VoucherLinesGrid, type VoucherGridLine } from '@/components/accounting/vouchers/VoucherLinesGrid';
@@ -36,6 +35,7 @@ import {
   erpInputErrorClass,
   erpLabelClass,
 } from '@/components/erp';
+import { useTreasuryCashSerial } from '@/lib/accounting/use-treasury-cash-serial';
 import {
   DocumentFormLock,
   DocumentModeProvider,
@@ -52,7 +52,6 @@ import { parseDecimal, roundMoney2 } from '@/lib/money/parseDecimal';
 import type { ApiError } from '@/lib/api/types';
 import { toastVersionConflict } from '@/lib/feedback/toast';
 import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
-import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import {
   invalidateTreasuryFundBalances,
@@ -86,6 +85,15 @@ import {
 import PaymentsDistributionModal from '@/components/LazyPaymentsDistributionModal';
 import { ShowFxColumnsField } from '@/components/accounting/ShowFxColumnsField';
 import { useShowFxColumns } from '@/lib/transaction-settings/useShowFxColumns';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
+import { isTransactionSerialAutomatic } from '@/lib/transaction-settings/serial-mode';
+import type { TransactionSettings } from '@/lib/transaction-settings/types';
+import { maybeAutoPrintAfterSave } from '@/lib/printer/print-prefs';
+import {
+  postCashVoucherAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
+import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
 
 const VoucherPrintActions = dynamic(
   () =>
@@ -143,6 +151,7 @@ type CashTxRow = {
   offsetAccountId?: string | null;
   hijriDate?: string | null;
   isCancelled?: boolean;
+  isPosted?: boolean;
   executionStatus?: OrderExecutionStatus;
   executedAt?: string | null;
   executedBy?: string | null;
@@ -160,11 +169,6 @@ type CashTxRow = {
     isTiedToInvoice?: boolean;
     invoiceId?: string | null;
   }>;
-};
-
-type CompanySettingsRow = {
-  autoNumbering?: boolean | null;
-  dateUsage?: 'gregorian' | 'hijri' | 'both' | null;
 };
 
 function defaultCurrencyId(currencies: Currency[], companyBase = 'EGP'): string {
@@ -205,7 +209,6 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   const invalidateQuery = useInvalidateQuery();
   const lastHydratedIdRef = useRef<string | null>(null);
   const todayStr = new Date().toISOString().split('T')[0];
-  const companyId = getTenantContext().companyId;
   const isPayable = variant.transactionKind === 'PAYMENT';
   const isPaymentOrder = variantId === 'PAYMENT_ORDER';
   const isReceiptOrder = variantId === 'RECEIPT_ORDER';
@@ -213,6 +216,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   const orderEntrySide = isReceiptOrder ? 'CREDIT' : 'DEBIT';
 
   const [executionStatus, setExecutionStatus] = useState<OrderExecutionStatus>('PENDING');
+  const [isPosted, setIsPosted] = useState(false);
   const [isCancelled, setIsCancelled] = useState(false);
   const [voucherLines, setVoucherLines] = useState<VoucherGridLine[]>([emptyLine('EGP')]);
   const [showBrowseList, setShowBrowseList] = useState(false);
@@ -245,8 +249,18 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   const skipHeaderFxSyncRef = useRef(false);
   const prevHeaderCurrencyCodeRef = useRef('');
   const [headerRateOverride, setHeaderRateOverride] = useState<number | null>(null);
+  const orderSettingsDocumentType = isReceiptOrder ? 'RECEIPT_ORDER' : 'PAYMENT_ORDER';
   const { showFx: showFxColumns, setShowFx: setShowFxColumns, resetFxToSetting } = useShowFxColumns(
-    isReceiptOrder ? 'RECEIPT_VOUCHER' : 'PAYMENT_VOUCHER'
+    orderSettingsDocumentType
+  );
+  const { data: orderTxSettingsRes } = useApiQuery<TransactionSettings>(
+    ['transaction-settings', orderSettingsDocumentType],
+    `/transaction-settings/${orderSettingsDocumentType}`
+  );
+  const orderTxSettings = orderTxSettingsRes?.data;
+  const autoPostOnSave = orderTxSettings?.autoPostOnSave === true;
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost(
+    autoPostOnSave
   );
 
   useEffect(() => {
@@ -265,12 +279,12 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       setMode('create');
       return;
     }
-    if (isCancelled || executionStatus === 'COMPLETED' || executionStatus === 'CANCELLED') {
+    if (isCancelled || isPosted || executionStatus === 'COMPLETED' || executionStatus === 'CANCELLED') {
       lockToView();
       return;
     }
     setMode('edit');
-  }, [executionStatus, isCancelled, lockToView, savedOrderId, setMode]);
+  }, [executionStatus, isCancelled, isPosted, lockToView, savedOrderId, setMode]);
 
   const {
     register,
@@ -358,14 +372,26 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   const funds = isCashOrder || !isBank ? safesResponse?.data || [] : banksResponse?.data || [];
 
   useEffect(() => {
-    if (savedOrderId || isBank || defaultFundAppliedRef.current) return;
+    if (savedOrderId || isBank || fundId) return;
     if (restoreOffer) return;
     if (!funds.length) return;
-    defaultFundAppliedRef.current = true;
-    if (fundId) return;
-    const next = pickDefaultSafeId(safesResponse?.data);
+    const fromSettings =
+      orderTxSettings?.defaultSafeId && funds.some((fund) => fund.id === orderTxSettings.defaultSafeId)
+        ? orderTxSettings.defaultSafeId
+        : funds.find((fund) => fund.glAccount?.id === orderTxSettings?.defaultCashAccountId)?.id;
+    const next = fromSettings || pickDefaultSafeId(safesResponse?.data);
     if (next) setValue('fundId', next, { shouldValidate: false });
-  }, [fundId, funds.length, isBank, restoreOffer, safesResponse?.data, savedOrderId, setValue]);
+  }, [
+    fundId,
+    funds,
+    isBank,
+    orderTxSettings?.defaultCashAccountId,
+    orderTxSettings?.defaultSafeId,
+    restoreOffer,
+    safesResponse?.data,
+    savedOrderId,
+    setValue,
+  ]);
   const { data: liveFundResponse } = useLiveFundBalance({
     kind: isBank ? 'bank' : 'safe',
     id: fundId,
@@ -386,18 +412,24 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     [suppliersResponse?.data, customersResponse?.data]
   );
 
-  const { data: settingsResponse } = useApiQuery<CompanySettingsRow>(
-    ['company-settings', companyId ?? 'none'],
-    companyId ? `/companies/${companyId}/settings` : '/companies/none/settings',
-    undefined,
-    { enabled: Boolean(companyId), staleTime: 60_000 }
-  );
-  const settings = settingsResponse?.data;
   const { data: accountingSettingsRes } = useAccountingSettingsQuery();
   const { code: companyBaseCurrency } = useCompanyBaseCurrency();
   const preventCashOverdraft =
     accountingSettingsRes?.data?.controls?.preventCashOverdraft === true;
-  const autoNumbering = settings?.autoNumbering !== false;
+  const autoNumbering = isTransactionSerialAutomatic(orderTxSettings?.numberingMode);
+  const setOrderNumberPreview = useCallback(
+    (value: string) =>
+      setValue('voucherNumber', value, { shouldDirty: false, shouldValidate: false }),
+    [setValue]
+  );
+  const { invalidateNextSerial } = useTreasuryCashSerial({
+    transactionKind: variant.transactionKind,
+    documentRole: 'ORDER',
+    bankAccountId: isBank && fundId ? fundId : null,
+    date: dateW,
+    enabled: !savedOrderId && autoNumbering,
+    setVoucherNumber: setOrderNumberPreview,
+  });
 
   const { data: selectedOrderResponse } = useApiQuery<CashTxRow>(
     ['cash-order-detail', savedOrderId ?? 'none'],
@@ -406,24 +438,61 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     { enabled: Boolean(savedOrderId) }
   );
 
+  const finishOrderSave = (opts: {
+    id?: string | null;
+    alreadyPosted?: boolean;
+    message: string;
+    open?: boolean;
+  }) => {
+    invalidateQuery(['treasury-cash-transactions']);
+    invalidateQuery([`order-browse-${variant.id}`]);
+    invalidateQuery(['cash-orders']);
+    invalidateQuery(['voucher-source-orders']);
+    invalidateQuery(['cash-order-detail']);
+    invalidateTreasuryFundBalances(invalidateQuery);
+    invalidateNextSerial();
+    maybeAutoPrintAfterSave(orderTxSettings?.autoPrintOnSave, () => {
+      document.querySelector<HTMLButtonElement>('[data-print-document]')?.click();
+    });
+    setSuccess(opts.message);
+    const id = opts.id;
+    const openSaved = () => {
+      if (opts.open && id) {
+        lastHydratedIdRef.current = null;
+        openOrder(id);
+      } else {
+        lastHydratedIdRef.current = null;
+      }
+    };
+    const shouldPost =
+      Boolean(id) && !opts.alreadyPosted && (autoPostOnSave || consumeShouldRepost());
+    if (shouldPost && id) {
+      void postCashVoucherAfterSave(id)
+        .then(() => {
+          setIsPosted(true);
+          lockToView();
+          openSaved();
+        })
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : 'تم الحفظ وتعذر الترحيل');
+          openSaved();
+        });
+      return;
+    }
+    openSaved();
+  };
+
   const saveMutation = useApiMutation<CashTxRow, Record<string, unknown>>(
     '/treasury/cash-transactions',
     'POST',
     {
       onSuccess: (res: { data?: CashTxRow }) => {
-        const row = res?.data;
-        const message = `تم حفظ ${variant.title} بنجاح`;
-        invalidateQuery(['treasury-cash-transactions']);
-        invalidateQuery([`order-browse-${variant.id}`]);
-        invalidateQuery(['cash-orders']);
-        invalidateQuery(['voucher-source-orders']);
-        invalidateQuery(['cash-order-detail']);
-        invalidateTreasuryFundBalances(invalidateQuery);
-        if (row?.id) {
-          lastHydratedIdRef.current = null;
-          openOrder(row.id);
-        }
-        setSuccess(message);
+        finishOrderSave({
+          id: res?.data?.id,
+          alreadyPosted: Boolean(res?.data?.isPosted),
+          message: `تم حفظ ${variant.title} بنجاح`,
+          open: true,
+        });
       },
       onError: (err: ApiError) => {
         if (isOptimisticLockApiError(err)) {
@@ -443,15 +512,11 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     'PATCH',
     {
       onSuccess: () => {
-        const message = `تم حفظ تعديلات ${variant.title}`;
-        invalidateQuery(['treasury-cash-transactions']);
-        invalidateQuery([`order-browse-${variant.id}`]);
-        invalidateQuery(['cash-orders']);
-        invalidateQuery(['voucher-source-orders']);
-        invalidateQuery(['cash-order-detail']);
-        invalidateTreasuryFundBalances(invalidateQuery);
-        lastHydratedIdRef.current = null;
-        setSuccess(message);
+        finishOrderSave({
+          id: savedOrderId,
+          alreadyPosted: isPosted,
+          message: `تم حفظ تعديلات ${variant.title}`,
+        });
       },
       onError: (err: ApiError) => {
         if (isOptimisticLockApiError(err)) {
@@ -487,23 +552,63 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     }
   );
 
-  const executeMutation = useApiMutation<CashTxRow, Record<string, never>>(
-    savedOrderId ? variant.togglePath(savedOrderId) : '/orders/payment-orders/none/toggle-execution',
-    'PATCH',
+  const restoreMutation = useApiMutation<unknown, { expectedVersion?: number }>(
+    savedOrderId ? `/treasury/cash-transactions/${savedOrderId}/restore` : '/treasury/cash-transactions',
+    'POST',
     {
-      onSuccess: (res: { data?: CashTxRow; message?: string }) => {
-        const row = res?.data;
-        if (row) applyCashRow(row);
-        setSuccess(res.message || variant.confirmLabel);
+      onSuccess: () => {
+        setIsCancelled(false);
+        setExecutionStatus('PENDING');
+        setSuccess('تمت استعادة الأمر');
+        lastHydratedIdRef.current = null;
         invalidateQuery(['treasury-cash-transactions']);
         invalidateQuery([`order-browse-${variant.id}`]);
         invalidateQuery(['cash-orders']);
         invalidateQuery(['voucher-source-orders']);
         invalidateQuery(['cash-order-detail']);
-        invalidateTreasuryFundBalances(invalidateQuery);
+      },
+      onError: (err: ApiError) => setError(err.message || 'تعذر استعادة الأمر'),
+    }
+  );
+
+  const postMutation = useApiMutation<CashTxRow, Record<string, never>>(
+    savedOrderId ? `/treasury/cash-transactions/${savedOrderId}/post` : '/treasury/cash-transactions',
+    'POST',
+    {
+      onSuccess: (res: { data?: CashTxRow; message?: string }) => {
+        lastHydratedIdRef.current = null;
+        setIsPosted(true);
+        if (typeof res?.data?.version === 'number') setDocumentVersion(res.data.version);
+        setSuccess(res.message || 'تم ترحيل الأمر');
+        invalidateQuery(['treasury-cash-transactions']);
+        invalidateQuery([`order-browse-${variant.id}`]);
+        invalidateQuery(['cash-orders']);
+        invalidateQuery(['voucher-source-orders']);
+        invalidateQuery(['cash-order-detail']);
         lockToView();
       },
-      onError: (err: ApiError) => setError(err.message || 'تعذر تحديث حالة التنفيذ'),
+      onError: (err: ApiError) => setError(err.message || 'تعذر ترحيل الأمر'),
+    }
+  );
+
+  const unpostMutation = useApiMutation<CashTxRow, Record<string, never>>(
+    savedOrderId ? `/treasury/cash-transactions/${savedOrderId}/unpost` : '/treasury/cash-transactions',
+    'POST',
+    {
+      onSuccess: (res: { data?: CashTxRow; message?: string }) => {
+        lastHydratedIdRef.current = null;
+        setIsPosted(false);
+        if (typeof res?.data?.version === 'number') setDocumentVersion(res.data.version);
+        setSuccess(res.message || 'تم فك ترحيل الأمر');
+        markUnpostedForEdit();
+        invalidateQuery(['treasury-cash-transactions']);
+        invalidateQuery([`order-browse-${variant.id}`]);
+        invalidateQuery(['cash-orders']);
+        invalidateQuery(['voucher-source-orders']);
+        invalidateQuery(['cash-order-detail']);
+        unlockForEdit();
+      },
+      onError: (err: ApiError) => setError(err.message || 'تعذر فك ترحيل الأمر'),
     }
   );
 
@@ -515,6 +620,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       setSavedOrderId(asTemplate ? null : row.id);
       setDocumentVersion(asTemplate ? 0 : typeof row.version === 'number' ? row.version : 0);
       setIsCancelled(asTemplate ? false : Boolean(row.isCancelled));
+      setIsPosted(asTemplate ? false : Boolean(row.isPosted));
       setExecutionStatus(
         asTemplate
           ? 'PENDING'
@@ -527,7 +633,12 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       setExecutedAt(asTemplate ? null : row.executedAt ?? null);
       setExecutedByName(asTemplate ? null : row.executedByName ?? null);
       if (asTemplate) setMode('create');
-      else if (row.isCancelled || row.executionStatus === 'COMPLETED' || row.executionStatus === 'CANCELLED') {
+      else if (
+        row.isCancelled ||
+        row.isPosted ||
+        row.executionStatus === 'COMPLETED' ||
+        row.executionStatus === 'CANCELLED'
+      ) {
         lockToView();
       } else {
         setMode('edit');
@@ -590,13 +701,13 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         ]);
       }
     },
-    [companyBaseCurrency, currencies, isCashOrder, lockToView, setMode, setValue, todayStr]
+    [companyBaseCurrency, currencies, isCashOrder, lockToView, setMode, setValue, todayStr, unlockForEdit]
   );
 
   useEffect(() => {
     const row = selectedOrderResponse?.data;
     if (!row?.id || row.id !== savedOrderId) return;
-    const stamp = `${row.id}:${row.version ?? ''}:${row.amount ?? ''}:${row.executionStatus ?? ''}`;
+    const stamp = `${row.id}:${row.version ?? ''}:${row.amount ?? ''}:${row.executionStatus ?? ''}:${row.isPosted ? '1' : '0'}`;
     if (lastHydratedIdRef.current === stamp) return;
     lastHydratedIdRef.current = stamp;
     applyCashRow(row);
@@ -657,8 +768,8 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     preventCashOverdraft &&
     isCashAmountOverBalance(documentNet, balanceNum);
   const { profile: companyProfile } = useCompanyPrintProfile();
-  const completed = executionStatus === 'COMPLETED';
-  const locked = isReadOnly || completed || isCancelled || busy;
+  const executed = executionStatus === 'COMPLETED';
+  const locked = isReadOnly || isPosted || executed || isCancelled || busy;
 
   const settlementPartyId = useMemo(() => {
     for (const line of voucherLines) {
@@ -688,7 +799,9 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     reset({
       date: new Date().toISOString().split('T')[0],
       description: '',
-      fundId: !isBank ? pickDefaultSafeId(safesResponse?.data) ?? '' : '',
+      fundId: !isBank
+        ? orderTxSettings?.defaultSafeId || pickDefaultSafeId(safesResponse?.data) || ''
+        : '',
       currencyId: defaultCurrencyId(currencies, companyBaseCurrency),
       voucherNumber: '',
       hijriDate: toHijriDate(new Date().toISOString().split('T')[0]),
@@ -699,6 +812,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     setAllocations([]);
     setSavedOrderId(null);
     setExecutionStatus('PENDING');
+    setIsPosted(false);
     setIsCancelled(false);
     setCreatedAt(null);
     setCreatedByName(null);
@@ -711,7 +825,26 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     setError('');
     setSuccess('');
     clearDraft();
+    resetKeepPosted();
   };
+
+  useEffect(() => {
+    if (savedOrderId || !orderTxSettings) return;
+    const offsetAccountId = orderTxSettings.defaultOffsetAccountId ?? '';
+    const costCenter = orderTxSettings.defaultCostCenterId ?? '';
+    if (!offsetAccountId && !costCenter) return;
+    setVoucherLines((prev) => {
+      const first = prev[0];
+      if (!first || first.accountId || Number(first.amount) > 0 || first.description) return prev;
+      return [
+        {
+          ...first,
+          accountId: offsetAccountId || first.accountId,
+          costCenterId: costCenter || first.costCenterId,
+        },
+      ];
+    });
+  }, [orderTxSettings, savedOrderId]);
 
   const validateLines = (): string | null => {
     if (voucherLines.length === 0) return 'يرجى إضافة بنود الأمر';
@@ -734,7 +867,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       }
     }
     if (!autoNumbering && !voucherNumberW?.trim()) {
-      return 'رقم الأمر مطلوب — الترقيم يدوي في إعدادات النظام';
+      return 'رقم الأمر مطلوب — الترقيم يدوي في إعدادات المستند';
     }
     return null;
   };
@@ -759,7 +892,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         date: new Date(values.date).toISOString(),
         hijriDate: values.hijriDate || undefined,
         currencyCode: headerCurrencyCode,
-        voucherNumber: values.voucherNumber?.trim() || undefined,
+        voucherNumber: autoNumbering ? undefined : values.voucherNumber?.trim() || undefined,
         description: values.description.trim(),
         safeId: isCashOrder || values.fundKind === 'CASHBOX' ? values.fundId : undefined,
         bankAccountId: !isCashOrder && values.fundKind === 'BANK_ACCOUNT' ? values.fundId : undefined,
@@ -798,17 +931,6 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     return account ? `[${account.code}] ${account.arabicName}` : undefined;
   };
 
-  const handleDuplicate = () => {
-    const row = selectedOrderResponse?.data;
-    if (row?.id) {
-      applyCashRow(row, true);
-      openOrder(null);
-      setSuccess('تم تجهيز نسخة جديدة من الأمر');
-      return;
-    }
-    resetForm();
-  };
-
   const triggerPrint = () => {
     document.querySelector<HTMLButtonElement>('[data-print-document]')?.click();
   };
@@ -826,29 +948,33 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-      {restoreOffer && !savedOrderId ? (
-        <PageDraftRestoreBanner
-          message="يوجد مسودة أمر غير محفوظة."
-          onRestore={() => {
-            const payload = acceptRestore();
-            if (!payload) return;
-            applyOrderDraft(payload);
-            setSuccess('تم استعادة مسودة الأمر');
-          }}
-          onDismiss={dismissRestore}
-        />
-      ) : null}
+      <PageDraftRestoreGate<typeof orderDraftSnapshot>
+        restoreOffer={restoreOffer}
+        hide={Boolean(savedOrderId)}
+        message="يوجد مسودة أمر غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyOrderDraft(payload);
+          setSuccess('تم استعادة مسودة الأمر');
+        }}
+      />
 
       <ErpDocumentPageHeader
         breadcrumbs={variant.breadcrumbs}
         title={variant.title}
         docNumber={voucherNumberW || ''}
-        statusTone={isCancelled ? 'danger' : completed ? 'info' : 'warning'}
+        lifecycle={{
+          documentId: savedOrderId,
+          isPosted,
+          isCancelled,
+        }}
+        statusTone={isCancelled ? 'danger' : isPosted ? 'success' : undefined}
         statusLabel=""
-        saveLabel="حفظ الأمر"
+        saveLabel={autoPostOnSave ? STORE_SAVE_AND_POST_LABEL : 'حفظ الأمر'}
         onSaveDraft={onSave}
         savePending={busy}
-        canSave={!isReadOnly && !completed && !isCancelled && !busy}
+        canSave={!isReadOnly && !isPosted && !executed && !isCancelled && !busy}
         hideStandalonePost
         favoriteHref={variant.favoriteHref}
         favoriteLabel={variant.favoriteLabel}
@@ -862,20 +988,11 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
           <div className="flex flex-wrap items-center gap-2">
             {isCashOrder ? null : (
               <>
-                <OrderStatusBadge orderType={variant.orderType} status={executionStatus} />
-                {savedOrderId && executionStatus === 'PENDING' && !isCancelled ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    className="gap-1.5"
-                    disabled={executeMutation.isPending}
-                    onClick={() => executeMutation.mutate({})}
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    {variant.confirmLabel}
-                  </Button>
-                ) : null}
+                <OrderStatusBadge
+                  orderType={variant.orderType}
+                  status={executionStatus}
+                  isPosted={isPosted}
+                />
               </>
             )}
             <VoucherPrintActions
@@ -893,34 +1010,43 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         }
         standardActions={{
           hasDocument: Boolean(savedOrderId),
-          isPosted: completed,
+          isPosted,
           isCancelled,
-          hidePostActions: true,
           onNew: resetForm,
           newLabel: 'جديد',
+          postLabel: 'ترحيل',
+          unpostLabel: 'فك الترحيل',
+          postPending: postMutation.isPending,
+          unpostPending: unpostMutation.isPending,
+          onPost: () => {
+            if (!savedOrderId || isCancelled || isPosted) return;
+            postMutation.mutate({});
+          },
+          onUnpost: () => {
+            if (!savedOrderId || isCancelled || !isPosted) return;
+            unpostMutation.mutate({});
+          },
           printLabel: isPaymentOrder
             ? 'طباعة أمر الصرف'
             : isReceiptOrder
               ? 'طباعة أمر التوريد'
               : 'طباعة الأمر',
           voidLabel: 'إلغاء الأمر',
-          duplicateLabel: 'تكرار',
-          editLockedHint: 'الأمر مكتمل التنفيذ ولا يمكن تعديله',
+          editLockedHint: 'الأمر مرحّل. فك الترحيل أولاً من قائمة (...)',
           voidLockedHint:
             variant.orderType === 'PAYMENT_ORDER'
-              ? 'تم صرف الأمر ولا يمكن إلغاؤه'
-              : 'تم توريد الأمر ولا يمكن إلغاؤه',
+              ? 'الأمر مرحّل. فك الترحيل أولاً ثم ألغِه'
+              : 'الأمر مرحّل. فك الترحيل أولاً ثم ألغِه',
           onEdit: () => {
-            if (completed) {
-              setError('الأمر مكتمل التنفيذ ولا يمكن تعديله');
+            if (isPosted || executed) {
+              setError('يجب فك الترحيل أولاً للتعديل');
               return;
             }
             unlockForEdit();
           },
           onPrint: triggerPrint,
-          onDuplicate: handleDuplicate,
           onVoid: () => {
-            if (completed) {
+            if (executed) {
               setError(
                 variant.orderType === 'PAYMENT_ORDER'
                   ? 'تم صرف الأمر ولا يمكن إلغاؤه'
@@ -928,9 +1054,20 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
               );
               return;
             }
+            if (isPosted) {
+              setError('يجب فك الترحيل أولاً ثم ألغِه');
+              return;
+            }
             cancelMutation.mutate({ expectedVersion: documentVersion });
           },
           voidPending: cancelMutation.isPending,
+          onRestore: () => restoreMutation.mutate({}),
+          restorePending: restoreMutation.isPending,
+          transactionSettingsDocumentType: orderSettingsDocumentType,
+          onTransactionSettingsSaved: () => {
+            invalidateAfterTransactionSettingsSave(invalidateQuery, orderSettingsDocumentType);
+            invalidateNextSerial();
+          },
         }}
       />
 
@@ -1008,6 +1145,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
                       error={Boolean(errors.fundId)}
                       errorMessage={errors.fundId?.message}
                       executionStatus={executionStatus}
+                      isPosted={isPosted}
                       baseCurrency={headerCurrencyCode}
                       displayBalance={balanceNum}
                     />
@@ -1020,6 +1158,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
                       error={Boolean(errors.fundId)}
                       errorMessage={errors.fundId?.message}
                       executionStatus={executionStatus}
+                      isPosted={isPosted}
                       baseCurrency={headerCurrencyCode}
                       displayBalance={balanceNum}
                     />
@@ -1147,32 +1286,40 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
             totalAmount={totalAmount}
             currencyCode={companyBaseCurrency}
             executionStatus={executionStatus}
+            isPosted={isPosted}
             executedAt={executedAt}
             executedByName={executedByName}
-            canConfirm={Boolean(savedOrderId && executionStatus === 'PENDING' && !isCancelled)}
-            confirmPending={executeMutation.isPending}
-            onConfirm={() => executeMutation.mutate({})}
             onSave={onSave}
             onCancel={resetForm}
             savePending={busy}
-            canSave={!isReadOnly && !completed && !isCancelled && !busy}
-            saveLabel={savedOrderId ? 'حفظ التعديلات' : 'حفظ أمر التوريد'}
+            canSave={!isReadOnly && !isPosted && !executed && !isCancelled && !busy}
+            saveLabel={
+              autoPostOnSave && !isPosted
+                ? STORE_SAVE_AND_POST_LABEL
+                : savedOrderId
+                  ? 'حفظ التعديلات'
+                  : 'حفظ أمر التوريد'
+            }
           />
         ) : (
           <PaymentOrderStickyFooter
             totalAmount={totalAmount}
             currencyCode={companyBaseCurrency}
             executionStatus={executionStatus}
+            isPosted={isPosted}
             executedAt={executedAt}
             executedByName={executedByName}
-            canConfirm={Boolean(savedOrderId && executionStatus === 'PENDING' && !isCancelled)}
-            confirmPending={executeMutation.isPending}
-            onConfirm={() => executeMutation.mutate({})}
             onSave={onSave}
             onCancel={resetForm}
             savePending={busy}
-            canSave={!isReadOnly && !completed && !isCancelled && !busy}
-            saveLabel={savedOrderId ? 'حفظ التعديلات' : 'حفظ أمر الصرف'}
+            canSave={!isReadOnly && !isPosted && !executed && !isCancelled && !busy}
+            saveLabel={
+              autoPostOnSave && !isPosted
+                ? STORE_SAVE_AND_POST_LABEL
+                : savedOrderId
+                  ? 'حفظ التعديلات'
+                  : 'حفظ أمر الصرف'
+            }
           />
         )
       ) : (
@@ -1184,8 +1331,14 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
           onSave={onSave}
           onCancel={resetForm}
           savePending={busy}
-          canSave={!isReadOnly && !completed && !isCancelled && !busy}
-          saveLabel={savedOrderId ? 'حفظ التعديلات' : 'حفظ الأمر'}
+          canSave={!isReadOnly && !isPosted && !executed && !isCancelled && !busy}
+          saveLabel={
+            autoPostOnSave && !isPosted
+              ? STORE_SAVE_AND_POST_LABEL
+              : savedOrderId
+                ? 'حفظ التعديلات'
+                : 'حفظ الأمر'
+          }
         />
       )}
 
@@ -1196,9 +1349,10 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         partyId={settlementPartyId}
         accountId={settlementAccountId}
         cashTransactionId={savedOrderId}
-        isPosted={executionStatus === 'COMPLETED'}
+        isPosted={isPosted}
         receiptTotal={totalAmount}
-        draftMode={executionStatus !== 'COMPLETED'}
+        draftMode={!isPosted}
+        initialAllocations={allocations}
         onApplyDraft={setAllocations}
         onPartyChange={(partyId) => {
           const party = parties.find((row) => row.id === partyId);
@@ -1243,9 +1397,12 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
                 label: variant.orderType === 'PAYMENT_ORDER' ? 'تم الصرف' : 'تم التوريد',
               };
             }
+            if (r.isPosted === true) {
+              return { variant: 'success' as const, label: 'مرحّل' };
+            }
             return {
               variant: 'warning' as const,
-              label: variant.orderType === 'PAYMENT_ORDER' ? 'لم يتم الصرف' : 'لم يتم التوريد',
+              label: 'غير مرحّل',
             };
           }}
           columns={[

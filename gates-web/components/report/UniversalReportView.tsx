@@ -14,6 +14,7 @@ import type { ReportBreadcrumb } from '@/lib/reports/reportPageBreadcrumbs';
 import {
   getReportColumnsForPath,
   getRowCellValue,
+  itemsAnalyticalReportColumns,
   ledgerFooterFigures,
   parseSummaryCurrencies,
   partyCurrencyStatementColumns,
@@ -42,6 +43,12 @@ import {
   itemMovementHref,
   journalEntryHref,
 } from '@/lib/reportEngine/reportRowHref';
+import { AccountLedgerLink } from '@/components/report/AccountLedgerLink';
+import {
+  BalanceAnalysisProvider,
+  BalanceRowEye,
+  balanceRowLabel,
+} from '@/components/report/BalanceAnalysisProvider';
 import { DailyTreasuryBook } from '@/components/report/DailyTreasuryBook';
 import { BankMonthlyStatement } from '@/components/report/BankMonthlyStatement';
 import { IncomeStatementSheet } from '@/components/report/IncomeStatementSheet';
@@ -428,6 +435,7 @@ function ReportTable({
   journalBook = false,
   separateEntries = false,
   linkAccountCodes = false,
+  analyzeBalances = false,
   linkPaperNumbers = false,
   linkItemMovement = false,
   registryPath = '',
@@ -445,6 +453,7 @@ function ReportTable({
   journalBook?: boolean;
   separateEntries?: boolean;
   linkAccountCodes?: boolean;
+  analyzeBalances?: boolean;
   linkPaperNumbers?: boolean;
   linkItemMovement?: boolean | 'code';
   registryPath?: string;
@@ -497,6 +506,13 @@ function ReportTable({
         <ResizableColGroup columns={colGroup} />
         <thead>
           <tr>
+            {analyzeBalances ? (
+              <th className="w-10 bg-[#1787B8] p-0 font-medium text-white no-print">
+                <span className="inline-flex w-full items-center justify-center px-1 py-2" title="تفسير تحليلي">
+                  تحليل
+                </span>
+              </th>
+            ) : null}
             {columns.map((col, colIndex) => {
               const active = filters[col.id] ? columnFilterActive(filters[col.id]) : false;
               const sortedMark = sort?.columnId === col.id ? (sort.direction === 'asc' ? '↑' : '↓') : '';
@@ -550,14 +566,14 @@ function ReportTable({
               <Fragment key={i}>
               {showGroup ? (
                 <tr className="bg-sky-100">
-                  <td colSpan={columns.length} className="px-3 py-2 text-right text-xs font-semibold text-sky-950">
+                  <td colSpan={columns.length + (analyzeBalances ? 1 : 0)} className="px-3 py-2 text-right text-xs font-semibold text-sky-950">
                     {path}
                   </td>
                 </tr>
               ) : null}
               {entryBreak && i > 0 ? (
                 <tr aria-hidden>
-                  <td colSpan={columns.length} className="h-3 border-t-2 border-slate-300 bg-slate-200/70 p-0" />
+                  <td colSpan={columns.length + (analyzeBalances ? 1 : 0)} className="h-3 border-t-2 border-slate-300 bg-slate-200/70 p-0" />
                 </tr>
               ) : null}
               <tr
@@ -573,6 +589,17 @@ function ReportTable({
                           : 'bg-white'
                 }
               >
+                {analyzeBalances ? (
+                  <td className="border-b border-slate-100 px-1 py-1 text-center no-print">
+                    {row.rowKind === 'total' || row.rowKind === 'opening' ? null : (
+                      <BalanceRowEye
+                        accountId={typeof row.accountId === 'string' ? row.accountId : undefined}
+                        label={balanceRowLabel(row)}
+                        query={drillQuery}
+                      />
+                    )}
+                  </td>
+                ) : null}
                 {columns.map((col, colIndex) => {
                   const raw = getRowCellValue(row, col);
                   const currency = moneyLabel
@@ -656,20 +683,15 @@ function ReportTable({
                         >
                           {text}
                         </button>
-                      ) : (openLedger && ledgerHref) ||
-                        (openPaper && paperHref) ||
+                      ) : openLedger && ledgerHref ? (
+                        <AccountLedgerLink href={ledgerHref} showIcon={!analyzeBalances}>
+                          {text}
+                        </AccountLedgerLink>
+                      ) : (openPaper && paperHref) ||
                         (openMovement && movementHref) ||
                         (openInvoice && invoiceHref) ? (
                         <Link
-                          href={
-                            (openPaper
-                              ? paperHref
-                              : openLedger
-                                ? ledgerHref
-                                : openMovement
-                                  ? movementHref
-                                  : invoiceHref) as string
-                          }
+                          href={(openPaper ? paperHref : openMovement ? movementHref : invoiceHref) as string}
                           className="cursor-pointer font-medium text-[#0E78AA] underline decoration-[#0E78AA]/40 underline-offset-2 hover:text-[#0a5f86]"
                         >
                           {text}
@@ -688,6 +710,7 @@ function ReportTable({
         {totals.some((value) => value != null) ? (
           <tfoot>
             <tr className="bg-slate-100 font-semibold">
+              {analyzeBalances ? <td className="border-t border-slate-300 bg-slate-100 no-print" /> : null}
               {columns.map((col, index) => {
                 const total = totals[index];
                 const currency = moneyLabel ?? 'ج.م';
@@ -832,6 +855,10 @@ export function UniversalReportView({
       const partyLabel =
         reportKey.includes('supplier') || registryPath.includes('supplier') ? 'المورد' : 'العميل';
       return partyCurrencyStatementColumns(partyLabel, currencies);
+    }
+    if (reportKey === 'items-analytical-movement-on-representatives') {
+      const { delegates } = readItemsAnalyticalSheet(summary, rows);
+      return itemsAnalyticalReportColumns(delegates);
     }
     const cols = columnDefs?.length ? columnDefs : getReportColumnsForPath(registryPath, rows);
     const record =
@@ -1066,7 +1093,7 @@ export function UniversalReportView({
       >
         تصدير Excel
       </button>
-      {isItemMovement || isExpiry || isMonthlyItemSales || isItemsAnalytical || isStockTransfer ? null : (
+      {pickableColumns.length ? (
         <ReportColumnPicker
           columns={pickableColumns}
           visibleIds={visibleIds}
@@ -1074,7 +1101,7 @@ export function UniversalReportView({
           onSelectAll={selectAll}
           onSelectRecommended={selectRecommended}
         />
-      )}
+      ) : null}
     </div>
   );
 
@@ -1211,6 +1238,7 @@ export function UniversalReportView({
             compareRows={compareRows}
             currentYearLabel={currentYearLabel}
             compareYearLabel={compareYearLabel}
+            drillQuery={drillQuery}
           />
         ) : null}
 
@@ -1222,6 +1250,7 @@ export function UniversalReportView({
             compareSummary={compareSummary}
             currentYearLabel={currentYearLabel}
             compareYearLabel={compareYearLabel}
+            drillQuery={drillQuery}
           />
         ) : null}
 
@@ -1248,15 +1277,15 @@ export function UniversalReportView({
         ) : null}
 
         {!pending && !isError && isExpenses && shownRows.length > 0 ? (
-          <ExpensesAnalysisSheet rows={shownRows} mode={expenseView} />
+          <ExpensesAnalysisSheet rows={shownRows} mode={expenseView} visibleColumnIds={visibleIds} />
         ) : null}
 
         {!pending && !isError && isMonthlyReview && shownRows.length > 0 ? (
-          <MonthlyReviewSheet rows={shownRows} />
+          <MonthlyReviewSheet rows={shownRows} drillQuery={drillQuery} />
         ) : null}
 
         {!pending && !isError && isCostCenterReview && shownRows.length > 0 ? (
-          <CostCenterReviewSheet rows={shownRows} summary={summary} />
+          <CostCenterReviewSheet rows={shownRows} summary={summary} drillQuery={drillQuery} />
         ) : null}
 
         {!pending && !isError && isBudget && shownRows.length > 0 ? (
@@ -1266,6 +1295,7 @@ export function UniversalReportView({
             currentYearLabel={currentYearLabel}
             compareYearLabel={compareYearLabel}
             entity={reportKey === 'cost-centers-balance' ? 'costCenter' : 'account'}
+            drillQuery={drillQuery}
           />
         ) : null}
         {compareLoading ? (
@@ -1296,7 +1326,7 @@ export function UniversalReportView({
         ) : null}
 
         {!pending && !isError && isJournalBook && shownRows.length > 0 && journalView !== 'list' ? (
-          <DailyJournalSheet rows={shownRows} mode={journalView} />
+          <DailyJournalSheet rows={shownRows} mode={journalView} visibleColumnIds={visibleIds} />
         ) : null}
 
         {!pending && !isError && isItemMovement && shownRows.length > 0 ? (
@@ -1305,6 +1335,7 @@ export function UniversalReportView({
             summary={summary}
             title={title}
             filters={filterBadges}
+            visibleColumnIds={visibleIds}
             groupBy={
               drillQuery?.showGroups === 'true'
                 ? 'groups'
@@ -1318,19 +1349,19 @@ export function UniversalReportView({
         ) : null}
 
         {!pending && !isError && isExpiry && shownRows.length > 0 ? (
-          <ExpiryDateSheet rows={shownRows} summary={summary} />
+          <ExpiryDateSheet rows={shownRows} summary={summary} visibleColumnIds={visibleIds} />
         ) : null}
 
         {!pending && !isError && isMonthlyItemSales && shownRows.length > 0 ? (
-          <MonthlyItemSalesSheet rows={shownRows} />
+          <MonthlyItemSalesSheet rows={shownRows} visibleColumnIds={visibleIds} />
         ) : null}
 
         {!pending && !isError && isItemsAnalytical && shownRows.length > 0 ? (
-          <ItemsAnalyticalMovementSheet rows={shownRows} summary={summary} />
+          <ItemsAnalyticalMovementSheet rows={shownRows} summary={summary} visibleColumnIds={visibleIds} />
         ) : null}
 
         {!pending && !isError && isStockTransfer && shownRows.length > 0 ? (
-          <StockTransferSheet rows={shownRows} />
+          <StockTransferSheet rows={shownRows} visibleColumnIds={visibleIds} />
         ) : null}
 
         {!pending && !isError && shownRows.length > 0 && !isItemMovement && !isExpiry && !isMonthlyItemSales && !isItemsAnalytical && !isStockTransfer && !isIncome && !isProfitLoss && !isExpenses && !isMonthlyReview && !isCostCenterReview && !isBudget && !(isJournalBook && journalView !== 'list') && !(treasuryView === 'daily' && isTreasury) && !(treasuryView === 'monthly' && isBankMovement) ? (
@@ -1355,7 +1386,16 @@ export function UniversalReportView({
             filters={columnFilters}
             sort={columnSort}
             registryPath={registryPath}
-            linkAccountCodes={reportKey === 'review-balance'}
+            linkAccountCodes={
+              reportKey === 'review-balance' ||
+              reportKey === 'account-balances' ||
+              reportKey === 'accounts-balance'
+            }
+            analyzeBalances={
+              reportKey === 'review-balance' ||
+              reportKey === 'account-balances' ||
+              reportKey === 'accounts-balance'
+            }
             linkPaperNumbers={reportKey === 'financial-papers'}
             linkItemMovement={
               reportKey === 'items-profit-reports'
@@ -1457,21 +1497,19 @@ export function UniversalReportView({
       </div>
   );
 
-  if (embedded) {
-    return (
-      <section className="mt-4 rounded-xl border border-slate-200 bg-white p-3" dir="rtl">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-slate-800">نتائج التقرير</h2>
-          {headerActions}
-        </div>
-        {body}
-      </section>
-    );
-  }
-
-  return (
+  const framed = embedded ? (
+    <section className="mt-4 rounded-xl border border-slate-200 bg-white p-3" dir="rtl">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slate-800">نتائج التقرير</h2>
+        {headerActions}
+      </div>
+      {body}
+    </section>
+  ) : (
     <ReportPageShell title={title} breadcrumbs={breadcrumbs} extraActions={headerActions} statusLabel="معاينة">
       {body}
     </ReportPageShell>
   );
+
+  return <BalanceAnalysisProvider query={drillQuery}>{framed}</BalanceAnalysisProvider>;
 }

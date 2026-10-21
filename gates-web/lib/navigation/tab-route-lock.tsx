@@ -1,9 +1,9 @@
 'use client';
 
-import { createContext, useCallback, useContext, useRef } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
-import { rememberTabSearch, recalledTabSearch } from '@/lib/navigation/tab-memory';
+import { rememberTabSearch, recalledTabSearch, stripEphemeralTabQuery } from '@/lib/navigation/tab-memory';
 
 export const TabOwnPathContext = createContext<string>('');
 
@@ -24,25 +24,41 @@ export function useIsOwnTabActive() {
 /** Search params frozen to this cached tab so hidden pages do not reset on navigation. */
 export function useOwnTabSearchParams() {
   const live = useSearchParams();
+  const router = useRouter();
   const isActive = useIsOwnTabActive();
   const ownPath = useContext(TabOwnPathContext);
   const path = normalizeAppPath(ownPath || '');
   const remembered = path ? recalledTabSearch(path) : '';
   const liveStr0 = live.toString();
-  const seed = isActive ? liveStr0 : remembered || liveStr0;
+  const seed = stripEphemeralTabQuery(isActive ? liveStr0 : remembered || liveStr0);
   const frozenStr = useRef(seed);
   const frozenObj = useRef<URLSearchParams>(new URLSearchParams(seed));
   const wasActive = useRef(isActive && Boolean(liveStr0));
+  const liveSearch = live.toString();
+  const healAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isActive) {
+      healAttemptedRef.current = false;
+      return;
+    }
+    if (!path || liveSearch || !remembered || healAttemptedRef.current) return;
+    healAttemptedRef.current = true;
+    router.replace(`${path}?${remembered}`, { scroll: false });
+  }, [isActive, liveSearch, path, remembered, router]);
 
   if (isActive) {
-    const liveStr = live.toString();
+    const liveStr = liveSearch;
     const becameActive = !wasActive.current;
-    if (becameActive || frozenStr.current !== liveStr) {
-      frozenStr.current = liveStr;
-      frozenObj.current = new URLSearchParams(liveStr);
-      if (path) rememberTabSearch(path, liveStr);
+    const persistedStr = stripEphemeralTabQuery(liveStr || remembered);
+    if (becameActive || frozenStr.current !== persistedStr) {
+      frozenStr.current = persistedStr;
+      frozenObj.current = new URLSearchParams(persistedStr);
+      if (path) rememberTabSearch(path, persistedStr);
     }
     wasActive.current = true;
+    if (liveStr) return live;
+    if (remembered) return frozenObj.current;
     return live;
   }
 

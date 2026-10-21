@@ -40,6 +40,8 @@ export function editHrefForActionType(actionType: string): string {
     case 'DRAFT_SALES_INVOICE':
     case 'CREATE_INVOICE':
       return '/inventory/operations/sales-invoice?fromAiDraft=1';
+    case 'ASSEMBLY_SALES_INVOICE':
+      return '/inventory/operations/sales-invoice?fromAssemblyDraft=1';
     case 'DRAFT_PURCHASE_INVOICE':
       return '/inventory/operations/final-purchase-invoice?fromAiDraft=1';
     case 'DRAFT_STOCK_ISSUE':

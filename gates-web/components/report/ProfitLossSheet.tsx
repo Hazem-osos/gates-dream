@@ -1,5 +1,8 @@
 'use client';
 
+import { AccountLedgerLink } from '@/components/report/AccountLedgerLink';
+import { BalanceRowEye } from '@/components/report/BalanceAnalysisProvider';
+
 type Row = Record<string, unknown>;
 
 type SideLine = {
@@ -8,6 +11,7 @@ type SideLine = {
   amount: number;
   depth: number;
   group: boolean;
+  accountId?: string;
 };
 
 function num(value: unknown): number {
@@ -46,15 +50,25 @@ function underGeneralExpenses(row: Row): { groupPath: string; groupNames: string
 }
 
 function buildTree(
-  rows: Array<{ code: string; name: string; amount: number; groupPath: string; groupNames: string }>
+  rows: Array<{
+    code: string;
+    name: string;
+    amount: number;
+    groupPath: string;
+    groupNames: string;
+    accountId?: string;
+  }>
 ): SideLine[] {
   type Node = SideLine & { children: Node[] };
   const byCode = new Map<string, Node>();
 
-  const ensure = (code: string, name: string, depth: number): Node => {
+  const ensure = (code: string, name: string, depth: number, accountId?: string): Node => {
     const existing = byCode.get(code);
-    if (existing) return existing;
-    const node: Node = { code, name, amount: 0, depth, group: false, children: [] };
+    if (existing) {
+      if (accountId && !existing.accountId) existing.accountId = accountId;
+      return existing;
+    }
+    const node: Node = { code, name, amount: 0, depth, group: false, accountId, children: [] };
     byCode.set(code, node);
     return node;
   };
@@ -68,7 +82,7 @@ function buildTree(
       if (parent && !parent.children.includes(node)) parent.children.push(node);
       parent = node;
     });
-    const leaf = ensure(row.code, row.name, codes.length);
+    const leaf = ensure(row.code, row.name, codes.length, row.accountId);
     leaf.amount += row.amount;
     if (parent && !parent.children.includes(leaf)) parent.children.push(leaf);
   }
@@ -107,12 +121,14 @@ export function ProfitLossSheet({
   compareRows = [],
   currentYearLabel,
   compareYearLabel,
+  drillQuery,
 }: {
   rows: Row[];
   summary?: unknown;
   compareRows?: Row[];
   currentYearLabel?: string;
   compareYearLabel?: string;
+  drillQuery?: Record<string, string>;
 }) {
   const currencyName =
     summary && typeof summary === 'object' && typeof (summary as Row).currencyName === 'string'
@@ -130,6 +146,7 @@ export function ProfitLossSheet({
           amount: Math.abs(num(row.amount)),
           groupPath: scope.groupPath,
           groupNames: scope.groupNames,
+          accountId: text(row, 'accountId') || undefined,
         },
       ];
     })
@@ -147,6 +164,7 @@ export function ProfitLossSheet({
           amount: Math.abs(num(row.amount)),
           groupPath: scope.groupPath,
           groupNames: scope.groupNames,
+          accountId: text(row, 'accountId') || undefined,
         },
       ];
     })
@@ -194,23 +212,61 @@ export function ProfitLossSheet({
                   </td>
                 ) : null}
                 <td className="border border-slate-300 px-2 text-center">
-                  {debit ? formatAmount(debit.amount) : ''}
+                  {debit ? (
+                    <AccountLedgerLink accountId={debit.accountId} query={drillQuery} showIcon={false}>
+                      {formatAmount(debit.amount)}
+                    </AccountLedgerLink>
+                  ) : (
+                    ''
+                  )}
                 </td>
                 <td
                   className={`border border-slate-300 px-2 text-right ${debit?.group ? 'font-semibold text-red-600' : 'text-slate-900'}`}
                   style={{ paddingRight: debit ? 8 + debit.depth * 16 : undefined }}
                 >
-                  {debit ? `${debit.code} ${debit.name}`.trim() : ''}
+                  {debit ? (
+                    <span className="inline-flex items-center gap-1">
+                      <BalanceRowEye
+                        accountId={debit.accountId}
+                        label={`${debit.code} ${debit.name}`.trim()}
+                        query={drillQuery}
+                      />
+                      <AccountLedgerLink accountId={debit.accountId} query={drillQuery} showIcon={false}>
+                        {`${debit.code} ${debit.name}`.trim()}
+                      </AccountLedgerLink>
+                    </span>
+                  ) : (
+                    ''
+                  )}
                 </td>
                 {showCompare ? <td className="border border-slate-300 px-2 text-center" /> : null}
                 <td className="border border-slate-300 px-2 text-center">
-                  {credit ? formatAmount(credit.amount) : ''}
+                  {credit ? (
+                    <AccountLedgerLink accountId={credit.accountId} query={drillQuery} showIcon={false}>
+                      {formatAmount(credit.amount)}
+                    </AccountLedgerLink>
+                  ) : (
+                    ''
+                  )}
                 </td>
                 <td
                   className={`border border-slate-300 px-2 text-right ${credit?.group ? 'font-semibold text-red-600' : 'text-slate-900'}`}
                   style={{ paddingRight: credit ? 8 + credit.depth * 16 : undefined }}
                 >
-                  {credit ? `${credit.code} ${credit.name}`.trim() : ''}
+                  {credit ? (
+                    <span className="inline-flex items-center gap-1">
+                      <BalanceRowEye
+                        accountId={credit.accountId}
+                        label={`${credit.code} ${credit.name}`.trim()}
+                        query={drillQuery}
+                      />
+                      <AccountLedgerLink accountId={credit.accountId} query={drillQuery} showIcon={false}>
+                        {`${credit.code} ${credit.name}`.trim()}
+                      </AccountLedgerLink>
+                    </span>
+                  ) : (
+                    ''
+                  )}
                 </td>
               </tr>
             );

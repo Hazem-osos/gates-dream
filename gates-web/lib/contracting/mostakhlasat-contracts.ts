@@ -23,9 +23,54 @@ export type LegacyExtractPayload = {
   contractorId?: string;
   extractNumber?: string;
   extractDate: string;
+  statementType?: 'partial' | 'final';
+  statement?: string;
   extractType: 'contractor' | 'owner';
   items: LegacyExtractItemInput[];
 };
+
+/** Display totals for the legacy contractor statement screen. Percents are 0–100. */
+export function legacyContractorStatementSummary(input: {
+  currentWorks: number;
+  previousWorks: number;
+  advancePercent?: number | string | null;
+  insurancePercent?: number | string | null;
+  taxPercent?: number | string | null;
+}): {
+  executedWorks: number;
+  previousWorks: number;
+  currentWorks: number;
+  advanceDeduction: number;
+  insuranceDeduction: number;
+  taxDeduction: number;
+  netPayable: number;
+} {
+  const currentWorks = roundStatementMoney(input.currentWorks);
+  const previousWorks = roundStatementMoney(input.previousWorks);
+  const advanceDeduction = roundStatementMoney(currentWorks * percentRate(input.advancePercent));
+  const insuranceDeduction = roundStatementMoney(currentWorks * percentRate(input.insurancePercent));
+  const taxDeduction = roundStatementMoney(currentWorks * percentRate(input.taxPercent));
+  return {
+    executedWorks: roundStatementMoney(previousWorks + currentWorks),
+    previousWorks,
+    currentWorks,
+    advanceDeduction,
+    insuranceDeduction,
+    taxDeduction,
+    netPayable: roundStatementMoney(currentWorks - advanceDeduction - insuranceDeduction - taxDeduction),
+  };
+}
+
+function percentRate(value: number | string | null | undefined): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(n, 100) / 100;
+}
+
+function roundStatementMoney(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
+}
 
 export function resolveOwnerBoqCreatePayload(input: {
   parentCode: string;
@@ -121,6 +166,8 @@ export function buildLegacyExtractPayload(input: {
   contractorId?: string;
   extractNumber?: string;
   extractDate?: string;
+  statementType?: 'partial' | 'final';
+  statement?: string;
   items: LegacyExtractItemInput[];
 }): LegacyExtractPayload {
   const payload: LegacyExtractPayload = {
@@ -132,6 +179,9 @@ export function buildLegacyExtractPayload(input: {
   if (input.contractorId) payload.contractorId = input.contractorId;
   const serial = input.extractNumber?.trim();
   if (serial) payload.extractNumber = serial;
+  if (input.statementType) payload.statementType = input.statementType;
+  const statement = input.statement?.trim();
+  if (statement) payload.statement = statement;
   return payload;
 }
 

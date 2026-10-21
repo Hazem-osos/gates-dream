@@ -16,6 +16,7 @@ import { findItemByBarcode } from '@/lib/inventory/findItemByBarcode';
 import { availableFromItemOption } from '@/lib/inventory/fetch-warehouse-stock-balance';
 import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
 import { apiClient } from '@/lib/api/client';
+import { useWarehouseItemScope } from '@/lib/inventory/warehouse-item-scope';
 
 const selectCls = compactControlClass;
 
@@ -46,6 +47,7 @@ function ItemSelectInner({
   excludeAssembly = false,
   assemblyOnly = false,
   warehouseId,
+  itemStockKind,
   fallbackLabel,
   onQuickCreateClick,
 }: {
@@ -62,6 +64,8 @@ function ItemSelectInner({
   assemblyOnly?: boolean;
   /** Limit stock figures in the picker to one warehouse when set. */
   warehouseId?: string;
+  /** Reports: list only مخزنية or غير مخزنية items when not `both`. */
+  itemStockKind?: 'stock' | 'service' | 'both';
   fallbackLabel?: string;
   /** If set, plus/quick-create uses this instead of opening a new item-card tab. */
   onQuickCreateClick?: (query: string) => void;
@@ -76,15 +80,26 @@ function ItemSelectInner({
   quickCreateModal?: unknown;
 }) {
   const [search, setSearch] = useState('');
+  const [warehouseItemScope] = useWarehouseItemScope();
   const itemFilter = useMemo(() => {
     const base = assemblyOnly
       ? { isAssembly: true }
       : excludeAssembly
         ? { isAssembly: false }
         : undefined;
-    if (!warehouseId) return base;
-    return { ...(base ?? {}), warehouseId };
-  }, [assemblyOnly, excludeAssembly, warehouseId]);
+    const withKind =
+      itemStockKind === 'service'
+        ? { ...(base ?? {}), isService: true }
+        : itemStockKind === 'stock'
+          ? { ...(base ?? {}), isService: false }
+          : base;
+    if (!warehouseId) return withKind;
+    return {
+      ...(withKind ?? {}),
+      warehouseId,
+      ...(warehouseItemScope === 'linked' ? { warehouseScope: 'linked' } : {}),
+    };
+  }, [assemblyOnly, excludeAssembly, itemStockKind, warehouseId, warehouseItemScope]);
   const { data, isLoading, isError } = useItemsQuery(PICKER_PAGE_SIZE, search, itemFilter);
   const items = data?.data ?? [];
   const [pinnedItem, setPinnedItem] = useState<ItemOption | QuickCreatedItem | null>(null);

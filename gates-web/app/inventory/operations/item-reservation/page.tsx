@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Lock } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import { Lock, Plus, Trash2 } from 'lucide-react';
 import { AppTable, CompactFormField, FormSectionCard, compactControlClass } from '@/components/ui';
 import { MasterCardShell } from '@/components/erp';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
@@ -14,6 +14,9 @@ import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { queryKeys } from '@/lib/query/query-keys';
+import { printStockDocument } from '@/lib/print/printStockDocument';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 
 type ReservationStatus = 'ACTIVE' | 'RELEASED';
 
@@ -34,17 +37,31 @@ type ReservationRow = {
   itemSerial?: string;
 };
 
-type FormState = {
+type HeaderState = {
   warehouseId: string;
   customerId: string;
+};
+
+type DraftLine = {
+  key: string;
   itemId: string;
   quantity: string;
   reason: string;
 };
 
-const emptyForm = (): FormState => ({
+type EditFormState = HeaderState & {
+  itemId: string;
+  quantity: string;
+  reason: string;
+};
+
+const emptyHeader = (): HeaderState => ({
   warehouseId: '',
   customerId: '',
+});
+
+const newDraftLine = (): DraftLine => ({
+  key: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
   itemId: '',
   quantity: '',
   reason: '',
@@ -65,42 +82,93 @@ function formatWhen(value: string): string {
   return date.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+function AvailableQtyCell({
+  warehouseId,
+  itemId,
+}: {
+  warehouseId: string;
+  itemId: string;
+}) {
+  const stockQuery = useItemStockBalance(itemId || null, warehouseId || null);
+  const available = stockQuery.data?.data?.availableQuantity ?? 0;
+  if (!itemId || !warehouseId) return <span className="text-slate-400">—</span>;
+  if (stockQuery.isLoading) return <span className="text-slate-400">...</span>;
+  return <span>{formatQty(available)}</span>;
+}
+
 export default function ItemReservationPage() {
   const invalidateQuery = useInvalidateQuery();
-  const [form, setForm] = useState<FormState>(emptyForm);
+  const [header, setHeader] = useState<HeaderState>(emptyHeader);
+  const [draftLines, setDraftLines] = useState<DraftLine[]>([newDraftLine()]);
+  const [editForm, setEditForm] = useState<EditFormState | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [loadedQuantity, setLoadedQuantity] = useState(0);
   const [listStatus, setListStatus] = useState<ReservationStatus>('ACTIVE');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
+  type ItemReservationDraft = { header: HeaderState; draftLines: DraftLine[] };
 
-  const stockQuery = useItemStockBalance(form.itemId || null, form.warehouseId || null);
-  const available = stockQuery.data?.data?.availableQuantity ?? 0;
-  const ceiling = Math.round((available + (editingId ? loadedQuantity : 0)) * 10000) / 10000;
+  const isItemReservationDraftEmpty = (draft: ItemReservationDraft) =>
+    !draft.header.customerId?.trim() &&
+    !draft.header.warehouseId?.trim() &&
+    !draft.draftLines.some((line) => line.itemId?.trim() || line.reason?.trim());
+
+  const draftSnapshot = useMemo(
+    (): ItemReservationDraft => ({ header, draftLines }),
+    [draftLines, header]
+  );
+
+  const applyItemReservationDraft = useCallback((payload: ItemReservationDraft) => {
+    setHeader(payload.header ?? emptyHeader());
+    setDraftLines(
+      Array.isArray(payload.draftLines) && payload.draftLines.length
+        ? payload.draftLines
+        : [newDraftLine()]
+    );
+    setEditingId(null);
+    setEditForm(null);
+  }, []);
+
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useDraftAutosave({
+    documentType: 'item-reservation',
+    value: draftSnapshot,
+    enabled: !editingId,
+    applyRestore: applyItemReservationDraft,
+    isEmpty: isItemReservationDraftEmpty,
+    restoreMessage: 'يوجد مسودة حجز أصناف غير محفوظة',
+  });
+
+  const patchHeader = (next: Partial<HeaderState>) => setHeader((prev) => ({ ...prev, ...next }));
+
+  const editStockQuery = useItemStockBalance(
+    editForm?.itemId || null,
+    editForm?.warehouseId || null
+  );
+  const editAvailable = editStockQuery.data?.data?.availableQuantity ?? 0;
 
   const listParams = useMemo(
     () => ({
-      warehouseId: form.warehouseId,
+      warehouseId: header.warehouseId,
       status: listStatus === 'ACTIVE' ? 'OPEN' : listStatus,
       limit: 100,
     }),
-    [form.warehouseId, listStatus]
+    [header.warehouseId, listStatus]
   );
   const listQuery = useApiQuery<ReservationRow[]>(
     queryKeys.itemReservations(listParams),
     '/inventory/item-reservations',
     listParams,
-    { enabled: Boolean(form.warehouseId), staleTime: 10_000, skipErrorNotify: true }
+    { enabled: Boolean(header.warehouseId), staleTime: 10_000, skipErrorNotify: true }
   );
   const rows = Array.isArray(listQuery.data?.data) ? listQuery.data.data : [];
 
-  const resetHold = () => {
+  const resetNew = () => {
+    clearDraft();
     setEditingId(null);
-    setLoadedQuantity(0);
-    setForm((prev) => ({ ...prev, itemId: '', quantity: '', reason: '' }));
+    setEditForm(null);
+    setHeader(emptyHeader());
+    setDraftLines([newDraftLine()]);
   };
 
   const refresh = () => {
@@ -108,54 +176,83 @@ export default function ItemReservationPage() {
     invalidateQuery(queryKeys.itemReservations());
   };
 
+  const updateDraftLine = (key: string, patch: Partial<DraftLine>) => {
+    setDraftLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)));
+  };
+
   const handleSave = async () => {
     setError('');
     setSuccess('');
-    if (!form.warehouseId) {
+
+    if (editingId && editForm) {
+      if (!editForm.reason.trim()) {
+        setError('سبب الحجز مطلوب');
+        return;
+      }
+      const quantity = asQty(editForm.quantity);
+      if (quantity == null || quantity <= 0) {
+        setError('الكمية يجب أن تكون أكبر من صفر');
+        return;
+      }
+      setSaving(true);
+      try {
+        await apiClient.put(`/inventory/item-reservations/${editingId}`, {
+          quantity,
+          reason: editForm.reason.trim(),
+        });
+        setSuccess('تم تعديل الحجز');
+        refresh();
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : '';
+        setError(message && !/^failed to /i.test(message) ? message : 'تعذر حفظ الحجز');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    if (!header.warehouseId) {
       setError('يرجى اختيار المخزن');
       return;
     }
-    if (!form.customerId) {
+    if (!header.customerId) {
       setError('يرجى اختيار العميل');
       return;
     }
-    if (!form.itemId) {
-      setError('يرجى اختيار الصنف');
+
+    const toSave = draftLines
+      .map((line) => ({
+        ...line,
+        quantityNum: asQty(line.quantity),
+      }))
+      .filter((line) => line.itemId && line.quantityNum != null && line.quantityNum > 0);
+
+    if (toSave.length === 0) {
+      setError('أضف صنفاً واحداً على الأقل مع كمية أكبر من صفر');
       return;
     }
-    const quantity = asQty(form.quantity);
-    if (quantity == null || quantity <= 0) {
-      setError('الكمية يجب أن تكون أكبر من صفر');
-      return;
+
+    for (const line of toSave) {
+      if (!line.reason.trim()) {
+        setError('سبب الحجز مطلوب لكل صنف');
+        return;
+      }
     }
-    if (quantity > ceiling + 1e-9) {
-      setError(`الكمية المتاحة لا تكفي للحجز. المتاح: ${formatQty(ceiling)}`);
-      return;
-    }
-    if (!form.reason.trim()) {
-      setError('سبب الحجز مطلوب');
-      return;
-    }
+
     setSaving(true);
     try {
-      if (editingId) {
-        await apiClient.put(`/inventory/item-reservations/${editingId}`, {
-          quantity,
-          reason: form.reason.trim(),
-        });
-        setSuccess('تم تعديل الحجز');
-        setLoadedQuantity(quantity);
-      } else {
+      for (const line of toSave) {
         await apiClient.post('/inventory/item-reservations', {
-          warehouseId: form.warehouseId,
-          customerId: form.customerId,
-          itemId: form.itemId,
-          quantity,
-          reason: form.reason.trim(),
+          warehouseId: header.warehouseId,
+          customerId: header.customerId,
+          itemId: line.itemId,
+          quantity: line.quantityNum,
+          reason: line.reason.trim(),
         });
-        setSuccess('تم حجز الكمية');
-        setForm((prev) => ({ ...prev, quantity: '', reason: '' }));
       }
+      setSuccess(toSave.length === 1 ? 'تم حجز الكمية' : `تم حجز ${toSave.length} أصناف`);
+      clearDraft();
+      setDraftLines([newDraftLine()]);
       refresh();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
@@ -172,7 +269,7 @@ export default function ItemReservationPage() {
     setSaving(true);
     try {
       await apiClient.post(`/inventory/item-reservations/${id}/release`);
-      if (editingId === id) resetHold();
+      if (editingId === id) resetNew();
       setSuccess('تم إلغاء الحجز');
       refresh();
     } catch (err: unknown) {
@@ -186,8 +283,7 @@ export default function ItemReservationPage() {
   const openRow = (row: ReservationRow) => {
     if (row.status !== 'ACTIVE') return;
     setEditingId(row.id);
-    setLoadedQuantity(row.quantity);
-    setForm({
+    setEditForm({
       warehouseId: row.warehouseId,
       customerId: (row as { customerId?: string }).customerId ?? '',
       itemId: row.itemId,
@@ -195,6 +291,52 @@ export default function ItemReservationPage() {
       reason: row.reason,
     });
     setError('');
+  };
+
+  const isEditing = Boolean(editingId && editForm);
+
+  const printReady =
+    rows.length > 0 ||
+    draftLines.some((line) => line.itemId && asQty(line.quantity) != null) ||
+    isEditing;
+
+  const handlePrint = () => {
+    if (isEditing && editForm) {
+      const row = rows.find((r) => r.id === editingId);
+      printStockDocument({
+        title: 'حجز الأصناف',
+        date: new Date().toISOString().slice(0, 10),
+        rows: [
+          {
+            item: row?.itemName || editForm.itemId,
+            quantity: asQty(editForm.quantity) ?? 0,
+          },
+        ],
+      });
+      return;
+    }
+    const draftRows = draftLines
+      .filter((line) => line.itemId && asQty(line.quantity) != null)
+      .map((line) => ({
+        item: line.itemId,
+        quantity: asQty(line.quantity) ?? 0,
+      }));
+    if (draftRows.length > 0) {
+      printStockDocument({
+        title: 'حجز الأصناف',
+        date: new Date().toISOString().slice(0, 10),
+        rows: draftRows,
+      });
+      return;
+    }
+    printStockDocument({
+      title: 'حجز الأصناف',
+      date: new Date().toISOString().slice(0, 10),
+      rows: rows.map((row) => ({
+        item: row.itemName,
+        quantity: row.quantity,
+      })),
+    });
   };
 
   return (
@@ -205,104 +347,184 @@ export default function ItemReservationPage() {
         { label: 'عمليات المخازن' },
         { label: 'حجز الأصناف' },
       ]}
-      statusLabel={editingId ? 'تعديل' : 'جديد'}
+      statusLabel={isEditing ? 'تعديل' : 'جديد'}
       onSave={() => void handleSave()}
       savePending={saving}
       canSave={!saving}
-      onNew={() => {
-        setForm(emptyForm());
-        setEditingId(null);
-        setLoadedQuantity(0);
-        setError('');
-      }}
+      onNew={resetNew}
+      onPrint={printReady ? handlePrint : undefined}
+      printDocumentReady={printReady}
       favoriteHref="/inventory/operations/item-reservation"
     >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
-      <FormSectionCard
-        title="بيانات الحجز"
-        subtitle="الكمية المحجوزة تظهر في جرد الأصناف في عمود المحجوز، والمتاح ينقص بنفس الكمية"
-        icon={Lock}
-        bodyClassName="grid grid-cols-1 gap-3 sm:grid-cols-2"
-      >
-        <CompactFormField label="اسم المخزن" required>
-          <WarehouseSelect
-            value={form.warehouseId}
-            onChange={(warehouseId) => {
-              setEditingId(null);
-              setLoadedQuantity(0);
-              setForm((prev) => ({ ...prev, warehouseId, itemId: '', quantity: '', reason: '' }));
-            }}
-            emptyLabel="اختر المخزن"
-            enableQuickCreate={false}
-            disabled={Boolean(editingId)}
-          />
-        </CompactFormField>
-        <CompactFormField label="العميل" required>
-          <CustomerSelect
-            value={form.customerId}
-            onChange={(customerId) => patch({ customerId })}
-            emptyLabel="اختر العميل"
-            disabled={Boolean(editingId)}
-          />
-        </CompactFormField>
-        <CompactFormField label="اسم الصنف" required>
-          <ItemSelect
-            value={form.itemId}
-            onChange={(itemId) => {
-              if (!editingId) patch({ itemId });
-            }}
-            emptyLabel="اختر الصنف"
-            enableQuickCreate={false}
-            disabled={Boolean(editingId) || !form.warehouseId}
-            warehouseId={form.warehouseId || undefined}
-            fallbackLabel={rows.find((row) => row.id === editingId)?.itemName}
-          />
-        </CompactFormField>
-        <CompactFormField label="الكمية المتاحة">
-          <input
-            className={compactControlClass}
-            readOnly
-            value={
-              form.itemId && form.warehouseId
-                ? stockQuery.isLoading
-                  ? '...'
-                  : formatQty(available)
-                : ''
-            }
-            placeholder="تظهر بعد اختيار المخزن والصنف"
-          />
-        </CompactFormField>
-        <CompactFormField
-          label="الكمية المحجوزة"
-          required
-          hint={
-            form.itemId && form.warehouseId
-              ? editingId
-                ? `تقدر تعدّل الكمية لحد ${formatQty(ceiling)}`
-                : `الحد الأقصى للحجز ${formatQty(available)}`
-              : undefined
-          }
+      <PageDraftRestoreGate<ItemReservationDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(editingId)}
+        message="يوجد مسودة حجز أصناف غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyItemReservationDraft(payload);
+          setSuccess('تم استعادة مسودة الحجز');
+        }}
+      />
+
+      {isEditing && editForm ? (
+        <FormSectionCard
+          title="تعديل الحجز"
+          subtitle="يمكن تعديل الكمية وسبب الحجز للحجز المحدد"
+          icon={Lock}
+          bodyClassName="grid grid-cols-1 gap-3 sm:grid-cols-2"
         >
-          <input
-            className={compactControlClass}
-            inputMode="decimal"
-            value={form.quantity}
-            onChange={(e) => patch({ quantity: e.target.value })}
-            placeholder="0"
-          />
-        </CompactFormField>
-        <CompactFormField className="sm:col-span-2" label="سبب الحجز" required>
-          <input
-            className={compactControlClass}
-            value={form.reason}
-            maxLength={500}
-            onChange={(e) => patch({ reason: e.target.value })}
-            placeholder="سبب حجز الكمية"
-          />
-        </CompactFormField>
-      </FormSectionCard>
+          <CompactFormField label="اسم المخزن">
+            <WarehouseSelect value={editForm.warehouseId} onChange={() => {}} disabled emptyLabel="—" />
+          </CompactFormField>
+          <CompactFormField label="العميل">
+            <CustomerSelect value={editForm.customerId} onChange={() => {}} disabled emptyLabel="—" />
+          </CompactFormField>
+          <CompactFormField label="اسم الصنف">
+            <ItemSelect
+              value={editForm.itemId}
+              onChange={() => {}}
+              disabled
+              emptyLabel="—"
+              enableQuickCreate={false}
+              warehouseId={editForm.warehouseId}
+              fallbackLabel={rows.find((row) => row.id === editingId)?.itemName}
+            />
+          </CompactFormField>
+          <CompactFormField label="الكمية المتاحة">
+            <input
+              className={compactControlClass}
+              readOnly
+              value={editStockQuery.isLoading ? '...' : formatQty(editAvailable)}
+            />
+          </CompactFormField>
+          <CompactFormField label="الكمية المحجوزة" required>
+            <input
+              className={compactControlClass}
+              inputMode="decimal"
+              value={editForm.quantity}
+              onChange={(e) => setEditForm((prev) => prev && { ...prev, quantity: e.target.value })}
+            />
+          </CompactFormField>
+          <CompactFormField className="sm:col-span-2" label="سبب الحجز" required>
+            <input
+              className={compactControlClass}
+              value={editForm.reason}
+              maxLength={500}
+              onChange={(e) => setEditForm((prev) => prev && { ...prev, reason: e.target.value })}
+            />
+          </CompactFormField>
+        </FormSectionCard>
+      ) : (
+        <FormSectionCard
+          title="بيانات الحجز"
+          subtitle="يمكنك حجز أكثر من صنف في نفس العملية — أضف أسطراً ثم احفظ مرة واحدة"
+          icon={Lock}
+          bodyClassName="space-y-4"
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <CompactFormField label="اسم المخزن" required>
+              <WarehouseSelect
+                value={header.warehouseId}
+                onChange={(warehouseId) => {
+                  setHeader({ warehouseId, customerId: header.customerId });
+                  setDraftLines([newDraftLine()]);
+                }}
+                emptyLabel="اختر المخزن"
+                enableQuickCreate={false}
+              />
+            </CompactFormField>
+            <CompactFormField label="العميل" required>
+              <CustomerSelect
+                value={header.customerId}
+                onChange={(customerId) => patchHeader({ customerId })}
+                emptyLabel="اختر العميل"
+              />
+            </CompactFormField>
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-slate-700">الأصناف المحجوزة</p>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm text-brand ring-1 ring-brand/30 hover:bg-brand/5"
+              disabled={!header.warehouseId}
+              onClick={() => setDraftLines((prev) => [...prev, newDraftLine()])}
+            >
+              <Plus className="h-4 w-4" />
+              إضافة صنف
+            </button>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-slate-600">
+                <tr>
+                  <th className="px-2 py-2 text-start font-medium">الصنف</th>
+                  <th className="w-24 px-2 py-2 text-center font-medium">المتاح</th>
+                  <th className="w-28 px-2 py-2 text-center font-medium">الكمية</th>
+                  <th className="min-w-[12rem] px-2 py-2 text-start font-medium">سبب الحجز</th>
+                  <th className="w-10 px-2 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {draftLines.map((line) => (
+                  <tr key={line.key} className="border-t border-slate-100">
+                    <td className="px-2 py-1.5">
+                      <ItemSelect
+                        value={line.itemId}
+                        onChange={(itemId) => updateDraftLine(line.key, { itemId })}
+                        emptyLabel="اختر الصنف"
+                        enableQuickCreate={false}
+                        disabled={!header.warehouseId}
+                        warehouseId={header.warehouseId || undefined}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5 text-center">
+                      <AvailableQtyCell warehouseId={header.warehouseId} itemId={line.itemId} />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        className={compactControlClass}
+                        inputMode="decimal"
+                        value={line.quantity}
+                        placeholder="0"
+                        onChange={(e) => updateDraftLine(line.key, { quantity: e.target.value })}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        className={compactControlClass}
+                        value={line.reason}
+                        maxLength={500}
+                        placeholder="سبب الحجز"
+                        onChange={(e) => updateDraftLine(line.key, { reason: e.target.value })}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <button
+                        type="button"
+                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                        disabled={draftLines.length <= 1}
+                        title="حذف السطر"
+                        onClick={() =>
+                          setDraftLines((prev) => prev.filter((row) => row.key !== line.key))
+                        }
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </FormSectionCard>
+      )}
 
       <div className="mb-3 mt-4 flex gap-2">
         <button
@@ -319,12 +541,12 @@ export default function ItemReservationPage() {
         >
           الحجوزات الملغاة
         </button>
-        {editingId && listStatus === 'ACTIVE' ? (
+        {isEditing ? (
           <button
             type="button"
             className="rounded-lg px-3 py-1.5 text-sm text-red-700 ring-1 ring-red-200"
             disabled={saving}
-            onClick={() => void handleRelease(editingId)}
+            onClick={() => void handleRelease(editingId!)}
           >
             إلغاء الحجز
           </button>
@@ -333,21 +555,21 @@ export default function ItemReservationPage() {
 
       <section className="mb-4 overflow-visible rounded-xl border border-[#E6F0F7] bg-white p-4 shadow-sm">
         <AppTable<ReservationRow>
-          isLoading={Boolean(form.warehouseId) && listQuery.isLoading}
+          isLoading={Boolean(header.warehouseId) && listQuery.isLoading}
           data={rows}
           getRowKey={(row) => row.id}
           onRowClick={openRow}
-          emptyTitle={form.warehouseId ? 'لا توجد حجوزات' : 'اختر المخزن أولاً'}
+          emptyTitle={header.warehouseId ? 'لا توجد حجوزات' : 'اختر المخزن أولاً'}
           emptyDescription={
-            form.warehouseId
-              ? 'احجز كمية من صنف، وهتظهر هنا وفي عمود المحجوز بجرد الأصناف.'
-              : 'بعد اختيار المخزن تقدر تختار الصنف وسبب الحجز.'
+            header.warehouseId
+              ? 'احجز كميات من الأصناف، وهتظهر هنا وفي عمود المحجوز بجرد الأصناف.'
+              : 'بعد اختيار المخزن أضف الأصناف والكميات ثم احفظ.'
           }
           columns={[
             {
               id: 'item',
               header: 'الصنف',
-              cell: (row) => row.itemSerial ? `${row.itemSerial} — ${row.itemName}` : row.itemName,
+              cell: (row) => (row.itemSerial ? `${row.itemSerial} — ${row.itemName}` : row.itemName),
             },
             {
               id: 'warehouse',

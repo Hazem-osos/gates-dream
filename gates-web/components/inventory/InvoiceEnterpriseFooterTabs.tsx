@@ -12,8 +12,9 @@ import {
 import { tafqeetEgp } from '@/lib/print/tafqeet';
 import { DocumentActivityLog } from '@/app/components/accounting/DocumentActivityLog';
 import { EtaReadinessPanel } from '@/app/components/accounting/EtaReadinessPanel';
+import { stockImpactItemLabel } from '@/lib/invoices/stock-impact-line';
 
-type StockLine = InvoiceSummaryLine & { itemId?: string };
+type StockLine = InvoiceSummaryLine & { itemId?: string; itemName?: string };
 
 type Props = {
   variant: 'sales' | 'purchase';
@@ -95,6 +96,7 @@ export function InvoiceEnterpriseFooterTabs({
         {active === 'gl' ? (
           <InvoiceJournalEntryLinesTable
             journalEntryId={journalEntryId}
+            sourceDocumentId={selectedInvoiceId}
             title="معاينة القيد المحاسبي"
             compact
           />
@@ -115,7 +117,7 @@ export function InvoiceEnterpriseFooterTabs({
                   <tr className="bg-[#0E78AA] text-white">
                     <th className="py-2 px-2">الصنف</th>
                     <th className="py-2 px-2">الكمية</th>
-                    <th className="py-2 px-2">Δ مخزون</th>
+                    <th className="py-2 px-2">تغيّر المخزون</th>
                     <th className="py-2 px-2">قيمة تقريبية</th>
                   </tr>
                 </thead>
@@ -126,8 +128,8 @@ export function InvoiceEnterpriseFooterTabs({
                     const val = computeLineSubtotalAfterDiscount(line);
                     return (
                       <tr key={`${line.itemId}-${i}`} className={i % 2 ? 'bg-white' : 'bg-[#F6FBFD]'}>
-                        <td className="py-2 px-2 border-x border-[#D6EAF3] font-mono text-xs">
-                          {line.itemId?.slice(0, 8)}…
+                        <td className="py-2 px-2 border-x border-[#D6EAF3] text-right">
+                          {stockImpactItemLabel(line)}
                         </td>
                         <td className="py-2 px-2 border-x border-[#D6EAF3]">{qty}</td>
                         <td className="py-2 px-2 border-x border-[#D6EAF3]">

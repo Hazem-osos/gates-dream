@@ -1,4 +1,5 @@
 import { getDefaultVisibleColumnIds, getReportColumnsForPath, getRowCellValue, ledgerFooterFigures, partyCurrencyStatementColumns } from './reportColumns';
+import { isReportColumnVisible } from './reportColumnVisible';
 import { formatReportCell } from './reportFormatters';
 import { accountTypeLabel, labelForAutoColumn } from './reportColumnLabels';
 import { flattenSummaryEntries } from '../reportPreview/reportSummaryLabels';
@@ -237,6 +238,34 @@ const journalListCols = getReportColumnsForPath('accounting/account-reports/book
 assert(
   journalListCols.find((c) => c.id === 'entryExchangeRate')?.totalMode === 'none',
   'daily journal list does not total the exchange rate'
+);
+
+assert(isReportColumnVisible(undefined, 'date') === true, 'missing picker shows all');
+assert(isReportColumnVisible([], 'date') === true, 'empty picker shows all');
+assert(isReportColumnVisible(['date'], 'date') === true, 'selected column stays');
+assert(isReportColumnVisible(['date'], 'itemName') === false, 'hidden column stays off');
+
+const transferCols = getReportColumnsForPath('inventory/reports/stock-transfer-report', []);
+assert(transferCols.find((c) => c.id === 'fromWarehouse')?.label === 'من مخزن', 'transfer from warehouse');
+assert(transferCols.find((c) => c.id === 'total')?.label === 'القيمة', 'transfer value');
+
+const movementCols = getReportColumnsForPath('inventory/reports/item-movement-reports', []);
+assert(movementCols.find((c) => c.id === 'balance')?.label === 'رصيد المخزن', 'warehouse balance header');
+assert(
+  movementCols.find((c) => c.id === 'companyBalance')?.label === 'الرصيد الإجمالي بالمخازن',
+  'company balance header'
+);
+assert(movementCols.some((c) => c.id === 'averageCost'), 'average cost column');
+
+const customerAccountCols = getReportColumnsForPath('inventory/reports/customer-accounts-reports', []);
+assert(
+  customerAccountCols.some((c) => c.id === 'uncollectedPapersAmount'),
+  'customer statement shows uncollected papers column'
+);
+const supplierAccountCols = getReportColumnsForPath('inventory/reports/supplier-accounts-reports', []);
+assert(
+  supplierAccountCols.some((c) => c.id === 'uncollectedPapersAmount'),
+  'supplier statement shows uncollected papers column'
 );
 
 console.log('reportColumns.test.ts ok');

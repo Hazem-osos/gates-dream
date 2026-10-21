@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Plus, Trash2 } from 'lucide-react';
 import {
   Button,
@@ -98,6 +100,30 @@ export default function RepresentativesCommissionQuantitiesPage() {
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
 
+  type CommissionQuantitiesDraft = { lines: QtyRow[] };
+  const draftSnapshot = useMemo<CommissionQuantitiesDraft>(() => ({ lines }), [lines]);
+  const applyCommissionQuantitiesDraft = useCallback((payload: CommissionQuantitiesDraft) => {
+    setLines(payload.lines);
+    setError('');
+    setSuccess('');
+  }, []);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'representatives-commission-quantities',
+    editingId: null,
+    value: draftSnapshot,
+    isEmpty: (d) =>
+      !d.lines.some(
+        (row) =>
+          row.itemId ||
+          row.itemName.trim() ||
+          row.policyName.trim() ||
+          row.target.trim() ||
+          row.percent.trim()
+      ),
+    applyRestore: applyCommissionQuantitiesDraft,
+    restoreMessage: 'يوجد مسودة عمولات كميات غير محفوظة',
+  });
+
   const { data, isLoading } = useApiQuery<ApiLine[]>(
     queryKeys.representativeCommissionQuantities(),
     '/inventory/representatives-commissions-quantities',
@@ -150,6 +176,7 @@ export default function RepresentativesCommissionQuantitiesPage() {
         payload
       );
       if (res.data?.length) setLines(res.data.map(toRow));
+      clearDraft();
       setSuccess('تم حفظ سياسة عمولات الكميات');
       invalidateQuery(['representatives-commissions-quantities']);
     } catch (err: unknown) {
@@ -164,6 +191,7 @@ export default function RepresentativesCommissionQuantitiesPage() {
   };
 
   const handleClear = () => {
+    clearDraft();
     hydrated.current = false;
     setLines([emptyRow(), emptyRow(), emptyRow()]);
     setError('');
@@ -187,6 +215,14 @@ export default function RepresentativesCommissionQuantitiesPage() {
       favoriteHref="/inventory/creations/representatives-commission-quantities"
       moreMenuItems={[{ id: 'add-item', label: 'إضافة صنف', onClick: handleNew }]}
     >
+      <MasterCardDraftRestoreGate<CommissionQuantitiesDraft>
+        editingId={null}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyCommissionQuantitiesDraft}
+        message="يوجد مسودة عمولات كميات غير محفوظة."
+      />
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 

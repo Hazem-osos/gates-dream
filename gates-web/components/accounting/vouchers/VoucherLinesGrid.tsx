@@ -182,7 +182,10 @@ export function VoucherLinesGrid({
               value={line.accountId}
               partyId={line.partyId}
               partyKind={line.partyKind}
-              valueLabel={accountLabelFor?.(line.accountId)}
+              valueLabel={
+                accountLabelFor?.(line.accountId) ||
+                (line.partyId ? accountLabelFor?.('') : undefined)
+              }
               disabled={disabled}
               onPick={(pick) =>
                 updateLine(index, {

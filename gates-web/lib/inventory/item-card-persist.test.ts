@@ -81,6 +81,24 @@ describe('buildItemPersistBody', () => {
     });
     expect(body.serial).toBe('A-9');
   });
+
+  it('defaults barcode to serial on save when barcode field is empty', () => {
+    const body = buildItemPersistBody({
+      ...base,
+      itemAuto: false,
+      form: mergeItemCardForm({ arabicName: 'قميص', serial: 'A-9', barcode: '' }),
+    });
+    expect(body.barcode).toBe('A-9');
+  });
+
+  it('keeps explicit barcode when user entered one', () => {
+    const body = buildItemPersistBody({
+      ...base,
+      itemAuto: false,
+      form: mergeItemCardForm({ arabicName: 'قميص', serial: 'A-9', barcode: 'EAN-123' }),
+    });
+    expect(body.barcode).toBe('EAN-123');
+  });
 });
 
 describe('compactAssemblyRows', () => {

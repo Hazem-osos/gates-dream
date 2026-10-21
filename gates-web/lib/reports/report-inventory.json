@@ -1143,6 +1143,30 @@
       "status": "active"
     },
     {
+      "rel": "inventory/reports/party-analytical-position",
+      "urlPath": "/inventory/reports/party-analytical-position",
+      "kind": "filter",
+      "module": "inventory",
+      "reportKey": "party-analytical-position",
+      "titleAr": "تقرير موقف الحسابات التحليلي",
+      "previewPath": "/inventory/reports/party-analytical-position/preview",
+      "filterPath": "/inventory/reports/party-analytical-position",
+      "hasPreviewPair": true,
+      "status": "active"
+    },
+    {
+      "rel": "inventory/reports/party-analytical-position/preview",
+      "urlPath": "/inventory/reports/party-analytical-position/preview",
+      "kind": "preview",
+      "module": "inventory",
+      "reportKey": "party-analytical-position",
+      "titleAr": "تقرير موقف الحسابات التحليلي",
+      "previewPath": "/inventory/reports/party-analytical-position/preview",
+      "filterPath": "/inventory/reports/party-analytical-position",
+      "hasPreviewPair": true,
+      "status": "active"
+    },
+    {
       "rel": "inventory/reports/customer-balances",
       "urlPath": "/inventory/reports/customer-balances",
       "kind": "filter",

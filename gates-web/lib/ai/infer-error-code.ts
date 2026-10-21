@@ -2,6 +2,11 @@
 
 export function inferBusinessErrorCode(message: string, code?: string): string {
   const blob = `${code ?? ''} ${message}`;
+  if (/CONFIRM_NEGATIVE_STOCK/i.test(blob) || (message.includes('الرصيد سيصبح بالسالب') && message.includes('تحت مسؤوليتك'))) {
+    return code && /CONFIRM_NEGATIVE_STOCK/i.test(code)
+      ? code.trim().toUpperCase()
+      : 'CONFIRM_NEGATIVE_STOCK_UNPOST';
+  }
   if (/PRICE_BELOW_COST|BELOW_COST|أقل من(?: سعر)? التكلفة|بيع بخسارة|البيع بأقل/i.test(blob)) {
     return 'PRICE_BELOW_COST';
   }

@@ -55,7 +55,7 @@ export function VoucherPrintActions({
       onPrintLayout={() =>
         printOperationalDocument({
           title: title || VOUCHER_TITLE[kind] || 'سند',
-          documentNo: voucherNumber || 'مسودة',
+          documentNo: voucherNumber || 'جديد',
           documentDate: date || new Date().toISOString().slice(0, 10),
           sellerName: company?.nameAr,
           buyerName: [description, safeName].filter(Boolean).join(' — ') || undefined,

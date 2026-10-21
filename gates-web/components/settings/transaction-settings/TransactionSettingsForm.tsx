@@ -4,10 +4,13 @@ import { useEffect, useState } from 'react';
 import { Settings } from 'lucide-react';
 import { AccountSelect } from '@/app/components/form/AccountSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
+import { BankSelect } from '@/app/components/form/BankSelect';
+import { SafeSelect } from '@/app/components/form/SafeSelect';
 import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 import { Button } from '@/components/ui/button';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import {
   DOCUMENT_TYPE_TITLE,
   type CostCenterAllocationTarget,
@@ -18,9 +21,21 @@ import {
   type TransactionDocumentType,
   type TransactionSettings,
   canLoadSourceOrder,
+  documentForcesAutomaticNumbering,
   isJournalLikeDocumentType,
+  isNonJournalTreasuryDocumentType,
+  isNonPostingOrderDocumentType,
+  hidesPurchaseCostAndNegativeStockGuards,
   isSecuritiesDocumentType,
+  isStoreWarehouseDocumentType,
   isTreasuryDocumentType,
+  isTreasuryOrderDocumentType,
+  usesDefaultBankAccount,
+  usesDefaultTreasurySafe,
+  warnsWhenDisablingJournalGeneration,
+  supportsInstallmentDueReminders,
+  isSecuritiesPaperDueReminderDocumentType,
+  supportsAssemblySalesInvoiceWarning,
 } from '@/lib/transaction-settings/types';
 import {
   readSalesPrintPrefs,
@@ -28,6 +43,11 @@ import {
   type DefaultPrintKind,
 } from '@/lib/printer/print-prefs';
 import type { ThermalRollWidth } from '@/lib/printer/types';
+import {
+  DOCUMENT_CATEGORIES,
+  DOCUMENT_CATEGORY_LABEL,
+  type DocumentCategory,
+} from '@/lib/attachments/types';
 
 type SwitchRowProps = {
   checked: boolean;
@@ -66,10 +86,12 @@ export function TransactionSettingsForm({
   documentType,
   compact = false,
   hidePageTitle = false,
+  onSettingsSaved,
 }: {
   documentType: TransactionDocumentType;
   compact?: boolean;
   hidePageTitle?: boolean;
+  onSettingsSaved?: () => void;
 }) {
   const invalidate = useInvalidateQuery();
   const { data, isLoading } = useApiQuery<TransactionSettings>(
@@ -97,6 +119,9 @@ export function TransactionSettingsForm({
       onSuccess: () => {
         toast.success('تم حفظ إعدادات المستند');
         invalidate(['transaction-settings', documentType]);
+        invalidate(['cash-posting-mode']);
+        invalidate(['treasury-cash-next-number']);
+        onSettingsSaved?.();
       },
     }
   );
@@ -105,15 +130,48 @@ export function TransactionSettingsForm({
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const onGenerateEntryChange = (next: boolean) => {
+    if (next || !warnsWhenDisablingJournalGeneration(documentType)) {
+      patch('generateEntryOnSave', next);
+      return;
+    }
+    void confirmAction({
+      title: 'تحذير الجرد المستمر',
+      message:
+        'البرنامج شغال بنظام الجرد المستمر. عدم إنشاء القيود هيعمل اختلافات بين أرصدة المخازن وكشف حساب المخزون. هل تريد الاستمرار؟',
+      confirmLabel: 'نعم',
+      cancelLabel: 'لا',
+      tone: 'warning',
+    }).then((ok) => {
+      if (ok) patch('generateEntryOnSave', false);
+    });
+  };
+
   const title = DOCUMENT_TYPE_TITLE[documentType];
   const treasury = isTreasuryDocumentType(documentType);
+  const treasuryOrder = isTreasuryOrderDocumentType(documentType);
+  const nonJournalTreasury = isNonJournalTreasuryDocumentType(documentType);
+  const nonPostingOrder = isNonPostingOrderDocumentType(documentType);
+  const isTemporaryReceipt = documentType === 'TEMPORARY_RECEIPT';
   const journalLike = isJournalLikeDocumentType(documentType);
   const securities = isSecuritiesDocumentType(documentType);
-  const isStockReceipt = documentType === 'STOCK_RECEIPT';
-  const isStockIssue = documentType === 'STOCK_ISSUE';
-  const hideStockPolicies = treasury || journalLike || securities || isStockReceipt || isStockIssue;
+  const hideStockPolicies =
+    treasury || journalLike || securities || isStoreWarehouseDocumentType(documentType);
+  const hideJournalGeneration = journalLike || nonJournalTreasury || nonPostingOrder;
+  const hideAffectStock = hideStockPolicies || nonPostingOrder;
+  const hidePurchaseGuards = hidesPurchaseCostAndNegativeStockGuards(documentType);
   const isBankAdvice = documentType === 'BANK_DEBIT_ADVICE' || documentType === 'BANK_CREDIT_ADVICE';
-  const isReceiptLike = documentType === 'RECEIPT_VOUCHER' || documentType === 'BANK_CREDIT_ADVICE';
+  const isReceiptLike =
+    documentType === 'RECEIPT_VOUCHER' ||
+    documentType === 'RECEIPT_ORDER' ||
+    documentType === 'TEMPORARY_RECEIPT' ||
+    documentType === 'BANK_CREDIT_ADVICE';
+  const isStockIssue = documentType === 'STOCK_ISSUE';
+  const isStockReceipt = documentType === 'STOCK_RECEIPT';
+  const securitiesReceiptPolarity =
+    documentType === 'SECURITIES_RECEIPT' ||
+    documentType === 'CHEQUE_RECEIPT' ||
+    documentType === 'OPENING_SECURITIES_RECEIPT';
 
   const accountField = (
     key: 'defaultCashAccountId' | 'defaultBankGlAccountId' | 'defaultOffsetAccountId' | 'defaultChargesAccountId',
@@ -159,7 +217,7 @@ export function TransactionSettingsForm({
             </div>
             <p className="mt-1 text-sm text-slate-500">
               {treasury
-                ? 'حدّد من شجرة حسابات شركتك: الصندوق أو البنك، الحساب المقابل، ومصاريف العمولة. كل عميل يختار حساباته بنفسه.'
+                ? 'حدّد من شجرة حسابات شركتك: الصندوق أو البنك، والحساب المقابل. كل شركة تختار حساباتها بنفسها.'
                 : 'سياسات الترقيم، الترحيل، التسعير، الضرائب، ومراكز التكلفة لهذا النوع من المستندات.'}
             </p>
           </div>
@@ -172,7 +230,11 @@ export function TransactionSettingsForm({
             if (documentType === 'SALES_INVOICE') {
               writeSalesPrintPrefs({ kind: printKind, widthMm: thermalWidth });
             }
-            save.mutate(form);
+            save.mutate(
+              documentForcesAutomaticNumbering(documentType)
+                ? { ...form, numberingMode: 'AUTOMATIC' }
+                : form
+            );
           }}
         >
           حفظ الإعدادات
@@ -183,25 +245,34 @@ export function TransactionSettingsForm({
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <p className="mb-1.5 text-xs font-semibold text-[#0A3D5E]">نوع الترقيم</p>
-            <div className="flex gap-2">
-              {([
-                ['AUTOMATIC', 'تلقائي من النظام'],
-                ['MANUAL', 'يدوي بواسطة المستخدم'],
-              ] as [NumberingMode, string][]).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => patch('numberingMode', id)}
-                  className={`flex-1 rounded-xl border px-3 py-2 text-sm font-medium ${
-                    form.numberingMode === id
-                      ? 'border-[#0E78AA] bg-[#0E78AA]/10 text-[#0E78AA]'
-                      : 'border-slate-200 bg-white text-slate-600'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            {documentForcesAutomaticNumbering(documentType) ? (
+              <div className="rounded-xl border border-[#0E78AA]/30 bg-[#0E78AA]/10 px-3 py-2 text-sm font-medium text-[#0E78AA]">
+                تلقائي من النظام
+                <p className="mt-1 text-[11px] font-normal leading-4 text-slate-600">
+                  رقم قيد اليومية يتولد تلقائياً ولا يمكن إدخاله يدوياً.
+                </p>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                {([
+                  ['AUTOMATIC', 'تلقائي من النظام'],
+                  ['MANUAL', 'يدوي بواسطة المستخدم'],
+                ] as [NumberingMode, string][]).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => patch('numberingMode', id)}
+                    className={`flex-1 rounded-xl border px-3 py-2 text-sm font-medium ${
+                      form.numberingMode === id
+                        ? 'border-[#0E78AA] bg-[#0E78AA]/10 text-[#0E78AA]'
+                        : 'border-slate-200 bg-white text-slate-600'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <p className="mb-1.5 text-xs font-semibold text-[#0A3D5E]">سلسلة الترقيم عبر السنوات</p>
@@ -268,9 +339,19 @@ export function TransactionSettingsForm({
           onChange={(v) => patch('autoPostOnSave', v)}
           label="الترحيل التلقائي عند الحفظ"
           hint={
-            treasury
-              ? 'ترحيل السند وتثبيت أثره على الصندوق أو البنك فور الحفظ.'
-              : 'ترحيل الفاتورة وتثبيت أثرها فور الضغط على حفظ دون إبقائها مسودة.'
+            securities
+              ? 'ترحيل الورقة وتثبيت قيد التحرير فور الحفظ، وبعد حفظ التعديل أيضاً.'
+              : isTemporaryReceipt
+                ? 'تأكيد الإيصال المؤقت فور الحفظ. الإيصال نفسه بدون قيد محاسبي.'
+              : treasuryOrder
+                ? 'ترحيل الأمر فور الحفظ حتى يمكن تحميله على السند. الأمر نفسه بدون قيد محاسبي.'
+                : treasury
+                ? 'ترحيل السند وتثبيت أثره على الصندوق أو البنك فور الحفظ.'
+                : journalLike
+                  ? 'ترحيل قيد اليومية وتثبيت أثره على الحسابات فور الحفظ دون إبقائه غير مرحّل.'
+                  : nonPostingOrder
+                    ? 'تأكيد المستند فور الحفظ. عرض السعر وأوامر البيع/الشراء بدون قيد محاسبي وبدون تأثير مخزني.'
+                  : 'ترحيل الفاتورة وتثبيت أثرها فور الضغط على حفظ دون إبقائها غير مرحّلة.'
           }
         />
         <SwitchRow
@@ -327,13 +408,19 @@ export function TransactionSettingsForm({
             ) : null}
           </div>
         ) : null}
-        <SwitchRow
-          checked={form.generateEntryOnSave !== false}
-          onChange={(v) => patch('generateEntryOnSave', v)}
-          label="توليد قيد يومية محاسبي تلقائياً"
-          hint="إنشاء قيود اليومية تلقائياً مع الحركة من الحسابات التي تختارها تحت."
-        />
-        {hideStockPolicies ? null : (
+        {hideJournalGeneration ? null : (
+          <SwitchRow
+            checked={form.generateEntryOnSave !== false}
+            onChange={onGenerateEntryChange}
+            label="توليد قيد يومية محاسبي تلقائياً"
+            hint={
+              isBankAdvice
+                ? 'القيد بيتكتب مع الترحيل من الحسابات اللي تحت. لو الترحيل التلقائي شغال، القيد بيتولد مع الحفظ.'
+                : 'إنشاء قيود اليومية تلقائياً مع الحركة من الحسابات التي تختارها تحت.'
+            }
+          />
+        )}
+        {hideAffectStock ? null : (
           <SwitchRow
             checked={form.affectStock !== false}
             onChange={(v) => patch('affectStock', v)}
@@ -349,13 +436,131 @@ export function TransactionSettingsForm({
         )}
       </Section>
 
+      {supportsInstallmentDueReminders(documentType) ? (
+        <Section
+          title={
+            isSecuritiesPaperDueReminderDocumentType(documentType)
+              ? 'تنبيهات استحقاق الورقة'
+              : 'تنبيهات دفعات الفاتورة'
+          }
+        >
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">
+              {isSecuritiesPaperDueReminderDocumentType(documentType)
+                ? 'التنبيه قبل تاريخ الاستحقاق (بالأيام)'
+                : 'التنبيه قبل موعد الدفعة (بالأيام)'}
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={90}
+              className="w-full max-w-[12rem] rounded-xl border border-[#D6EAF3] bg-white px-3 py-2 text-sm tabular-nums"
+              value={
+                form.installmentReminderDaysBefore === null ||
+                form.installmentReminderDaysBefore === undefined
+                  ? ''
+                  : form.installmentReminderDaysBefore
+              }
+              placeholder="0 = بدون تنبيه"
+              onChange={(e) => {
+                const raw = e.target.value.trim();
+                if (!raw) {
+                  patch('installmentReminderDaysBefore', null);
+                  return;
+                }
+                const n = Number.parseInt(raw, 10);
+                patch(
+                  'installmentReminderDaysBefore',
+                  Number.isFinite(n) ? Math.min(90, Math.max(0, n)) : null
+                );
+              }}
+            />
+            <p className="mt-1.5 text-xs leading-5 text-slate-500">
+              {isSecuritiesPaperDueReminderDocumentType(documentType)
+                ? 'عند تحديد رقم (مثلاً 3): يظهر تنبيه قبل تاريخ استحقاق كل ورقة مرحّلة ولم تُحصَّل أو تُظهَّر، مع رابط يفتح الورقة.'
+                : 'عند تحديد رقم (مثلاً 3): يظهر تنبيه قبل موعد كل دفعة غير مسددة على الفاتورة، مع رابط يفتح الفاتورة لتسجيل التحصيل.'}
+            </p>
+          </div>
+        </Section>
+      ) : null}
+
+      {supportsAssemblySalesInvoiceWarning(documentType) ? (
+        <Section title="تجميع الأصناف والبيع">
+          <SwitchRow
+            checked={form.warnSalesInvoiceOnAssemblySave === true}
+            onChange={(v) => patch('warnSalesInvoiceOnAssemblySave', v)}
+            label="تنبيه بفاتورة مبيعات للصنف المجمع عند الحفظ"
+            hint="بعد حفظ أمر التجميع يظهر تنبيه يفتح فاتورة مبيعات بالمخزن المستهدف والصنف المجمع والكمية؛ السعر يُملأ من قائمة أسعار المبيعات عند اختيار العميل."
+          />
+        </Section>
+      ) : null}
+
+      <Section title="أرشفة المستندات">
+        <SwitchRow
+          checked={form.archiveRequireOnSave === true}
+          onChange={(v) => patch('archiveRequireOnSave', v)}
+          label="إلزام رفع مرفق في الأرشيف قبل الحفظ"
+          hint="عند التفعيل لا يُقبل حفظ المستند إلا بعد رفع ملف واحد على الأقل من شاشة أرشفة المستندات (⋯)."
+        />
+        {form.archiveRequireOnSave ? (
+          <>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">سياسة الإلزام</label>
+              <select
+                className="w-full rounded-xl border border-[#D6EAF3] bg-white px-3 py-2 text-sm"
+                value={form.archiveMandatoryMode ?? 'ANY'}
+                onChange={(e) =>
+                  patch(
+                    'archiveMandatoryMode',
+                    e.target.value as TransactionSettings['archiveMandatoryMode']
+                  )
+                }
+              >
+                <option value="ANY">أي نوع مرفق يكفي</option>
+                <option value="SELECTED_CATEGORIES">نوع واحد على الأقل من المحددة</option>
+                <option value="ALL_CATEGORIES">كل الأنواع المحددة إلزامية</option>
+              </select>
+            </div>
+            {(form.archiveMandatoryMode === 'SELECTED_CATEGORIES' ||
+              form.archiveMandatoryMode === 'ALL_CATEGORIES') ? (
+              <div className="space-y-1 rounded-xl border border-[#E6F0F7] bg-white p-3">
+                <p className="text-xs font-semibold text-[#0A3D5E]">أنواع المرفقات</p>
+                {DOCUMENT_CATEGORIES.map((cat) => {
+                  const selected = (form.archiveMandatoryCategories ?? []).includes(cat);
+                  return (
+                    <label key={cat} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={(e) => {
+                          const prev = form.archiveMandatoryCategories ?? [];
+                          const next = e.target.checked
+                            ? [...prev, cat]
+                            : prev.filter((c) => c !== cat);
+                          patch('archiveMandatoryCategories', next as DocumentCategory[]);
+                        }}
+                      />
+                      {DOCUMENT_CATEGORY_LABEL[cat]}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </Section>
+
       {canLoadSourceOrder(documentType) ? (
         <Section title="تحميل الأمر من القسم والرقم">
           <SwitchRow
             checked={form.allowEditLoadedOrder !== false}
             onChange={(v) => patch('allowEditLoadedOrder', v)}
             label="السماح بتعديل الأمر بعد التحميل"
-            hint="لو مقفولة، الأمر بيتحمّل في الصفحة وكل الخانات تقفل. لو مفتوحة تقدر تعدّل بعد التحميل عادي."
+            hint={
+              treasuryOrder
+                ? 'لو مقفولة، بعد تحميل الأمر على سند الصرف/القبض كل الخانات تقفل. لو مفتوحة تقدر تعدّل البنود بعد التحميل.'
+                : 'لو مقفولة، الأمر بيتحمّل في الصفحة وكل الخانات تقفل. لو مفتوحة تقدر تعدّل بعد التحميل عادي.'
+            }
           />
         </Section>
       ) : null}
@@ -376,15 +581,30 @@ export function TransactionSettingsForm({
             ويُقابل عليه <strong className="font-semibold text-[#0A3D5E]">حساب المخزون</strong> — من بطاقة المخزن
             المختار في الإذن (أو من المخزن الأب إن لم تُعرَّف على الفرع). عرّف الحسابين من دليل المخازن.
           </p>
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">مركز التكلفة الافتراضي</label>
-            <CostCenterSelect
-              value={form.defaultCostCenterId ?? ''}
-              onChange={(id) => patch('defaultCostCenterId', id || null)}
-            />
-            <p className="mt-1 text-[11px] leading-4 text-slate-500">
-              يُطبَّق على سطور قيد الصرف عند الترحيل.
-            </p>
+          <SwitchRow
+            checked={form.preventNegativeStock !== false}
+            onChange={(v) => patch('preventNegativeStock', v)}
+            label="منع الصرف إذا الرصيد غير كافٍ"
+            hint="يُطبَّق عند ترحيل إذن الصرف — يمنع خروج كمية أكبر من المتاح في المخزن."
+          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">المخزن الافتراضي</label>
+              <WarehouseSelect
+                value={form.defaultWarehouseId ?? ''}
+                onChange={(id) => patch('defaultWarehouseId', id || null)}
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">مركز التكلفة الافتراضي</label>
+              <CostCenterSelect
+                value={form.defaultCostCenterId ?? ''}
+                onChange={(id) => patch('defaultCostCenterId', id || null)}
+              />
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                يُطبَّق على سطور قيد الصرف عند الترحيل.
+              </p>
+            </div>
           </div>
         </Section>
       ) : null}
@@ -403,6 +623,13 @@ export function TransactionSettingsForm({
               'يُستخدم دائناً في قيد الإضافة المخزنية. يمكن تغييره لكل إذن من شاشة الإذن.'
             )}
             <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">المخزن الافتراضي</label>
+              <WarehouseSelect
+                value={form.defaultWarehouseId ?? ''}
+                onChange={(id) => patch('defaultWarehouseId', id || null)}
+              />
+            </div>
+            <div>
               <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">مركز التكلفة الافتراضي</label>
               <CostCenterSelect
                 value={form.defaultCostCenterId ?? ''}
@@ -419,61 +646,83 @@ export function TransactionSettingsForm({
       {securities ? (
         <Section title="الحساب الافتراضي لقيد التحرير">
           <p className="text-xs leading-5 text-slate-500">
-            {documentType === 'SECURITIES_RECEIPT'
+            {securitiesReceiptPolarity
               ? 'هذا الحساب يظهر في خانة الحساب على ورقة المقبوضات ويبقى المدين، والدائن حساب العميل.'
               : 'هذا الحساب يظهر في خانة الحساب على ورقة المدفوعات ويبقى الدائن، والمدين حساب المورد.'}
           </p>
           {accountField(
             'defaultOffsetAccountId',
             'defaultOffsetAccount',
-            documentType === 'SECURITIES_RECEIPT' ? 'حساب أوراق القبض الافتراضي' : 'حساب أوراق الدفع الافتراضي',
+            securitiesReceiptPolarity ? 'حساب أوراق القبض الافتراضي' : 'حساب أوراق الدفع الافتراضي',
             'لو المستخدم ما اختارش حساب على الورقة، القيد بيستخدم الحساب ده.'
           )}
         </Section>
       ) : null}
 
       {treasury ? (
-        <Section title="3. الحسابات من شجرة هذه الشركة">
+        <Section
+          title={
+            isTemporaryReceipt
+              ? 'الخزنة الافتراضية'
+              : isBankAdvice
+                ? 'البنك والحسابات الافتراضية'
+                : '3. الحسابات من شجرة هذه الشركة'
+          }
+        >
+          {isTemporaryReceipt ? null : (
           <p className="text-xs leading-5 text-slate-500">
             كل شركة ليها دليل حسابات مختلف. اختار أنت الحساب من شجرتك — النظام مش بيفترض كود ثابت.
           </p>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
-            {isBankAdvice
-              ? accountField(
-                  'defaultBankGlAccountId',
-                  'defaultBankGlAccount',
-                  'حساب البنك (أصل)',
-                  'الحساب في الشجرة المربوط بحركة البنك على هذا الإشعار.'
-                )
+            {usesDefaultTreasurySafe(documentType) ? (
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">الخزنة الافتراضية</label>
+                <SafeSelect
+                  value={form.defaultSafeId ?? ''}
+                  onChange={(id) => patch('defaultSafeId', id || null)}
+                  placeholder="اختر الخزنة..."
+                  emptyLabel="بدون خزنة افتراضية"
+                />
+                <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                  {isTemporaryReceipt
+                    ? 'تظهر تلقائياً في خانة الخزينة عند فتح إيصال جديد.'
+                    : 'تظهر تلقائياً في خانة الخزينة عند فتح سند أو أمر جديد.'}
+                </p>
+              </div>
+            ) : usesDefaultBankAccount(documentType) ? (
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">البنك الافتراضي</label>
+                <BankSelect
+                  value={form.defaultBankAccountId ?? ''}
+                  onChange={(id) => patch('defaultBankAccountId', id || null)}
+                  placeholder="اختر الحساب البنكي..."
+                  emptyLabel="بدون بنك افتراضي"
+                />
+                <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                  يظهر تلقائياً في خانة البنك عند فتح إشعار جديد.
+                </p>
+              </div>
+            ) : (
+              accountField(
+                'defaultCashAccountId',
+                'defaultCashAccount',
+                'حساب الصندوق (أصل)',
+                'حساب النقدية الذي يُستخدم في سند القبض أو الصرف إذا لم يُحدَّد صندوق آخر.'
+              )
+            )}
+            {isTemporaryReceipt
+              ? null
               : accountField(
-                  'defaultCashAccountId',
-                  'defaultCashAccount',
-                  'حساب الصندوق (أصل)',
-                  'حساب النقدية الذي يُستخدم في سند القبض أو الصرف إذا لم يُحدَّد صندوق آخر.'
+                  'defaultOffsetAccountId',
+                  'defaultOffsetAccount',
+                  isReceiptLike
+                    ? 'الحساب المقابل الافتراضي (عميل / إيراد)'
+                    : 'الحساب المقابل الافتراضي (مورد / مصروف)',
+                  treasuryOrder
+                    ? 'أول سطر في الأمر يتفتح على هذا الحساب. تقدر تغيّره في كل حركة.'
+                    : 'أول سطر في السند يتفتح على هذا الحساب. تقدر تغيّره في كل حركة.'
                 )}
-            {accountField(
-              'defaultOffsetAccountId',
-              'defaultOffsetAccount',
-              isReceiptLike ? 'الحساب المقابل الافتراضي (عميل / إيراد)' : 'الحساب المقابل الافتراضي (مورد / مصروف)',
-              'أول سطر في السند يتفتح على هذا الحساب. تقدر تغيّره في كل حركة.'
-            )}
-            {accountField(
-              'defaultChargesAccountId',
-              'defaultChargesAccount',
-              documentType === 'BANK_CREDIT_ADVICE'
-                ? 'حساب إيراد الإضافة / العمولة'
-                : documentType === 'BANK_DEBIT_ADVICE'
-                  ? 'حساب مصروف الخصم / العمولة'
-                  : 'حساب مصروف أو عمولة إضافية',
-              'اختياري. لو الحركة فيها عمولة أو مصروف بنكي، يترحل من هنا.'
-            )}
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">مركز التكلفة الافتراضي</label>
-              <CostCenterSelect
-                value={form.defaultCostCenterId ?? ''}
-                onChange={(id) => patch('defaultCostCenterId', id || null)}
-              />
-            </div>
           </div>
         </Section>
       ) : null}
@@ -486,20 +735,22 @@ export function TransactionSettingsForm({
           label="السماح بتعديل سعر الصنف في الفاتورة"
           hint="إمكانية كتابة سعر مخصص للسطر دون المساس بالسعر المسجل في كارت الصنف."
         />
-        <SwitchRow
-          checked={form.preventSellingBelowCost !== false}
-          onChange={(v) => patch('preventSellingBelowCost', v)}
-          label="منع البيع بأقل من سعر التكلفة"
-          hint="حظر اعتماد الفاتورة إذا كان سعر البيع يقل عن متوسط التكلفة المرجح للصنف."
-        />
-        {form.affectStock !== false ? (
+        {hidePurchaseGuards ? null : (
+          <SwitchRow
+            checked={form.preventSellingBelowCost !== false}
+            onChange={(v) => patch('preventSellingBelowCost', v)}
+            label="منع البيع بأقل من سعر التكلفة"
+            hint="حظر اعتماد الفاتورة إذا كان سعر البيع يقل عن متوسط التكلفة المرجح للصنف."
+          />
+        )}
+        {hidePurchaseGuards || form.affectStock === false ? null : (
           <SwitchRow
             checked={form.preventNegativeStock !== false}
             onChange={(v) => patch('preventNegativeStock', v)}
             label="منع الحركة بالسالب على رصيد الصنف"
             hint="منع حفظ الفاتورة في حال تجاوز الكمية المباعة للرصيد الفعلي المتوفر بالمخزن."
           />
-        ) : null}
+        )}
       </Section>
       )}
 
@@ -583,9 +834,11 @@ export function TransactionSettingsForm({
               />
             </div>
           )}
-          {form.affectStock !== false ? (
+          {form.affectStock !== false || nonPostingOrder ? (
             <div>
-              <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">المخزن الافتراضي للفاتورة</label>
+              <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">
+                {nonPostingOrder ? 'المخزن الافتراضي للمستند' : 'المخزن الافتراضي للفاتورة'}
+              </label>
               <WarehouseSelect
                 value={form.defaultWarehouseId ?? ''}
                 onChange={(id) => patch('defaultWarehouseId', id || null)}

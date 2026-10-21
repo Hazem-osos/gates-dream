@@ -1,14 +1,11 @@
 'use client';
 
 import { useMemo, useState, type ReactNode } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { AppTable, Button, FilterToolbar, StatusBadge, type StatusTone } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { useResourcePermissions } from '@/lib/hooks/useResourcePermissions';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
-import { toast } from '@/lib/feedback/toast';
-import { confirmAction } from '@/lib/feedback/confirm';
-import { deleteDraftDocument, isDraftDocumentRow } from '@/lib/documents/deleteDraftDocument';
+import { savedDocumentRowStatus } from '@/lib/documents/document-status-labels';
 import { BrowseDateRangeFilters, BrowseStatusFilter } from '@/components/erp/BrowseListFilters';
 import {
   rowMatchesDateRange,
@@ -46,7 +43,6 @@ type Props = {
   rowActions?: (row: GenericRecordRow) => ReactNode;
   searchPlaceholder?: string;
   printTitle?: string;
-  allowDeleteDraft?: boolean;
 };
 
 export function GenericRecordsList({
@@ -61,17 +57,14 @@ export function GenericRecordsList({
   rowActions,
   searchPlaceholder = 'بحث بالرقم أو الاسم…',
   printTitle,
-  allowDeleteDraft = true,
 }: Props) {
   const { canView } = useResourcePermissions();
-  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [statusFilter, setStatusFilter] = useState<BrowsePostedStatus>('all');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const defaultCodeColumnId = useMemo(
     () => pickBrowseCodeColumnId(columns.map((c) => c.id), columns.map((c) => c.header)),
     [columns]
@@ -144,7 +137,7 @@ export function GenericRecordsList({
     header: 'الحالة',
     getValue: (row) => {
       if (resolveStatus) return resolveStatus(row).label;
-      return row.isPosted ? 'مرحّل' : 'مسودة';
+      return savedDocumentRowStatus(row).label;
     },
   };
   const exportColumns: ExportColumnDef<GenericRecordRow>[] = [
@@ -196,7 +189,7 @@ export function GenericRecordsList({
           options={[
             { value: 'all', label: 'كل الحالات' },
             { value: 'posted', label: 'مرحّل' },
-            { value: 'draft', label: 'مسودة' },
+            { value: 'draft', label: 'غير مرحّل' },
             { value: 'cancelled', label: 'ملغي' },
           ]}
         />
@@ -222,8 +215,8 @@ export function GenericRecordsList({
                     const status = resolveStatus
                       ? resolveStatus(row)
                       : {
-                          variant: (row.isPosted ? 'success' : 'warning') as StatusTone,
-                          label: row.isPosted ? 'مرحّل' : 'مسودة',
+                          variant: savedDocumentRowStatus(row).tone,
+                          label: savedDocumentRowStatus(row).label,
                         };
                     return <StatusBadge variant={status.variant} label={status.label} compact />;
                   },
@@ -254,28 +247,6 @@ export function GenericRecordsList({
                 >
                   فتح
                 </Button>
-                {allowDeleteDraft && isDraftDocumentRow(row) ? (
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    disabled={deletingId === row.id}
-                    onClick={async () => {
-                      if (!(await confirmAction('حذف هذه المسودة؟'))) return;
-                      setDeletingId(row.id);
-                      try {
-                        await deleteDraftDocument(apiPath, row.id);
-                        toast.success('تم حذف المسودة');
-                        await queryClient.invalidateQueries({ queryKey: [listKey] });
-                      } catch (error) {
-                        toast.error(error instanceof Error ? error.message : 'تعذر حذف المسودة');
-                      } finally {
-                        setDeletingId(null);
-                      }
-                    }}
-                  >
-                    حذف المسودة
-                  </Button>
-                ) : null}
               </div>
             ),
           },

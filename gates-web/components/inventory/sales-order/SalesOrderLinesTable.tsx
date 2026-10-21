@@ -13,7 +13,8 @@ import {
   emptyCommercialLine,
   type CommercialDocumentLine,
 } from '@/components/inventory/commercial/commercial-line-types';
-import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
+import { useItemsQuery, type ItemOption } from '@/lib/hooks/useMasterDataQueries';
+import { isPriceBelowAverageCost, resolveItemCostFloor } from '@/lib/accounting-settings/guardrail-hints';
 import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
 
 type Props = {
@@ -24,6 +25,7 @@ type Props = {
   onImageError?: (message: string) => void;
   /** Manufacturing sales order: items + qty + specs only (no pricing / tax grid). */
   mode?: 'full' | 'manufacturing';
+  enforceBelowCost?: boolean;
 };
 
 function formatMoney(value: number) {
@@ -37,7 +39,10 @@ export function SalesOrderLinesTable({
   warehouseId,
   onImageError,
   mode = 'full',
+  enforceBelowCost = false,
 }: Props) {
+  const { data: itemsRes } = useItemsQuery();
+  const catalogItems = itemsRes?.data ?? [];
   const manufacturingMode = mode === 'manufacturing';
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRowRef = useRef(0);
@@ -162,13 +167,28 @@ export function SalesOrderLinesTable({
                   : columnId === 'discount'
                     ? line.discount
                     : line.taxRate;
+            const belowCost =
+              columnId === 'unitPrice' &&
+              !manufacturingMode &&
+              enforceBelowCost &&
+              isPriceBelowAverageCost(
+                Number(line.unitPrice ?? 0),
+                resolveItemCostFloor(catalogItems.find((item) => item.id === line.itemId))
+              );
             return (
-              <TableNumberInput
-                disabled={disabled}
-                className={`${dataEntryGridInputClass} text-end font-mono`}
-                value={value}
-                onValueCommit={(n) => updateLine(index, { [columnId]: n })}
-              />
+              <div>
+                <TableNumberInput
+                  disabled={disabled}
+                  className={`${dataEntryGridInputClass} text-end font-mono ${belowCost ? 'border-amber-400 bg-amber-50' : ''}`}
+                  value={value}
+                  onValueCommit={(n) => updateLine(index, { [columnId]: n })}
+                />
+                {belowCost ? (
+                  <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                    أقل من التكلفة
+                  </span>
+                ) : null}
+              </div>
             );
           }
           if (columnId === 'net') {
@@ -192,6 +212,16 @@ export function SalesOrderLinesTable({
                 >
                   {imageBusy ? '…' : line.imageUrl ? 'تغيير' : 'رفع'}
                 </button>
+                {line.imageUrl ? (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    className="text-xs text-rose-600 underline"
+                    onClick={() => updateLine(index, { imageUrl: '' })}
+                  >
+                    حذف
+                  </button>
+                ) : null}
               </div>
             );
           }
@@ -219,14 +249,6 @@ export function SalesOrderLinesTable({
           );
         }}
       />
-      {!manufacturingMode ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          الإجمالي قبل الضريبة:{' '}
-          <span className="font-mono font-semibold">
-            {formatMoney(lines.reduce((s, l) => s + commercialLineParts(l).gross, 0))}
-          </span>
-        </p>
-      ) : null}
     </div>
   );
 }

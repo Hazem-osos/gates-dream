@@ -8,7 +8,6 @@ import {
   Button,
 } from '@/components/ui';
 import { useApiMutation, useApiQuery } from '@/lib/hooks/useApi';
-import { useCancelDraftInvoice } from '@/lib/hooks/useCancelDraftInvoice';
 import { queryKeys, staleTimes } from '@/lib/query/query-keys';
 import {
   invoiceDetailPrefetch,
@@ -24,8 +23,9 @@ import type { DocumentBaseType } from '@/lib/document-profiles/types';
 import {
   rowMatchesDateRange,
   rowMatchesPostedStatus,
-  rowMatchesSearch,
+  invoiceBrowseRowMatchesSearch,
 } from '@/lib/browse/browse-list-match';
+import { savedDocumentRowStatus } from '@/lib/documents/document-status-labels';
 
 export type InvoiceListRow = {
   id: string;
@@ -69,7 +69,7 @@ export function InventoryInvoicesListSection({
   const [search, setSearch] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [postedFilter, setPostedFilter] = useState<'all' | 'posted' | 'draft'>('all');
+  const [postedFilter, setPostedFilter] = useState<'all' | 'posted' | 'draft' | 'cancelled'>('all');
   const [profileId, setProfileId] = useState('');
   const profileBaseType: DocumentBaseType | undefined =
     invoiceKind === 'SALE' ? 'SALES_INVOICE' : invoiceKind === 'PURCHASE' ? 'PURCHASE_INVOICE' : undefined;
@@ -92,7 +92,7 @@ export function InventoryInvoicesListSection({
     if (typeof f.search === 'string') setSearch(f.search);
     if (typeof f.startDate === 'string') setStartDate(f.startDate);
     if (typeof f.endDate === 'string') setEndDate(f.endDate);
-    if (f.postedFilter === 'all' || f.postedFilter === 'posted' || f.postedFilter === 'draft') {
+    if (f.postedFilter === 'all' || f.postedFilter === 'posted' || f.postedFilter === 'draft' || f.postedFilter === 'cancelled') {
       setPostedFilter(f.postedFilter);
     }
     setPage(1);
@@ -112,6 +112,7 @@ export function InventoryInvoicesListSection({
       page: hasLocalFilters ? 1 : page,
       limit: hasLocalFilters ? 200 : pageSize,
       invoiceKind,
+      includeCancelled: true,
     };
     if (search.trim()) p.search = search.trim();
     if (startDate) p.startDate = startDate;
@@ -129,12 +130,11 @@ export function InventoryInvoicesListSection({
     { staleTime: staleTimes.transactionalMs, gcTime: staleTimes.transactionalGcMs }
   );
 
-  const fetchedRows = (data?.data ?? []).filter((row) => row.isCancelled !== true);
+  const fetchedRows = data?.data ?? [];
   const filteredRows = useMemo(() => {
     if (!hasLocalFilters) return fetchedRows;
     return fetchedRows.filter((row) => {
-      if (row.isCancelled === true) return false;
-      if (!rowMatchesSearch(row, search)) return false;
+      if (!invoiceBrowseRowMatchesSearch(row, search)) return false;
       if (!rowMatchesDateRange(row, startDate, endDate)) return false;
       if (!rowMatchesPostedStatus(row, postedFilter)) return false;
       if (profileId && String(row.profileId ?? '') !== profileId) return false;
@@ -147,24 +147,6 @@ export function InventoryInvoicesListSection({
   const total = hasLocalFilters
     ? filteredRows.length
     : data?.pagination?.total ?? data?.meta?.total ?? fetchedRows.length;
-
-  const cancelDraftMutation = useCancelDraftInvoice<InvoiceListRow>({
-    onOptimisticSideEffect: (invoiceId) => {
-      const selectedWasOn = selectedIds.has(invoiceId);
-      if (selectedWasOn) {
-        setSelectedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(invoiceId);
-          return next;
-        });
-      }
-      return () => {
-        if (selectedWasOn) {
-          setSelectedIds((prev) => new Set(prev).add(invoiceId));
-        }
-      };
-    },
-  });
 
   const bulkPostMutation = useApiMutation<
     { results: Array<{ id: string; ok: boolean; message?: string }> },
@@ -211,7 +193,7 @@ export function InventoryInvoicesListSection({
       {
         id: 'status',
         header: 'الترحيل',
-        getValue: (r) => (r.isPosted ? 'مرحّل' : 'مسودة'),
+        getValue: (r) => savedDocumentRowStatus(r).label,
       },
     ];
   }, [partyColumnHeader, getPartyName]);
@@ -258,13 +240,14 @@ export function InventoryInvoicesListSection({
             value={postedFilter}
             onChange={(e) => {
               setPage(1);
-              setPostedFilter(e.target.value as 'all' | 'posted' | 'draft');
+              setPostedFilter(e.target.value as 'all' | 'posted' | 'draft' | 'cancelled');
             }}
             className="h-10 rounded-lg border border-[#D6EAF3] bg-white px-3 text-sm"
           >
             <option value="all">كل الحالات</option>
             <option value="posted">مرحّل</option>
-            <option value="draft">مسودة</option>
+            <option value="draft">غير مرحّل</option>
+            <option value="cancelled">ملغي</option>
           </select>
           {profiles.length ? (
             <select
@@ -334,8 +317,8 @@ export function InventoryInvoicesListSection({
               cell: (r) => (
                 <StatusBadge
                   compact
-                  variant={r.isPosted ? 'success' : 'warning'}
-                  label={r.isPosted ? 'مرحّل' : 'مسودة'}
+                  variant={savedDocumentRowStatus(r).tone}
+                  label={savedDocumentRowStatus(r).label}
                 />
               ),
             },
@@ -357,20 +340,6 @@ export function InventoryInvoicesListSection({
                   >
                     فتح
                   </Button>
-                  {!r.isPosted ? (
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      disabled={cancelDraftMutation.isPending}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (selectedInvoiceId === r.id) onSelectInvoice(null);
-                        cancelDraftMutation.mutate(r.id);
-                      }}
-                    >
-                      حذف المسودة
-                    </Button>
-                  ) : null}
                 </div>
               ),
             },
@@ -450,13 +419,14 @@ export function InventoryInvoicesListSection({
           value={postedFilter}
           onChange={(e) => {
             setPage(1);
-            setPostedFilter(e.target.value as 'all' | 'posted' | 'draft');
+            setPostedFilter(e.target.value as 'all' | 'posted' | 'draft' | 'cancelled');
           }}
           className="rounded-lg border border-[#D6EAF3] bg-white px-3 py-2 text-sm"
         >
           <option value="all">كل الحالات</option>
           <option value="posted">مرحّل</option>
-          <option value="draft">مسودة</option>
+          <option value="draft">غير مرحّل</option>
+            <option value="cancelled">ملغي</option>
         </select>
       </FilterToolbar>
 
@@ -538,8 +508,8 @@ export function InventoryInvoicesListSection({
             cell: (r) => (
               <StatusBadge
                 compact
-                variant={r.isPosted ? 'success' : 'warning'}
-                label={r.isPosted ? 'مرحّل' : 'مسودة'}
+                variant={savedDocumentRowStatus(r).tone}
+                label={savedDocumentRowStatus(r).label}
               />
             ),
           },
@@ -561,19 +531,6 @@ export function InventoryInvoicesListSection({
                 >
                   فتح
                 </Button>
-                {!r.isPosted ? (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    disabled={cancelDraftMutation.isPending}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      cancelDraftMutation.mutate(r.id);
-                    }}
-                  >
-                    حذف المسودة
-                  </Button>
-                ) : null}
               </div>
             ),
           },
@@ -598,10 +555,10 @@ export function InventoryInvoicesListSection({
           onBulkPost={() => {
             const draftIds = [...selectedIds].filter((id) => {
               const row = rows.find((r) => r.id === id);
-              return row && !row.isPosted;
+              return row && !row.isPosted && !row.isCancelled;
             });
             if (draftIds.length === 0) {
-              setBulkMessage('لا توجد مسودات مرحّلة ضمن التحديد');
+              setBulkMessage('لا توجد فواتير غير مرحّلة ضمن التحديد');
               return;
             }
             bulkPostMutation.mutate(

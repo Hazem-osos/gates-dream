@@ -8,6 +8,7 @@ import { ownerBoqHierarchyHints, withItemCodeHierarchy } from '@/lib/contracting
 import { computeLiveClientBreakdown, previousQtyByBoq, type DraftLine } from '@/lib/contracting/client-invoice-math';
 import { remainingAfterCurrent, remainingStatementQty, statementLineAmounts } from '@/lib/contracting/statement-line-math';
 import type { ClientContractDetail, LiveClientBreakdown, OwnerBoqItem, SiteStockMaterial } from '@/lib/contracting/types';
+import { RatePriceBreakdown } from '@/components/contracting/RatePriceBreakdown';
 import { formatEgp, formatPercent, formatQty, toMoney } from '@/lib/subcontracts/money';
 
 export function ClientInvoiceBuilder({
@@ -96,7 +97,7 @@ export function ClientInvoiceBuilder({
           قيم الفترة والتراكمي = الكمية × سعر البيع. المعاينة حتى يحفظ السيرفر المسودة.
         </p>
         <div className="overflow-x-auto rounded-xl border border-[#E6F0F7]">
-          <table className="w-full min-w-[1280px] text-center text-sm">
+          <table className="w-full min-w-[1480px] text-center text-sm">
             <thead>
               <tr className="bg-[#0E78AA] text-white">
                 <th className="px-3 py-2">البند</th>
@@ -107,6 +108,7 @@ export function ClientInvoiceBuilder({
                 <th className="px-3 py-2">تراكمي</th>
                 <th className="px-3 py-2">متبقي</th>
                 <th className="px-3 py-2">سعر البيع</th>
+                <th className="px-3 py-2">تفصيل السعر</th>
                 <th className="px-3 py-2">قيمة السابق</th>
                 <th className="px-3 py-2">قيمة الفترة</th>
                 <th className="px-3 py-2">القيمة التراكمية</th>
@@ -163,6 +165,9 @@ export function ClientInvoiceBuilder({
                     </td>
                     <td className="px-3 py-2 tabular-nums">{item.__isParent ? '—' : formatQty(remaining)}</td>
                     <td className="px-3 py-2 tabular-nums">{item.__isParent ? '—' : formatEgp(unitPrice)}</td>
+                    <td className="px-3 py-2">
+                      {item.__isParent ? '—' : <RatePriceBreakdown items={item.rateAnalysisItems} />}
+                    </td>
                     <td className="px-3 py-2 tabular-nums text-slate-500">
                       {item.__isParent ? '—' : formatEgp(amounts.previousAmount)}
                     </td>
@@ -211,7 +216,9 @@ function ClientDeductionsSidebar({
   readOnly?: boolean;
   onPenalties: (v: string) => void;
 }) {
-  const retentionPct = formatPercent(toMoney(contract.retentionRate) * 100);
+  const retentionPct = formatPercent(
+    (toMoney(contract.retentionRate) + toMoney(contract.finalRetentionRate)) * 100
+  );
   const stampsPct = formatPercent(toMoney(contract.engineeringStampsRate) * 100);
   const rows: Array<{ label: string; amount: number; sign: '+' | '-' | '=' }> = [
     { label: 'إجمالي الأعمال الحالية', amount: live.grossCurrentWorks, sign: '+' },

@@ -49,7 +49,12 @@ export function usePageFavorites() {
     ['user-ui-preferences'],
     '/users/me/ui-preferences',
     undefined,
-    { retry: false, staleTime: 60_000 }
+    {
+      retry: false,
+      staleTime: 60_000,
+      requireFullTenant: false,
+      skipErrorNotify: true,
+    }
   );
 
   useEffect(() => {

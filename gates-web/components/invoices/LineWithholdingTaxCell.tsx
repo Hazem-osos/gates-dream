@@ -14,6 +14,7 @@ type Props = {
   lineAfterDiscount: number;
   onChange: (patch: { withholdingTaxRate: number; withholdingTaxAmount: number }) => void;
   className?: string;
+  disabled?: boolean;
 };
 
 export function LineWithholdingTaxCell({
@@ -21,6 +22,7 @@ export function LineWithholdingTaxCell({
   lineAfterDiscount,
   onChange,
   className,
+  disabled = false,
 }: Props) {
   const known = PRESETS.some((p) => p.rate === rate);
   const [custom, setCustom] = useState(!known && rate > 0);
@@ -35,6 +37,7 @@ export function LineWithholdingTaxCell({
       <select
         className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700"
         value={custom ? 'custom' : String(rate)}
+        disabled={disabled}
         onChange={(e) => {
           if (e.target.value === 'custom') {
             setCustom(true);
@@ -59,6 +62,7 @@ export function LineWithholdingTaxCell({
           className="mt-1 h-8 w-full rounded-md border border-slate-200 px-2 text-xs"
           value={rate || ''}
           placeholder="%"
+          disabled={disabled}
           onChange={(e) => commit(Number(e.target.value) || 0)}
         />
       ) : null}

@@ -14,7 +14,8 @@ export function resolveBackendHealthUrl(): string {
     return `${base.replace(/\/$/, '')}/health`;
   }
   if (typeof window !== 'undefined') {
-    return `${window.location.origin}/health`;
+    // Next `/health` is gates-web only; `/backend-health` proxies to gates-backend.
+    return `${window.location.origin}/backend-health`;
   }
   const internal = (process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:3001').replace(/\/$/, '');
   return `${internal}/health`;

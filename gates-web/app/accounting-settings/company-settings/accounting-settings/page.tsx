@@ -31,6 +31,7 @@ import {
   useAccountingSettingsMutation,
   useAccountingSettingsQuery,
 } from '@/lib/hooks/useAccountingSettings';
+import { AccountingSettingsPageHeader } from '@/components/accounting-settings';
 import { AccountSlotField } from './AccountSlotField';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import type { AccountingAccountSlotKey } from '@/lib/accounting-settings/accounting-settings.types';
@@ -108,24 +109,18 @@ export default function CompanyAccountingSettingsPage() {
   };
 
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen" style={{ direction: 'rtl' }}>
+    <>
+      <AccountingSettingsPageHeader title="الإعدادات المحاسبية للشركة" />
       {settingsLoading && companyId && (
-        <p className="mb-4 text-sm text-[#094C6B]">جاري تحميل إعدادات الشركة…</p>
+        <p className="mb-4 text-sm text-slate-600">جاري تحميل إعدادات الشركة…</p>
       )}
-      <div className="mb-8">
-        <div className="text-right">
-          <h1 className="text-2xl font-bold text-[#0E78AA] mb-3">الإعدادات المحاسبية للشركة</h1>
-          <p className="text-sm text-[#094C6B] mb-3">
-            لإدارة كل مفاتيح الشركة الـ 81 والأنماط الملحقة بكود الشاشة وتجاوزات الفروع، راجع{' '}
-            <Link href="/accounting-settings/company-settings/legacy-catalog" className="text-[#0E78AA] underline font-semibold">
-              كتالوج إعدادات الشركة
-            </Link>
-            .
-          </p>
-          <div className="h-1 bg-[#0E78AA] rounded-full w-full shadow-sm"></div>
-        </div>
-      </div>
-
+      <p className="mb-4 text-sm text-slate-600">
+        لإدارة كل مفاتيح الشركة الـ 81 والأنماط الملحقة بكود الشاشة وتجاوزات الفروع، راجع{' '}
+        <Link href="/accounting-settings/company-settings/legacy-catalog" className="text-[#0E78AA] underline font-semibold">
+          كتالوج إعدادات الشركة
+        </Link>
+        .
+      </p>
       <OuterCard>
         {/* Tabs - compact, fancy chips (no scroll, wraps as needed) */}
         <div className="mb-4">
@@ -1843,6 +1838,6 @@ export default function CompanyAccountingSettingsPage() {
 
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-    </div>
+    </>
   );
 }

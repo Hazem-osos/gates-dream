@@ -3,6 +3,8 @@
 import { useRef, type KeyboardEvent } from 'react';
 import { Trash2 } from 'lucide-react';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
+import { useItemsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { isPriceBelowAverageCost, resolveItemCostFloor } from '@/lib/accounting-settings/guardrail-hints';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
 import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
@@ -29,6 +31,7 @@ type Props = {
   disabled?: boolean;
   headerDescription?: string;
   warehouseId?: string;
+  enforceBelowCost?: boolean;
 };
 
 function formatMoney(value: number) {
@@ -41,7 +44,10 @@ export function CommercialLinesTable({
   disabled,
   headerDescription = '',
   warehouseId,
+  enforceBelowCost = false,
 }: Props) {
+  const { data: itemsRes } = useItemsQuery();
+  const catalogItems = itemsRes?.data ?? [];
   const gridId = 'commercial-doc-lines';
   const wrapRef = useRef<HTMLDivElement>(null);
   const pasteFieldRef = useRef('quantity');
@@ -208,15 +214,29 @@ export function CommercialLinesTable({
                   : columnId === 'discount'
                     ? line.discount
                     : line.taxRate;
+            const belowCost =
+              columnId === 'unitPrice' &&
+              enforceBelowCost &&
+              isPriceBelowAverageCost(
+                Number(line.unitPrice ?? 0),
+                resolveItemCostFloor(catalogItems.find((item) => item.id === line.itemId))
+              );
             return (
-              <TableNumberInput
-                disabled={disabled}
-                className={`${dataEntryGridInputClass} text-end font-mono`}
-                value={value}
-                onValueCommit={(n) => updateLine(index, { [columnId]: n })}
-                onKeyDown={(e) => onCellKeyDown(e, index)}
-                {...attrs(columnId)}
-              />
+              <div>
+                <TableNumberInput
+                  disabled={disabled}
+                  className={`${dataEntryGridInputClass} text-end font-mono ${belowCost ? 'border-amber-400 bg-amber-50' : ''}`}
+                  value={value}
+                  onValueCommit={(n) => updateLine(index, { [columnId]: n })}
+                  onKeyDown={(e) => onCellKeyDown(e, index)}
+                  {...attrs(columnId)}
+                />
+                {belowCost ? (
+                  <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                    أقل من التكلفة
+                  </span>
+                ) : null}
+              </div>
             );
           }
           if (columnId === 'net') {

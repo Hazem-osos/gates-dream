@@ -189,8 +189,7 @@ function ItemAlternativesDefinitionInner() {
     const next = linesFromApi(apiLines);
     setLines(next);
     savedSnapshotRef.current = next.map((row) => ({ ...row }));
-    if (apiLines.length > 0) lockToView();
-    else unlockForEdit();
+    unlockForEdit();
   }, [itemId, data?.data, lockToView, unlockForEdit]);
 
   const hasSavedDefinition = Boolean(itemId && (data?.data?.length ?? 0) > 0);
@@ -231,7 +230,7 @@ function ItemAlternativesDefinitionInner() {
       void invalidateQuery(['item-alternatives-def', itemId]);
       void invalidateQuery(['item-alternatives-definitions']);
       void invalidateQuery(['item-alternatives-definition-ids']);
-      lockToView();
+      unlockForEdit();
     } catch (err) {
       setError((err as ApiError).message || 'تعذر الحفظ');
     }
@@ -248,7 +247,7 @@ function ItemAlternativesDefinitionInner() {
 
   const handleCancelEdit = () => {
     setLines(savedSnapshotRef.current.map((row) => ({ ...row })));
-    lockToView();
+    unlockForEdit();
   };
 
   const handleDeleteDefinition = async () => {

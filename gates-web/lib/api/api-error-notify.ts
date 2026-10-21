@@ -70,9 +70,32 @@ export function shouldBroadcastApiError(httpStatus: number): boolean {
   return false;
 }
 
+/** Confirm-and-continue; not a failure that should open كارت الصنف. */
+export function isNegativeStockConfirmNotification(payload: {
+  code?: string;
+  message?: string;
+  url?: string;
+}): boolean {
+  if (
+    payload.code === 'CONFIRM_NEGATIVE_STOCK_UNPOST' ||
+    payload.code === 'CONFIRM_NEGATIVE_STOCK_POST'
+  ) {
+    return true;
+  }
+  const message = payload.message ?? '';
+  if (message.includes('الرصيد سيصبح بالسالب') && message.includes('تحت مسؤوليتك')) {
+    return true;
+  }
+  return (
+    message.includes('الكمية المتاحة لا تكفي، الرصيد سيصبح بالسالب') &&
+    /\/invoices\/[^/]+\/(un)?post/i.test(payload.url ?? '')
+  );
+}
+
 /** Validation / business-rule failures shown by AiErrorModal instead of a generic toast. */
 export function isBusinessSupportError(payload: ApiErrorNotification): boolean {
   if (isVersionConflictError(payload)) return false;
+  if (isNegativeStockConfirmNotification(payload)) return false;
   const status = payload.httpStatus;
   if (status !== 400 && status !== 409 && status !== 422) return false;
   const url = payload.url ?? '';

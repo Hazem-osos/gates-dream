@@ -1,4 +1,5 @@
 'use client';
+import { AccountingSettingsPageHeader } from '@/components/accounting-settings';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 
 import Link from 'next/link';
@@ -162,18 +163,8 @@ export default function LegacySettingsCatalogPage() {
   };
 
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen" style={{ direction: 'rtl' }}>
-      <div className="mb-8">
-        <div className="text-right">
-          <h1 className="text-2xl font-bold text-[#0E78AA] mb-2">كتالوج إعدادات الشركة</h1>
-          <p className="text-sm text-[#094C6B] mb-3">
-            {catalog?.companyKeys.length ?? 81} مفتاحاً على مستوى الشركة، و{' '}
-            {catalog?.moduleSuffixedKeyPatterns.length ?? 73} نمطاً ملحقاً بكود الشاشة، مع تجاوز على مستوى الفرع للمفاتيح المدعومة.
-          </p>
-          <div className="h-1 bg-[#0E78AA] rounded-full w-full shadow-sm"></div>
-        </div>
-      </div>
-
+    <>
+      <AccountingSettingsPageHeader title="كتالوج إعدادات الشركة" />
       <OuterCard>
         <InnerCard>
           <div className="p-4 space-y-4">
@@ -430,6 +421,6 @@ export default function LegacySettingsCatalogPage() {
 
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-    </div>
+    </>
   );
 }

@@ -55,6 +55,7 @@ export function JournalEntryStickyFooter({
             sourceNumber={sourceNumber}
             entryType={entryType}
             voucherFund={voucherFund}
+            showOpenArrow={false}
           />
         </div>
 
@@ -63,6 +64,7 @@ export function JournalEntryStickyFooter({
             debit={debitTotal}
             credit={creditTotal}
             currencyCode={currencyCode}
+            showIcons={false}
           />
         </div>
       </div>

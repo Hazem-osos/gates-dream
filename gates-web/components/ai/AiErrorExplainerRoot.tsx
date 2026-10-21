@@ -12,7 +12,11 @@ import {
   problemHeadline,
 } from '@/lib/ai/infer-error-code';
 import { getAiScreenSession, publishAiScreenSession } from '@/lib/ai/screen-session';
-import { isBusinessSupportError, subscribeApiErrors } from '@/lib/api/api-error-notify';
+import {
+  isBusinessSupportError,
+  isNegativeStockConfirmNotification,
+  subscribeApiErrors,
+} from '@/lib/api/api-error-notify';
 
 const FALLBACK_STEPS = [
   'راجع رسالة الخطأ والحقول الإلزامية في الشاشة.',
@@ -36,6 +40,7 @@ export function AiErrorExplainerRoot() {
   useEffect(() => {
     return subscribeApiErrors((payload) => {
       if (isAuthRoute(pathname) || !isBusinessSupportError(payload)) return;
+      if (isNegativeStockConfirmNotification(payload)) return;
 
       const session = getAiScreenSession();
       const code = inferBusinessErrorCode(payload.message, payload.code);

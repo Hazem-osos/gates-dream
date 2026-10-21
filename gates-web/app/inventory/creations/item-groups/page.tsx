@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Boxes } from 'lucide-react';
 import {
   CompactFormField,
@@ -66,13 +68,35 @@ function ItemGroupCardInner() {
   const invalidateQuery = useInvalidateQuery();
   const searchParams = useOwnTabSearchParams();
   const idFromUrl = searchParams.get('id');
-  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const { isReadOnly, unlockForEdit, setMode } = useDocumentMode();
   const [selectedId, setSelectedId] = useState<string | null>(idFromUrl);
   const [formData, setFormData] = useState<GroupForm>(emptyForm);
   const [snapshot, setSnapshot] = useState<GroupForm>(emptyForm);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showGuide, setShowGuide] = useState(false);
+
+  const editingItemGroupId = selectedId || idFromUrl;
+  type ItemGroupDraft = GroupForm;
+  const draftSnapshot = useMemo(() => formData, [formData]);
+  const applyItemGroupDraft = useCallback(
+    (payload: ItemGroupDraft) => {
+      setFormData(payload);
+      setSnapshot(payload);
+      setSelectedId(null);
+      setMode('create');
+      setError('');
+    },
+    [setMode]
+  );
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'item-group-card',
+    editingId: editingItemGroupId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.arabicName.trim() && !d.code.trim(),
+    applyRestore: applyItemGroupDraft,
+    restoreMessage: 'يوجد مسودة مجموعة أصناف غير محفوظة',
+  });
 
   const { data: groupsResponse } = useApiQuery<ItemGroupRow[]>(
     ['item-categories', 'parents'],
@@ -90,8 +114,8 @@ function ItemGroupCardInner() {
     setSelectedId(row.id);
     setFormData(next);
     setSnapshot(next);
-    lockToView();
-  }, [idFromUrl, groups, lockToView]);
+    unlockForEdit();
+  }, [idFromUrl, groups, unlockForEdit]);
 
   const createMutation = useApiMutation<
     { id?: string; code?: string | null },
@@ -99,6 +123,7 @@ function ItemGroupCardInner() {
   >('/inventory/item-categories', 'POST', {
     showSuccessToast: false,
     onSuccess: (res) => {
+      clearDraft();
       invalidateStockViews(invalidateQuery);
       finishDocumentSave({
         label: 'مجموعة أصناف',
@@ -117,6 +142,7 @@ function ItemGroupCardInner() {
     {
       showSuccessToast: false,
       onSuccess: () => {
+        clearDraft();
         invalidateStockViews(invalidateQuery);
         finishDocumentSave({
           label: 'مجموعة أصناف',
@@ -168,6 +194,7 @@ function ItemGroupCardInner() {
   };
 
   const handleNew = () => {
+    clearDraft();
     setSelectedId(null);
     setFormData(emptyForm());
     setSnapshot(emptyForm());
@@ -182,14 +209,14 @@ function ItemGroupCardInner() {
     setSnapshot(next);
     setError('');
     setSuccess('');
-    lockToView();
+    unlockForEdit();
   };
 
   const handleCancel = () => {
     setError('');
     if (selectedId) {
       setFormData(snapshot);
-      lockToView();
+      unlockForEdit();
       return;
     }
     handleNew();
@@ -221,6 +248,14 @@ function ItemGroupCardInner() {
       onBrowseList={() => setShowGuide(true)}
       favoriteHref="/inventory/creations/item-groups"
     >
+      <MasterCardDraftRestoreGate<ItemGroupDraft>
+        editingId={editingItemGroupId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyItemGroupDraft}
+        message="يوجد مسودة مجموعة أصناف غير محفوظة."
+      />
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 

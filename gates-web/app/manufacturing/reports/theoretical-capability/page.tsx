@@ -23,7 +23,7 @@ export default function TheoreticalCapabilityPage() {
 
   return (
     <ManufacturingReportChrome
-      title="إمكانية التصنيع النظرية"
+      title="إمكانية التصنيع — كم نموذج يكفي الرصيد؟"
       onPreview={handlePreview}
       onReset={() => {
         setItemId('');

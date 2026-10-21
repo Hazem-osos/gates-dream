@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { AccountLedgerLink } from '@/components/report/AccountLedgerLink';
+import { BalanceAnalysisProvider, BalanceRowEye } from '@/components/report/BalanceAnalysisProvider';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import {
   comparisonQuery,
@@ -11,6 +13,7 @@ import {
 } from '@/lib/reports/compareFiscalYear';
 
 type SheetRow = {
+  accountId?: string;
   code: string;
   arabicName: string;
   amount: number;
@@ -115,7 +118,10 @@ export function BalanceSheetStatement({ query }: { query: Record<string, string>
     return <p className="py-6 text-center text-sm text-slate-500">لا توجد أرصدة في هذا التاريخ.</p>;
   }
 
+  const drillQuery = { ...query, ...(asOf ? { asOfDate: asOf } : {}) };
+
   return (
+    <BalanceAnalysisProvider query={drillQuery}>
     <div className="space-y-3" dir="rtl">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-600">العملة جنيه مصري</p>
@@ -134,6 +140,7 @@ export function BalanceSheetStatement({ query }: { query: Record<string, string>
           liabilities={liabilities}
           totalAssets={totalAssets}
           totalLiabilitiesAndEquity={totalLiabilitiesAndEquity}
+          query={drillQuery}
         />
       ) : (
         <TView
@@ -144,9 +151,11 @@ export function BalanceSheetStatement({ query }: { query: Record<string, string>
           compareYearLabel={compareYearLabel}
           totalAssets={totalAssets}
           totalLiabilitiesAndEquity={totalLiabilitiesAndEquity}
+          query={drillQuery}
         />
       )}
     </div>
+    </BalanceAnalysisProvider>
   );
 }
 
@@ -175,11 +184,13 @@ function ListView({
   liabilities,
   totalAssets,
   totalLiabilitiesAndEquity,
+  query,
 }: {
   assets: SheetRow[];
   liabilities: SheetRow[];
   totalAssets: number;
   totalLiabilitiesAndEquity: number;
+  query: Record<string, string>;
 }) {
   const pairs = padRows(assets, liabilities);
   return (
@@ -204,10 +215,10 @@ function ListView({
         <tbody>
           {pairs.map((pair, index) => (
             <tr key={index} className="border-t border-slate-100 odd:bg-slate-50/60">
-              <AccountCell row={pair.asset} />
-              <AmountCell value={pair.asset?.amount} />
-              <AccountCell row={pair.liability} split />
-              <AmountCell value={pair.liability?.amount} />
+              <AccountCell row={pair.asset} query={query} />
+              <AmountCell row={pair.asset} query={query} />
+              <AccountCell row={pair.liability} split query={query} />
+              <AmountCell row={pair.liability} query={query} />
             </tr>
           ))}
         </tbody>
@@ -230,18 +241,42 @@ function ListView({
   );
 }
 
-function AccountCell({ row, split = false }: { row?: SheetRow; split?: boolean }) {
+function AccountCell({
+  row,
+  split = false,
+  query,
+}: {
+  row?: SheetRow;
+  split?: boolean;
+  query: Record<string, string>;
+}) {
   if (!row) return <td className={split ? 'border-s border-slate-200' : undefined} />;
   const label = [row.code, row.arabicName].filter(Boolean).join(' ');
   return (
     <td className={`px-3 py-1.5 text-right ${split ? 'border-s border-slate-200' : ''}`} style={{ paddingInlineStart: 12 + row.depth * 16 }}>
-      <span className={row.depth === 0 ? 'font-semibold' : ''}>{label}</span>
+      <span className={`inline-flex items-center gap-1 ${row.depth === 0 ? 'font-semibold' : ''}`}>
+        <BalanceRowEye accountId={row.accountId} label={label} query={query} />
+        <AccountLedgerLink accountId={row.accountId} query={query} showIcon={false}>
+          {label}
+        </AccountLedgerLink>
+      </span>
     </td>
   );
 }
 
-function AmountCell({ value }: { value?: number }) {
-  return <td className="px-3 py-1.5 text-center tabular-nums">{money(value)}</td>;
+function AmountCell({ row, query }: { row?: SheetRow; query: Record<string, string> }) {
+  const text = money(row?.amount);
+  return (
+    <td className="px-3 py-1.5 text-center tabular-nums">
+      {row ? (
+        <AccountLedgerLink accountId={row.accountId} query={query} showIcon={false}>
+          {text}
+        </AccountLedgerLink>
+      ) : (
+        text
+      )}
+    </td>
+  );
 }
 
 function TView({
@@ -252,6 +287,7 @@ function TView({
   compareYearLabel,
   totalAssets,
   totalLiabilitiesAndEquity,
+  query,
 }: {
   assets: SheetRow[];
   liabilities: SheetRow[];
@@ -260,6 +296,7 @@ function TView({
   compareYearLabel: string;
   totalAssets: number;
   totalLiabilitiesAndEquity: number;
+  query: Record<string, string>;
 }) {
   return (
     <div className="grid overflow-hidden rounded-xl border border-[#D6E4EE] bg-white lg:grid-cols-2">
@@ -271,6 +308,7 @@ function TView({
         compareYearLabel={compareYearLabel}
         total={totalAssets}
         edge="right"
+        query={query}
       />
       <TSide
         title="الالتزامات وحقوق الملكية"
@@ -280,6 +318,7 @@ function TView({
         compareYearLabel={compareYearLabel}
         total={totalLiabilitiesAndEquity}
         edge="left"
+        query={query}
       />
     </div>
   );
@@ -293,6 +332,7 @@ function TSide({
   compareYearLabel,
   total,
   edge,
+  query,
 }: {
   title: string;
   rows: SheetRow[];
@@ -301,6 +341,7 @@ function TSide({
   compareYearLabel: string;
   total: number;
   edge: 'right' | 'left';
+  query: Record<string, string>;
 }) {
   const split = edge === 'left';
   return (
@@ -321,9 +362,14 @@ function TSide({
               className={`grid items-center gap-2 border-t border-slate-100 px-3 py-1 ${compareYearLabel ? 'grid-cols-[1fr_7rem_7rem]' : 'grid-cols-[1fr_7rem]'}`}
             >
               <div className="text-right text-[#9B2335]" style={{ paddingInlineStart: row.depth * 14 }}>
-                <span className={group ? 'font-bold' : 'text-[13px]'}>{row.arabicName}</span>
+                <span className={`inline-flex items-center gap-1 ${group ? 'font-bold' : 'text-[13px]'}`}>
+                  <BalanceRowEye accountId={row.accountId} label={row.arabicName} query={query} />
+                  <AccountLedgerLink accountId={row.accountId} query={query} showIcon={false}>
+                    {row.arabicName}
+                  </AccountLedgerLink>
+                </span>
               </div>
-              <Figure value={row.amount} boxed={group} />
+              <Figure value={row.amount} boxed={group} accountId={row.accountId} query={query} />
               {compareYearLabel ? <Figure value={prior} boxed={group} /> : null}
             </div>
           );
@@ -338,12 +384,28 @@ function TSide({
   );
 }
 
-function Figure({ value, boxed }: { value?: number; boxed?: boolean }) {
+function Figure({
+  value,
+  boxed,
+  accountId,
+  query,
+}: {
+  value?: number;
+  boxed?: boolean;
+  accountId?: string;
+  query?: Record<string, string>;
+}) {
   const text = money(value);
   if (!text) return <span />;
   return (
     <span className={`text-center text-sm tabular-nums text-[#16324F] ${boxed ? 'rounded border border-slate-400 px-1 py-0.5' : ''}`}>
-      {text}
+      {accountId && query ? (
+        <AccountLedgerLink accountId={accountId} query={query} showIcon={false}>
+          {text}
+        </AccountLedgerLink>
+      ) : (
+        text
+      )}
     </span>
   );
 }

@@ -2,7 +2,8 @@
 
 import { Loader2, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui';
-import { ErpDocumentPageHeader, type ErpHeaderMenuItem } from '@/components/erp/ErpDocumentPageHeader';
+import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
+import type { DocumentActionMenuProps } from '@/components/common/document-shell';
 import { ErpFormHeaderCard } from '@/components/erp/ErpFormHeaderCard';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
@@ -25,6 +26,7 @@ type Props = {
   onSerialChange?: (value: string) => void;
   isPosted: boolean;
   isCancelled?: boolean;
+  documentId?: string | null;
   parentItemId: string;
   onParentItemId: (id: string) => void;
   parentItems: DisassemblyParentOption[];
@@ -46,10 +48,30 @@ type Props = {
   onExplode: () => void;
   onSaveDraft?: () => void;
   onCancel?: () => void;
+  saveLabel?: string;
   savePending?: boolean;
   canSave?: boolean;
   onBrowseList: () => void;
-  moreMenuItems: ErpHeaderMenuItem[];
+  menuActions: Pick<
+    DocumentActionMenuProps,
+    | 'onNew'
+    | 'onEdit'
+    | 'onPost'
+    | 'onUnpost'
+    | 'onVoid'
+    | 'onPrint'
+    | 'postLabel'
+    | 'unpostLabel'
+    | 'voidLabel'
+    | 'printLabel'
+    | 'postPending'
+    | 'unpostPending'
+    | 'voidPending'
+    | 'transactionSettingsDocumentType'
+    | 'onTransactionSettingsSaved'
+  >;
+  onRestore?: () => void;
+  restorePending?: boolean;
 };
 
 export function ItemDisassemblyHeader({
@@ -59,6 +81,7 @@ export function ItemDisassemblyHeader({
   onSerialChange,
   isPosted,
   isCancelled,
+  documentId,
   parentItemId,
   onParentItemId,
   parentItems,
@@ -80,10 +103,13 @@ export function ItemDisassemblyHeader({
   onExplode,
   onSaveDraft,
   onCancel,
+  saveLabel = 'حفظ وترحيل التفكيك',
   savePending,
   canSave,
   onBrowseList,
-  moreMenuItems,
+  menuActions,
+  onRestore,
+  restorePending,
 }: Props) {
   const selectedParent = parentItems.find((item) => item.id === parentItemId);
 
@@ -97,14 +123,12 @@ export function ItemDisassemblyHeader({
         ]}
         title="تفكيك الأصناف"
         docNumber={docNumber || '—'}
-        statusTone={isCancelled ? 'danger' : isPosted ? 'success' : 'warning'}
-        statusLabel={
-          isCancelled ? 'ملغي (Cancelled)' : isPosted ? 'مرحل ومثبت (Posted)' : 'غير مرحّل'
-        }
+        lifecycle={{ documentId, isPosted, isCancelled }}
+        currentId={documentId}
         hideStandalonePost
         onSaveDraft={onSaveDraft}
         onCancel={onCancel}
-        saveLabel="حفظ وترحيل التفكيك"
+        saveLabel={saveLabel}
         savePending={savePending}
         canSave={canSave}
         onBrowseList={onBrowseList}
@@ -128,7 +152,16 @@ export function ItemDisassemblyHeader({
             تحميل
           </Button>
         }
-        moreMenuItems={moreMenuItems}
+        standardActions={{
+          documentId,
+          hasDocument: Boolean(documentId),
+          isPosted,
+          isCancelled,
+          onRestore,
+          restoreLabel: 'استعادة',
+          restorePending,
+          ...menuActions,
+        }}
       />
 
       <ErpFormHeaderCard

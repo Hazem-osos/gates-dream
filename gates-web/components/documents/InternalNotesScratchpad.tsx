@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { MessageSquarePlus, X } from 'lucide-react';
 import type { InternalNoteEntry } from '@/lib/invoices/payment-split.types';
 import { useCurrentUserProfile } from '@/lib/hooks/useCurrentUserProfile';
@@ -129,6 +130,48 @@ export function InternalNotesScratchpad({ notes, onChange, disabled, className }
   const [open, setOpen] = useState(false);
   const count = notes.length;
 
+  const dialog =
+    open && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="internal-notes-title"
+            onClick={() => setOpen(false)}
+          >
+            <div
+              className="w-full max-w-lg overflow-hidden rounded-2xl border border-[#D6EAF3] bg-white shadow-2xl"
+              style={{ direction: 'rtl' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="relative bg-gradient-to-l from-[#0E78AA] to-[#1E88E5] px-5 py-4">
+                <h2 id="internal-notes-title" className="text-center text-lg font-bold text-white">
+                  ملاحظات داخلية
+                </h2>
+                <button
+                  type="button"
+                  className="absolute left-4 top-1/2 -translate-y-1/2 rounded-lg p-1 text-white/90 hover:bg-white/10 hover:text-white"
+                  onClick={() => setOpen(false)}
+                  aria-label="إغلاق"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="p-5">
+                <NotesEditorBody
+                  notes={notes}
+                  onChange={onChange}
+                  disabled={disabled}
+                  onDone={() => setOpen(false)}
+                />
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
     <>
       <div className={className ?? 'flex justify-end'}>
@@ -148,44 +191,7 @@ export function InternalNotesScratchpad({ notes, onChange, disabled, className }
           ) : null}
         </Button>
       </div>
-
-      {open ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="internal-notes-title"
-          onClick={() => setOpen(false)}
-        >
-          <div
-            className="w-full max-w-lg overflow-hidden rounded-2xl border border-[#D6EAF3] bg-white shadow-2xl"
-            style={{ direction: 'rtl' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="relative bg-gradient-to-l from-[#0E78AA] to-[#1E88E5] px-5 py-4">
-              <h2 id="internal-notes-title" className="text-center text-lg font-bold text-white">
-                ملاحظات داخلية
-              </h2>
-              <button
-                type="button"
-                className="absolute left-4 top-1/2 -translate-y-1/2 rounded-lg p-1 text-white/90 hover:bg-white/10 hover:text-white"
-                onClick={() => setOpen(false)}
-                aria-label="إغلاق"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="p-5">
-              <NotesEditorBody
-                notes={notes}
-                onChange={onChange}
-                disabled={disabled}
-                onDone={() => setOpen(false)}
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {dialog}
     </>
   );
 }

@@ -71,7 +71,7 @@ export function VoucherAccountCombobox({
     [accounts]
   );
 
-  const selectedValue = value ? `acct:${value}` : '';
+  const selectedValue = value ? `acct:${value}` : partyId ? `party:${partyId}` : '';
 
   useEffect(() => {
     if (!value && !partyId) {

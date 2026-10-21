@@ -1,7 +1,7 @@
 export const MFG_OPERATION_PREFILL_KEY = 'gates-manufacturing-operation-prefill';
 
 export type MfgOperationPrefill = {
-  bomId: string;
+  bomId?: string;
   manufacturingWorkOrderId?: string;
   stage?: string;
   fromWarehouseId?: string;

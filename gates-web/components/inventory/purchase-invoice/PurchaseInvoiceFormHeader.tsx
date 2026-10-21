@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { SupplierSelect } from '@/components/form/PartySelect';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/components/form/CostCenterSelect';
@@ -19,8 +19,10 @@ import {
   type PricingCalculationBasis,
 } from '@/lib/invoices/unit-conversion';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
+import { WarehouseItemScopeToggle } from '@/components/form/WarehouseItemScopeToggle';
+import { MultiStockPermitLoadControl } from '@/components/invoices/MultiStockPermitLoadControl';
 import type { SelectableSourceType, SourceHydratePayload } from '@/lib/invoices/sourceDocument';
-import { purchaseInvoiceSourceTypes } from '@/lib/transaction-settings/affect-stock';
+import type { MultiStockPermitHydrateRequest } from '@/lib/invoices/multi-source-hydrate';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { CashTenderKind, InvoiceChequeDraft } from '@/lib/invoices/cash-tender';
@@ -105,13 +107,16 @@ type Props = {
   onSourceHydrate?: (payload: SourceHydratePayload) => void;
   hasExistingLines?: boolean;
   sourceDisabled?: boolean;
-  /** When false, التحميل is shown only in the page toolbar (no duplicate). */
   showSourceLoad?: boolean;
+  onMultiStockPermitHydrate?: (request: MultiStockPermitHydrateRequest) => void;
   fieldsDisabled?: boolean;
   splitLocked?: boolean;
   splitCollectMode?: boolean;
   headerActions?: ReactNode;
   affectsStock?: boolean;
+  serialAutomatic?: boolean;
+  hasSavedDocument?: boolean;
+  includeAllAccounts?: boolean;
 };
 
 export function PurchaseInvoiceFormHeader(props: Props) {
@@ -158,9 +163,13 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     hasExistingLines = false,
     sourceDisabled = false,
     showSourceLoad = true,
+    onMultiStockPermitHydrate,
     headerActions,
     fieldsDisabled = false,
     affectsStock = true,
+    serialAutomatic = false,
+    hasSavedDocument = false,
+    includeAllAccounts = false,
   } = props;
 
   const mounted = useClientMounted();
@@ -172,7 +181,13 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     <>
       <div>
         <label className={erpLabelClass}>رقم الفاتورة الدفتري</label>
-        <input className={erpInputClass} value={invoiceNumber} onChange={(e) => onInvoiceNumber(e.target.value)} />
+        <input
+          className={erpInputClass}
+          value={invoiceNumber}
+          onChange={(e) => onInvoiceNumber(e.target.value)}
+          placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل الرقم يدوياً'}
+          readOnly={serialAutomatic && !hasSavedDocument}
+        />
       </div>
       <div>
         <DatePickerWithHijri
@@ -197,28 +212,29 @@ export function PurchaseInvoiceFormHeader(props: Props) {
           value={supplierId}
           onChange={onSupplierId}
           className={`${erpInputClass} ${err(!!errors?.supplierId)}`}
+          includeAllAccounts={includeAllAccounts}
         />
         <ErpFieldError message={errors?.supplierId} show={showValidationErrors} />
       </div>
       <div>
-        <label className={erpLabelClass}>البيان</label>
+        <label className={erpLabelClass}>البيان / الشرح</label>
         <input className={erpInputClass} value={description} onChange={(e) => onDescription(e.target.value)} />
       </div>
-      {affectsStock ? (
-        <div>
-          <label className={erpLabelClass}>المخزن الافتراضي</label>
-          <WarehouseSelect
-            value={warehouseId}
-            onChange={onWarehouseId}
-            className={`${erpInputClass} ${err(!!errors?.warehouseId)}`}
-          />
-          <ErpFieldError message={errors?.warehouseId} show={showValidationErrors} />
-        </div>
-      ) : null}
+      <div>
+        <label className={erpLabelClass}>
+          المخزن الافتراضي
+          {affectsStock ? <RequiredDot hint="مطلوب عند التأثير على المخزن" /> : null}
+        </label>
+        <WarehouseSelect
+          value={warehouseId}
+          onChange={onWarehouseId}
+          className={`${erpInputClass} ${err(!!errors?.warehouseId)}`}
+        />
+        <ErpFieldError message={errors?.warehouseId} show={showValidationErrors} />
+        <WarehouseItemScopeToggle />
+      </div>
     </>
   );
-
-  const purchaseSourceTypes = useMemo(() => purchaseInvoiceSourceTypes(affectsStock), [affectsStock]);
 
   const sourceLoadControl =
     showSourceLoad && onSourceHydrate && onSourceTypeChange ? (
@@ -228,7 +244,7 @@ export function PurchaseInvoiceFormHeader(props: Props) {
         sourceNumber={sourceNumber}
         hasExistingLines={hasExistingLines}
         disabled={sourceDisabled}
-        allowedTypes={purchaseSourceTypes}
+        currentAffectsStock={affectsStock}
         onTypeChange={onSourceTypeChange}
         onHydrate={onSourceHydrate}
       />
@@ -339,12 +355,20 @@ export function PurchaseInvoiceFormHeader(props: Props) {
       row2={row2}
       extras={extras}
       fieldsDisabled={fieldsDisabled}
-      headerActions={
+      sourceActions={
         <>
           {sourceLoadControl}
-          {headerActions}
+          {onMultiStockPermitHydrate ? (
+            <MultiStockPermitLoadControl
+              permitTypes={affectsStock ? ['GOODS_RECEIPT'] : ['GOODS_RECEIPT', 'DELIVERY_NOTE']}
+              hasExistingLines={hasExistingLines}
+              disabled={sourceDisabled}
+              onApply={onMultiStockPermitHydrate}
+            />
+          ) : null}
         </>
       }
+      headerActions={headerActions}
     />
   );
 }

@@ -19,6 +19,8 @@ import {
 
 type Props = {
   settlements?: InvoiceCashSettlement[];
+  /** Voided vouchers (audit); not counted in paid / active collections. */
+  settlementHistory?: InvoiceCashSettlement[];
   cheques?: InvoiceChequeSettlement[];
   installments?: InvoiceInstallmentSource[];
   paidAmount?: number;
@@ -61,6 +63,7 @@ function StanceBadge({ stance }: { stance: InvoicePaymentStance }) {
 
 export function InvoiceSettlementsHistory({
   settlements = [],
+  settlementHistory = [],
   cheques = [],
   installments = [],
   paidAmount,
@@ -71,8 +74,8 @@ export function InvoiceSettlementsHistory({
   onCollectInstallment,
 }: Props) {
   const rows = buildInvoiceSettlementHistory(settlements, cheques);
-  const collected = activeSettlementTotal(rows);
-  const paid = Math.max(Number(paidAmount) || 0, collected);
+  const historyRows = buildInvoiceSettlementHistory(settlementHistory, []);
+  const paid = Number(paidAmount) || activeSettlementTotal(rows);
   const remaining =
     netAmount != null
       ? Math.max(0, Number(netAmount) - paid)
@@ -184,9 +187,10 @@ export function InvoiceSettlementsHistory({
             <table className="w-full text-sm">
               <thead>
                 <tr className={erpTableHeadRowClass}>
-                  <th className={erpTableHeadCellClass}>الرقم</th>
+                  <th className={erpTableHeadCellClass}>رقم السند</th>
                   <th className={erpTableHeadCellClass}>الطريقة</th>
-                  <th className={erpTableHeadCellClass}>الجهة</th>
+                  <th className={erpTableHeadCellClass}>الحساب</th>
+                  <th className={erpTableHeadCellClass}>البيان</th>
                   <th className={erpTableHeadCellClass}>المبلغ</th>
                   <th className={erpTableHeadCellClass}>التاريخ</th>
                   <th className={erpTableHeadCellClass}>الحالة</th>
@@ -208,6 +212,7 @@ export function InvoiceSettlementsHistory({
                       )}
                     </td>
                     <td className="py-2">{methodBadge(row)}</td>
+                    <td className="py-2 text-slate-600 text-xs">{row.ledgerAccountLabel}</td>
                     <td className="py-2 text-slate-600">{row.channel}</td>
                     <td className="py-2 tabular-nums">{formatInvoiceMoney(row.amount)}</td>
                     <td className="py-2">{row.date}</td>
@@ -217,6 +222,31 @@ export function InvoiceSettlementsHistory({
               </tbody>
             </table>
           )}
+          {historyRows.length > 0 ? (
+            <div className="mt-4 space-y-2 border-t border-dashed border-slate-200 pt-3">
+              <h4 className="text-[11px] font-semibold text-slate-500">سجل ملغى (مراجعة فقط)</h4>
+              <table className="w-full text-sm text-slate-500">
+                <thead>
+                  <tr className={erpTableHeadRowClass}>
+                    <th className={erpTableHeadCellClass}>الرقم</th>
+                    <th className={erpTableHeadCellClass}>المبلغ</th>
+                    <th className={erpTableHeadCellClass}>التاريخ</th>
+                    <th className={erpTableHeadCellClass}>الحالة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyRows.map((row) => (
+                    <tr key={row.id} className="border-b border-slate-100 line-through opacity-80">
+                      <td className="py-2 font-mono text-xs">{row.number}</td>
+                      <td className="py-2 tabular-nums">{formatInvoiceMoney(row.amount)}</td>
+                      <td className="py-2">{row.date}</td>
+                      <td className="py-2">{row.statusLabel}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -24,7 +24,6 @@ type Props = {
   onSyncOpeningInventory: () => void;
   onSyncOpeningPapers: () => void;
   onSaveDraft: () => void;
-  onSaveAsDraft: () => void;
   savePending?: boolean;
   canSave?: boolean;
   onBrowseList: () => void;
@@ -55,7 +54,6 @@ export function OpeningBalanceHeader({
   onSyncOpeningInventory,
   onSyncOpeningPapers,
   onSaveDraft,
-  onSaveAsDraft,
   savePending,
   canSave,
   onBrowseList,
@@ -87,7 +85,15 @@ export function OpeningBalanceHeader({
         title="قيد الرصيد الافتتاحي للسنة المالية"
         docNumber={docNumber}
         statusTone={isCancelled ? 'danger' : isPosted ? 'success' : 'warning'}
-        statusLabel={isCancelled ? 'ملغي' : isPosted ? 'مرحل ومثبت (Posted)' : 'مسودة (Draft)'}
+        statusLabel={
+          isCancelled
+            ? 'ملغي'
+            : isPosted
+              ? 'مرحّل'
+              : currentId
+                ? 'غير مرحّل'
+                : 'جديد'
+        }
         onSaveDraft={onSaveDraft}
         savePending={savePending}
         canSave={canSave}
@@ -103,15 +109,6 @@ export function OpeningBalanceHeader({
         printTrigger={printTrigger}
         extraActions={
           <>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!canSave || savePending}
-              onClick={onSaveAsDraft}
-            >
-              حفظ كمسودة
-            </Button>
             <Button
               type="button"
               variant="outline"
@@ -145,9 +142,11 @@ export function OpeningBalanceHeader({
               <label className={erpLabelClass}>رقم القيد</label>
               <input
                 className={erpInputClass}
-                placeholder="00000001"
+                placeholder="00000000"
                 value={entryNumber}
-                disabled={readOnly}
+                disabled
+                readOnly
+                title="رقم 00000000 محجوز لقيد الرصيد الافتتاحي"
                 inputMode="numeric"
                 onChange={(e) => onEntryNumberChange(e.target.value.replace(/\D/g, '').slice(0, 8))}
               />

@@ -66,69 +66,150 @@ function typeLabel(detail?: GuideItemDetail) {
   return ITEM_TYPE_LABELS[raw] ?? raw;
 }
 
-function GuideCards({
-  nodes,
+function isFolderNode(node: GuideTreeNode): boolean {
+  return Boolean(node.folder || node.groupKey !== 'item');
+}
+
+function ItemCardButton({
+  item,
+  detail,
+  onOpen,
+}: {
+  item: GuideTreeNode;
+  detail?: GuideItemDetail;
+  onOpen: (node: GuideTreeNode) => void;
+}) {
+  const barcode = detail?.barcode?.trim();
+  const archived = item.subtitle?.includes('غير نشط') || item.subtitle?.includes('مؤرشف');
+  const kind = typeLabel(detail);
+  return (
+    <button
+      type="button"
+      title={[item.code, item.name, barcode, kind].filter(Boolean).join(' — ')}
+      onClick={() => onOpen(item)}
+      className={`min-w-0 rounded-lg border px-2.5 py-2 text-right shadow-sm transition-colors hover:border-brand hover:shadow ${
+        archived ? 'border-slate-200 bg-slate-50 text-slate-500' : 'border-[#D6EAF3] bg-white text-slate-900'
+      }`}
+    >
+      <span className="block truncate text-[11px] font-semibold leading-4 text-brand">{item.code || '—'}</span>
+      <span className="block truncate text-xs font-medium leading-4">{item.name}</span>
+      {barcode ? <span className="mt-0.5 block truncate text-[10px] text-slate-500">{barcode}</span> : null}
+    </button>
+  );
+}
+
+function GuideGroupCard({
+  folder,
   depth,
   details,
   onOpen,
 }: {
-  nodes: GuideTreeNode[];
+  folder: GuideTreeNode;
   depth: number;
   details: Map<string, GuideItemDetail>;
   onOpen: (node: GuideTreeNode) => void;
 }) {
-  const folders = nodes.filter((node) => node.folder || node.groupKey !== 'item');
-  const leaves = nodes.filter((node) => node.groupKey === 'item');
+  const children = folder.children ?? [];
+  const childGroups = children.filter(isFolderNode);
+  const directItems = children.filter((node) => node.groupKey === 'item');
+  const total = countItems(folder);
+  const isSub = depth > 0;
 
   return (
-    <div className={depth > 0 ? 'space-y-2' : 'space-y-3'}>
-      {folders.map((folder) => {
-        const total = countItems(folder);
-        return (
-          <section key={folder.id}>
-            <div className="mb-1.5 flex items-center justify-between gap-3">
-              {folder.synthetic ? (
-                <h3 className="text-sm font-semibold text-slate-800">{folder.name}</h3>
-              ) : (
-                <button
-                  type="button"
-                  className="text-sm font-semibold text-slate-800 hover:text-brand"
-                  onClick={() => onOpen(folder)}
-                >
-                  {folder.code ? `${folder.code} — ` : ''}
-                  {folder.name}
-                </button>
-              )}
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
-                {total} صنف
-              </span>
-            </div>
-            <GuideCards nodes={folder.children ?? []} depth={depth + 1} details={details} onOpen={onOpen} />
-          </section>
-        );
-      })}
-      {leaves.length > 0 ? (
-        <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
-          {leaves.map((item) => {
-            const detail = details.get(item.id);
-            const barcode = detail?.barcode?.trim();
-            const archived = item.subtitle?.includes('مؤرشف');
-            return (
-              <button
-                key={item.id}
-                type="button"
-                title={[item.code, item.name, barcode].filter(Boolean).join(' — ')}
-                onClick={() => onOpen(item)}
-                className={`min-w-0 rounded-md border px-2 py-1 text-right transition-colors hover:border-brand ${
-                  archived ? 'border-slate-200 bg-slate-50 text-slate-500' : 'border-[#D6EAF3] bg-white text-slate-900'
-                }`}
-              >
-                <span className="block truncate text-[10px] font-semibold leading-4 text-brand">{item.code || '—'}</span>
-                <span className="block truncate text-xs leading-4">{item.name}</span>
-              </button>
-            );
-          })}
+    <section
+      className={`overflow-hidden rounded-xl border bg-white ${
+        isSub ? 'border-slate-200 shadow-sm' : 'border-slate-200/90 shadow-sm'
+      }`}
+      style={{ marginInlineStart: isSub ? Math.min(depth * 14, 56) : 0 }}
+    >
+      <header
+        className={`flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2.5 ${
+          isSub ? 'border-slate-100 bg-slate-50/90' : 'border-brand/15 bg-gradient-to-l from-[#E8F4FA]/80 to-white'
+        }`}
+      >
+        <div className="min-w-0 flex-1 text-right">
+          {folder.synthetic ? (
+            <h3 className="text-sm font-semibold text-slate-800">{folder.name}</h3>
+          ) : (
+            <button
+              type="button"
+              className="text-sm font-semibold text-slate-800 hover:text-brand"
+              onClick={() => onOpen(folder)}
+            >
+              {folder.code ? (
+                <span className="text-brand">{folder.code}</span>
+              ) : null}
+              {folder.code ? ' — ' : ''}
+              {folder.name}
+            </button>
+          )}
+          {folder.subtitle && !folder.synthetic ? (
+            <p className="text-[11px] text-slate-500">{folder.subtitle}</p>
+          ) : null}
         </div>
+        <span className="shrink-0 rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+          {total} صنف
+          {childGroups.length > 0 ? ` · ${childGroups.length} مجموعة` : ''}
+        </span>
+      </header>
+
+      <div className="space-y-3 p-3">
+        {childGroups.map((sub) => (
+          <GuideGroupCard key={sub.id} folder={sub} depth={depth + 1} details={details} onOpen={onOpen} />
+        ))}
+
+        {directItems.length > 0 ? (
+          <div>
+            {childGroups.length > 0 ? (
+              <p className="mb-1.5 text-[11px] font-medium text-slate-500">أصناف مباشرة تحت هذه المجموعة</p>
+            ) : null}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              {directItems.map((item) => (
+                <ItemCardButton
+                  key={item.id}
+                  item={item}
+                  detail={details.get(item.id)}
+                  onOpen={onOpen}
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {childGroups.length === 0 && directItems.length === 0 ? (
+          <p className="py-2 text-center text-xs text-slate-400">لا توجد أصناف في هذه المجموعة</p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function GuideCards({
+  nodes,
+  details,
+  onOpen,
+}: {
+  nodes: GuideTreeNode[];
+  details: Map<string, GuideItemDetail>;
+  onOpen: (node: GuideTreeNode) => void;
+}) {
+  const folders = nodes.filter(isFolderNode);
+  const rootItems = nodes.filter((node) => node.groupKey === 'item');
+
+  return (
+    <div className="space-y-4">
+      {folders.map((folder) => (
+        <GuideGroupCard key={folder.id} folder={folder} depth={0} details={details} onOpen={onOpen} />
+      ))}
+      {rootItems.length > 0 ? (
+        <section className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-3">
+          <p className="mb-2 text-xs font-medium text-slate-500">أصناف بدون مجموعة</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {rootItems.map((item) => (
+              <ItemCardButton key={item.id} item={item} detail={details.get(item.id)} onOpen={onOpen} />
+            ))}
+          </div>
+        </section>
       ) : null}
     </div>
   );
@@ -225,5 +306,5 @@ export function ItemsGuideShapeView({
       </div>
     );
   }
-  return <GuideCards nodes={filtered} depth={0} details={details} onOpen={onOpen} />;
+  return <GuideCards nodes={filtered} details={details} onOpen={onOpen} />;
 }

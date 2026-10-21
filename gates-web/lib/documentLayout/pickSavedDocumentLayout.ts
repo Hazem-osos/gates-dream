@@ -32,7 +32,8 @@ export function effectiveLayoutConfig(remote?: DocumentLayoutConfig | null): Doc
 
 /** Ask which saved shape to print with. One layout = use it. None = defaults. */
 export async function pickSavedDocumentLayout(
-  preferredType?: DocumentLayoutType
+  preferredType?: DocumentLayoutType,
+  options?: { silent?: boolean }
 ): Promise<DocumentLayoutConfig | null> {
   const layouts = await listSavedDocumentLayouts();
   if (layouts.length === 0) return cloneDefaultConfig();
@@ -44,7 +45,7 @@ export async function pickSavedDocumentLayout(
   const choices = preferred.length ? preferred : layouts;
   if (choices.length === 1) return effectiveLayoutConfig(choices[0]);
 
-  if (typeof window === 'undefined') {
+  if (options?.silent || typeof window === 'undefined') {
     return effectiveLayoutConfig(choices.find((row) => row.isDefault) ?? choices[0]);
   }
 

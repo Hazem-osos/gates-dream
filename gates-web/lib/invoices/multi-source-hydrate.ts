@@ -11,7 +11,7 @@ export type MultiStockPermitSourceType = (typeof MULTI_STOCK_PERMIT_SOURCE_TYPES
 export type MultiSourceLineMode = 'merge_similar' | 'separate';
 
 function lineMergeKey(line: SourceHydrateLine): string {
-  return `${line.itemId}|${String(line.unitId ?? '')}`;
+  return `${line.itemId}|${String(line.unitId ?? '')}|${line.sourceLineId ?? ''}`;
 }
 
 /** دمج الأصناف المتشابهة (نفس الصنف والوحدة) أو إبقاء كل سطر كما هو. */

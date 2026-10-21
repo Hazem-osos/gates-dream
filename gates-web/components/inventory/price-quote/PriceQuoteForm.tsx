@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
-import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
+import { PageDraftRestoreGate } from '@/components/erp/PageDraftRestoreGate';
 import { useRouter } from 'next/navigation';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { ArrowRightLeft, Receipt } from 'lucide-react';
@@ -43,6 +43,36 @@ import {
 } from '@/lib/inventory/apply-source-to-stock-document';
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { toast } from '@/lib/feedback/toast';
+import { apiClient } from '@/lib/api/client';
+import { postStoreDocumentAfterSave } from '@/lib/inventory/post-store-document-after-save';
+import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
+import { maybeAutoPrintAfterSave } from '@/lib/printer/print-prefs';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
+import {
+  useApplyDefaultWarehouseFromTransactionSettings,
+  useTransactionDocumentSettings,
+} from '@/lib/transaction-settings/use-transaction-document-settings';
+import { shouldShowAllAccountsInPartyField } from '@/lib/transaction-settings/types';
+import { useItemsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { findBelowCostLine, SELL_BELOW_COST_MESSAGE } from '@/lib/accounting-settings/guardrail-hints';
+import { resolveDocumentLifecycleStatus, savedDocumentRowStatus } from '@/lib/documents/document-status-labels';
+import { confirmAction } from '@/lib/feedback/confirm';
+import { InternalNotesScratchpad } from '@/components/documents/InternalNotesScratchpad';
+import type { InternalNoteEntry } from '@/lib/invoices/payment-split.types';
+import { InvoiceExtrasPanel } from '@/components/inventory/invoices/InvoiceExtrasPanel';
+import { useInvoiceExtras } from '@/lib/invoices/use-invoice-extras';
+import {
+  sumPartyInvoiceExtras,
+  validateInvoiceExtrasForSave,
+  type InvoiceAdjustmentApiRow,
+} from '@/lib/invoices/invoice-adjustments';
+import {
+  computeInvoiceFinancialSummary,
+  computeInvoiceGrossDiscount,
+} from '@/lib/invoices/computeInvoiceFinancialSummary';
+import { SalesInvoiceBottomSplit } from '@/components/inventory/sales-invoice/SalesInvoiceBottomSplit';
+import { DocumentFollowUpButton } from '@/components/documents/DocumentFollowUpButton';
+import { buildSalesInvoiceHref } from '@/lib/documents/document-follow-up';
 
 type QuoteRecord = {
   id: string;
@@ -56,9 +86,12 @@ type QuoteRecord = {
   delegateId?: string | null;
   currencyId?: string | null;
   isPosted?: boolean;
+  isCancelled?: boolean;
   isApproved?: boolean;
   isConverted?: boolean;
   invoiceId?: string | null;
+  internalNotes?: InternalNoteEntry[] | null;
+  adjustments?: InvoiceAdjustmentApiRow[] | null;
   lines?: Array<{
     itemId: string;
     unitId?: string;
@@ -81,16 +114,6 @@ function plusDays(days: number) {
   return d.toISOString().split('T')[0];
 }
 
-function quoteStatus(quote?: QuoteRecord | null, validUntil?: string) {
-  if (quote?.isConverted) return { tone: 'info' as const, label: 'محول لفاتورة (Converted)' };
-  if (validUntil && validUntil < todayIso() && !quote?.isConverted) {
-    return { tone: 'danger' as const, label: 'منتهي الصلاحية (Expired)' };
-  }
-  if (quote?.isApproved) return { tone: 'success' as const, label: 'مقبول (Accepted)' };
-  if (quote?.isPosted) return { tone: 'info' as const, label: 'معتمد ومُرسل (Sent)' };
-  return { tone: 'warning' as const, label: 'مسودة (Draft)' };
-}
-
 export function PriceQuoteForm() {
   const router = useRouter();
   const searchParams = useOwnTabSearchParams();
@@ -98,9 +121,25 @@ export function PriceQuoteForm() {
   const invalidateQuery = useInvalidateQuery();
   const convertMutation = useDocumentConvertMutation();
   const [selectedId, setSelectedId] = useState<string | null>(() => quoteIdFromUrl?.trim() || null);
+  const postAfterSaveRef = useRef(false);
+  const {
+    settings: quoteTxSettings,
+    autoPostOnSave,
+    autoPrintOnSave,
+    saveLabel: legacySaveLabel,
+    serialAutomatic,
+    defaultWarehouseId: txDefaultWarehouseId,
+  } = useTransactionDocumentSettings('PRICE_QUOTE');
+  const quoteSaveLabel = autoPostOnSave ? STORE_SAVE_AND_POST_LABEL : legacySaveLabel;
+  const { data: itemsRes } = useItemsQuery();
+  const catalogItems = itemsRes?.data ?? [];
+  const enforceBelowCost = quoteTxSettings?.preventSellingBelowCost !== false;
+
   const [browseOpen, setBrowseOpen] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [lifecyclePending, setLifecyclePending] = useState(false);
+  const [postFlowPending, setPostFlowPending] = useState(false);
 
   const [quoteNumber, setQuoteNumber] = useState('');
   const [description, setDescription] = useState('');
@@ -108,6 +147,12 @@ export function PriceQuoteForm() {
   const [validUntil, setValidUntil] = useState(plusDays(30));
   const [customerId, setCustomerId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
+  useApplyDefaultWarehouseFromTransactionSettings({
+    selectedId,
+    warehouseId,
+    defaultWarehouseId: txDefaultWarehouseId,
+    setWarehouseId,
+  });
   const [costCenterId, setCostCenterId] = useState('');
   const [delegateId, setDelegateId] = useState('');
   const [currencyId, setCurrencyId] = useState('');
@@ -115,6 +160,16 @@ export function PriceQuoteForm() {
   const [deliveryPeriod, setDeliveryPeriod] = useState('');
   const [lines, setLines] = useState<CommercialDocumentLine[]>([emptyCommercialLine()]);
   const [sourceBarKey, setSourceBarKey] = useState(0);
+  const [internalNotes, setInternalNotes] = useState<InternalNoteEntry[]>([]);
+  const {
+    invoiceExtras,
+    setInvoiceExtras,
+    extrasOpen,
+    setExtrasOpen,
+    loadAdjustments,
+    resetExtras,
+    getExtrasPayload,
+  } = useInvoiceExtras();
 
   const priceQuoteDraft = useMemo(
     () => ({
@@ -130,6 +185,8 @@ export function PriceQuoteForm() {
       paymentTerms,
       deliveryPeriod,
       lines,
+      internalNotes,
+      invoiceExtras,
     }),
     [
       costCenterId,
@@ -139,6 +196,8 @@ export function PriceQuoteForm() {
       delegateId,
       deliveryPeriod,
       description,
+      internalNotes,
+      invoiceExtras,
       lines,
       paymentTerms,
       quoteNumber,
@@ -159,7 +218,10 @@ export function PriceQuoteForm() {
     setPaymentTerms(payload.paymentTerms);
     setDeliveryPeriod(payload.deliveryPeriod);
     setLines(payload.lines?.length ? payload.lines : [emptyCommercialLine()]);
-  }, []);
+    setInternalNotes(Array.isArray(payload.internalNotes) ? payload.internalNotes : []);
+    setInvoiceExtras(Array.isArray(payload.invoiceExtras) ? payload.invoiceExtras : []);
+    setExtrasOpen(false);
+  }, [setExtrasOpen, setInvoiceExtras]);
   const skipServerHydrateRef = useRef(false);
   const {
     restoreOffer,
@@ -179,7 +241,10 @@ export function PriceQuoteForm() {
     isEmpty: (draft) =>
       !draft.customerId?.trim() &&
       !draft.description?.trim() &&
-      !(draft.lines ?? []).some((line) => isEnteredCommercialLine(line)),
+      !(draft.lines ?? []).some((line) => isEnteredCommercialLine(line)) &&
+      !(draft.invoiceExtras ?? []).some(
+        (row) => Boolean(row.accountId?.trim()) || Number(row.additionValue) > 0 || Number(row.discountValue) > 0
+      ),
     restoreMessage: 'تم استعادة مسودة عرض السعر',
   });
 
@@ -237,6 +302,8 @@ export function PriceQuoteForm() {
     setCostCenterId(loaded.costCenterId || '');
     setDelegateId(loaded.delegateId || '');
     setCurrencyId(loaded.currencyId || currencyId);
+    setInternalNotes(Array.isArray(loaded.internalNotes) ? loaded.internalNotes : []);
+    loadAdjustments(loaded.adjustments);
     setLines(
       (loaded.lines ?? []).map((line) => ({
         itemId: line.itemId,
@@ -252,34 +319,62 @@ export function PriceQuoteForm() {
         costCenterId: loaded.costCenterId || '',
       }))
     );
-  }, [loaded, selectedId, currencyId]);
+  }, [currencyId, loadAdjustments, loaded, selectedId]);
 
   const entered = useMemo(() => lines.filter(isEnteredCommercialLine), [lines]);
-  const totals = useMemo(() => {
-    return entered.reduce(
-      (acc, line) => {
-        const parts = commercialLineParts(line);
-        acc.gross += parts.gross;
-        acc.discount += parts.discountValue;
-        acc.tax += parts.taxValue;
-        acc.net += parts.net;
-        return acc;
-      },
-      { gross: 0, discount: 0, tax: 0, net: 0 }
-    );
-  }, [entered]);
+  const quoteSummaryLines = useMemo(
+    () =>
+      entered.map((line) => ({
+        itemId: line.itemId,
+        itemName: line.itemName,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        discount: line.discount,
+        taxRate: line.taxRate,
+      })),
+    [entered]
+  );
+  const financialSummary = useMemo(() => {
+    const { gross, commercialDiscount } = computeInvoiceGrossDiscount(quoteSummaryLines);
+    const extrasNet = sumPartyInvoiceExtras(invoiceExtras, gross - commercialDiscount, 1);
+    return computeInvoiceFinancialSummary(quoteSummaryLines, {
+      applyTax: true,
+      additionsAndDiscounts: extrasNet,
+    });
+  }, [invoiceExtras, quoteSummaryLines]);
 
-  const status = quoteStatus(loaded, validUntil);
+  const isCancelled = Boolean(loaded?.isCancelled);
+  const isPosted = Boolean(loaded?.isPosted);
   const converted = Boolean(loaded?.isConverted);
+  const lifecycle = useMemo(
+    () => ({
+      documentId: selectedId,
+      isPosted,
+      isCancelled,
+    }),
+    [selectedId, isPosted, isCancelled]
+  );
+  const status = useMemo(() => {
+    if (converted) return { tone: 'info' as const, label: 'محول لفاتورة' };
+    if (validUntil && validUntil < todayIso() && !converted && selectedId && !isCancelled) {
+      return { tone: 'danger' as const, label: 'منتهي الصلاحية' };
+    }
+    return resolveDocumentLifecycleStatus(lifecycle);
+  }, [converted, validUntil, selectedId, isCancelled, lifecycle]);
 
   const saveMutation = useApiMutation<QuoteRecord, Record<string, unknown>>('/inventory/price-quotes', 'POST', {
     showSuccessToast: false,
     onSuccess: (res) => {
       invalidateStockViews(invalidateQuery);
       const id = res.data?.id;
+      const shouldPost = postAfterSaveRef.current;
+      postAfterSaveRef.current = false;
+      const finish = (posted: boolean) => {
+      maybeAutoPrintAfterSave(autoPrintOnSave, printQuote);
       finishDocumentSave({
         label: 'عرض سعر',
         number: res.data?.quoteNumber || quoteNumber,
+        posted,
         savedId: id,
         clearDraft,
         onOpen: (saved) => {
@@ -292,8 +387,27 @@ export function PriceQuoteForm() {
         },
         reset: () => resetNew(),
       });
+      };
+      if (shouldPost && id) {
+        void postStoreDocumentAfterSave({
+          postPath: `/inventory/price-quotes/${id}/post`,
+          onPosted: () => {
+            invalidateQuery(['price-quote', id]);
+            finish(true);
+          },
+          onPostFailed: (message) => {
+            setError(message);
+            if (id) setSelectedId(id);
+          },
+        });
+        return;
+      }
+      finish(false);
     },
-    onError: (err: ApiError) => setError(err.message || 'تعذر حفظ عرض السعر'),
+    onError: (err: ApiError) => {
+      postAfterSaveRef.current = false;
+      setError(err.message || 'تعذر حفظ عرض السعر');
+    },
   });
 
   const updateMutation = useApiMutation<QuoteRecord, Record<string, unknown>>(
@@ -304,9 +418,14 @@ export function PriceQuoteForm() {
       onSuccess: () => {
         invalidateStockViews(invalidateQuery);
         const id = selectedId;
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        const finish = (posted: boolean) => {
+        maybeAutoPrintAfterSave(autoPrintOnSave, printQuote);
         finishDocumentSave({
           label: 'عرض سعر',
           number: quoteNumber,
+          posted,
           savedId: id,
           clearDraft,
           onOpen: (saved) => {
@@ -319,10 +438,57 @@ export function PriceQuoteForm() {
           },
           reset: () => resetNew(),
         });
+        };
+        if (shouldPost && id) {
+          void postStoreDocumentAfterSave({
+            postPath: `/inventory/price-quotes/${id}/post`,
+            onPosted: () => {
+              invalidateQuery(['price-quote', id]);
+              finish(true);
+            },
+            onPostFailed: (message) => setError(message),
+          });
+          return;
+        }
+        finish(false);
       },
-      onError: (err: ApiError) => setError(err.message || 'تعذر تحديث عرض السعر'),
+      onError: (err: ApiError) => {
+        postAfterSaveRef.current = false;
+        setError(err.message || 'تعذر تحديث عرض السعر');
+      },
     }
   );
+
+  const postExistingQuote = () => {
+    if (!selectedId) {
+      requestExplicitPostAfterSave();
+      return;
+    }
+    setPostFlowPending(true);
+    void apiClient
+      .post(`/inventory/price-quotes/${selectedId}/post`)
+      .then(() => {
+        setSuccess('تم ترحيل عرض السعر');
+        invalidateQuery(['price-quote', selectedId]);
+        invalidateStockViews(invalidateQuery);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'تعذر الترحيل');
+      })
+      .finally(() => setPostFlowPending(false));
+  };
+
+  const requestPostAfterSave = () => {
+    if (loaded?.isPosted || converted) return;
+    postAfterSaveRef.current = autoPostOnSave;
+    handleSave();
+  };
+
+  const requestExplicitPostAfterSave = () => {
+    if (loaded?.isPosted || converted) return;
+    postAfterSaveRef.current = true;
+    handleSave();
+  };
 
   const handleSave = () => {
     setError('');
@@ -334,13 +500,27 @@ export function PriceQuoteForm() {
       setError('أضف صنفاً واحداً على الأقل');
       return;
     }
+    if (enforceBelowCost && findBelowCostLine(entered, catalogItems)) {
+      setError(SELL_BELOW_COST_MESSAGE);
+      return;
+    }
     const missingUnit = entered.find((line) => !line.unitId);
     if (missingUnit) {
       setError('اختر الصنف من الدليل حتى تُحدد الوحدة تلقائياً');
       return;
     }
+    if (!selectedId && !serialAutomatic && !quoteNumber.trim()) {
+      setError('أدخل رقم عرض السعر — الترقيم يدوي في إعدادات المستند');
+      return;
+    }
+    const extrasError = validateInvoiceExtrasForSave(invoiceExtras);
+    if (extrasError) {
+      setError(extrasError);
+      setExtrasOpen(true);
+      return;
+    }
     const payload = {
-      quoteNumber: quoteNumber || undefined,
+      quoteNumber: serialAutomatic && !selectedId ? undefined : quoteNumber || undefined,
       description: description || undefined,
       date: new Date(`${date}T12:00:00`).toISOString(),
       hijriDate: toHijriDate(date),
@@ -353,6 +533,8 @@ export function PriceQuoteForm() {
       paymentMethod: 'credit',
       isSalesTaxInvoice: true,
       conditions: [paymentTerms, deliveryPeriod].filter(Boolean),
+      internalNotes,
+      adjustments: getExtrasPayload(),
       lines: entered.map((line) => {
         const parts = commercialLineParts(line);
         return {
@@ -372,6 +554,35 @@ export function PriceQuoteForm() {
     };
     if (selectedId) updateMutation.mutate(payload);
     else saveMutation.mutate(payload);
+  };
+
+  const printQuote = () => {
+    void printOperationalDocument({
+      title: 'عرض سعر',
+      documentNo: quoteNumber || 'جديد',
+      documentDate: date,
+      buyerName: description || undefined,
+      currency: currencies.find((c) => c.id === currencyId)?.code,
+      lines: entered.map((line) => {
+        const parts = commercialLineParts(line);
+        return {
+          description: [line.itemCode, line.itemName].filter(Boolean).join(' — ') || 'صنف',
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          taxPercent: line.taxRate,
+          taxAmount: parts.taxValue,
+          total: parts.net,
+        };
+      }),
+    });
+  };
+
+  const openSalesInvoiceFromQuote = async () => {
+    if (loaded?.invoiceId) {
+      router.push(buildSalesInvoiceHref(loaded.invoiceId));
+      return;
+    }
+    await handleConvert('invoice');
   };
 
   const handleConvert = async (kind: 'invoice' | 'order') => {
@@ -394,11 +605,11 @@ export function PriceQuoteForm() {
         );
         return;
       }
-      router.push(
-        targetId
-          ? `/sales/invoices/new?invoiceId=${encodeURIComponent(targetId)}`
-          : '/sales/invoices/new'
-      );
+      if (!targetId) {
+        setError('تعذر إنشاء فاتورة المبيعات');
+        return;
+      }
+      router.push(buildSalesInvoiceHref(targetId));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر التحويل');
     }
@@ -413,6 +624,8 @@ export function PriceQuoteForm() {
     setValidUntil(plusDays(30));
     setCustomerId('');
     setLines([emptyCommercialLine()]);
+    setInternalNotes([]);
+    resetExtras();
     setSourceBarKey((k) => k + 1);
     setError('');
     setSuccess('');
@@ -424,7 +637,42 @@ export function PriceQuoteForm() {
     clearDraft();
   };
 
-  const money = (n: number) => n.toLocaleString('ar-EG', { minimumFractionDigits: 2 });
+
+  const handleCancelQuote = async () => {
+    if (!selectedId) return;
+    if (isPosted) {
+      setError('فك الترحيل أولاً من قائمة (...) ثم ألغِ العرض');
+      return;
+    }
+    const ok = await confirmAction({ message: 'إلغاء عرض السعر؟ يظهر في السابق بحالة ملغي.', confirmLabel: 'إلغاء', tone: 'danger' });
+    if (!ok) return;
+    setLifecyclePending(true);
+    try {
+      await apiClient.post(`/inventory/price-quotes/${selectedId}/cancel`, {});
+      invalidateQuery(['price-quote', selectedId]);
+      invalidateQuery(['price-quotes-browse']);
+      setSuccess('تم إلغاء عرض السعر');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر إلغاء العرض');
+    } finally {
+      setLifecyclePending(false);
+    }
+  };
+
+  const handleRestoreQuote = async () => {
+    if (!selectedId) return;
+    setLifecyclePending(true);
+    try {
+      await apiClient.post(`/inventory/price-quotes/${selectedId}/restore`, {});
+      invalidateQuery(['price-quote', selectedId]);
+      invalidateQuery(['price-quotes-browse']);
+      setSuccess('تم استعادة عرض السعر');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر استعادة العرض');
+    } finally {
+      setLifecyclePending(false);
+    }
+  };
 
   const handleSourceHydrate = (payload: SourceHydratePayload) => {
     const header = stockHeaderFieldsFromSource(payload, description);
@@ -433,23 +681,23 @@ export function PriceQuoteForm() {
     if (header.description) setDescription(header.description);
     const mapped = mapSourcePayloadToCommercialLines(payload);
     setLines(mapped.length ? mapped : [emptyCommercialLine()]);
+    loadAdjustments(payload.adjustments);
     toast.success(`تم تحميل العرض من ${payload.sourceNumber}`);
   };
 
   return (
     <ErpDocumentLayout>
-      {restoreOffer && !selectedId ? (
-        <PageDraftRestoreBanner
-          message="يوجد مسودة عرض سعر غير محفوظة."
-          onRestore={() => {
-            const payload = acceptRestore();
-            if (!payload) return;
-            applyPriceQuoteDraft(payload);
-            setSuccess('تم استعادة مسودة عرض السعر');
-          }}
-          onDismiss={dismissRestore}
-        />
-      ) : null}
+      <PageDraftRestoreGate<typeof priceQuoteDraft>
+        restoreOffer={restoreOffer}
+        hide={Boolean(selectedId)}
+        message="يوجد مسودة عرض سعر غير محفوظة."
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={(payload) => {
+          applyPriceQuoteDraft(payload);
+          setSuccess('تم استعادة مسودة عرض السعر');
+        }}
+      />
       <div className="flex min-h-[calc(100dvh-3rem)] flex-col pb-4">
         <ErpDocumentPageHeader
           breadcrumbs={[
@@ -461,56 +709,65 @@ export function PriceQuoteForm() {
           docNumber={quoteNumber || 'QT-XXXX'}
           statusTone={status.tone}
           statusLabel={status.label}
-          onSaveDraft={handleSave}
-          saveLabel="حفظ عرض السعر"
-          savePending={saveMutation.isPending || updateMutation.isPending}
-          canSave
+          onSaveDraft={requestPostAfterSave}
+          saveLabel={quoteSaveLabel}
+          savePending={saveMutation.isPending || updateMutation.isPending || lifecyclePending}
+          canSave={!isPosted && !converted && !isCancelled}
+          canPost={Boolean(selectedId) && !isPosted && !converted && !isCancelled}
+          onPost={() => postExistingQuote()}
           hideStandalonePost
+          lifecycle={lifecycle}
           onBrowseList={() => setBrowseOpen(true)}
           browseListLabel="السابق"
-          onEdit={() => {
-            if (!selectedId) return;
-          }}
-          editDisabled={!selectedId}
+          currentId={selectedId}
           favoriteHref="/inventory/operations/price-quote"
           favoriteLabel="عرض سعر"
-          moreMenuItems={[
-            { id: 'new', label: 'عرض جديد', onClick: resetNew },
-            {
-              id: 'print',
-              label: 'طباعة',
-              onClick: () => {
-                void printOperationalDocument({
-                  title: 'عرض سعر',
-                  documentNo: quoteNumber || 'مسودة',
-                  documentDate: date,
-                  buyerName: description || undefined,
-                  currency: currencies.find((c) => c.id === currencyId)?.code,
-                  lines: entered.map((line) => {
-                    const parts = commercialLineParts(line);
-                    return {
-                      description: [line.itemCode, line.itemName].filter(Boolean).join(' — ') || 'صنف',
-                      quantity: line.quantity,
-                      unitPrice: line.unitPrice,
-                      taxPercent: line.taxRate,
-                      taxAmount: parts.taxValue,
-                      total: parts.net,
-                    };
-                  }),
-                });
-              },
+          standardActions={{
+            hasDocument: Boolean(selectedId),
+            isPosted,
+            isCancelled,
+            postPending: postFlowPending,
+            unpostPending: postFlowPending,
+            onPost: () => postExistingQuote(),
+            onUnpost: () => {
+              if (!selectedId) return;
+              setPostFlowPending(true);
+              void apiClient
+                .post(`/inventory/price-quotes/${selectedId}/unpost`)
+                .then(() => {
+                  setSuccess('تم فك ترحيل عرض السعر');
+                  invalidateQuery(['price-quote', selectedId]);
+                })
+                .catch((err: unknown) => {
+                  setError(err instanceof Error ? err.message : 'تعذر فك الترحيل');
+                })
+                .finally(() => setPostFlowPending(false));
             },
-            {
-              id: 'duplicate',
-              label: 'تكرار',
-              onClick: () => {
-                setSelectedId(null);
-                setQuoteNumber('');
-                setSuccess('تم تجهيز نسخة جديدة من العرض');
-              },
+            onEdit: () => {
+              if (loaded?.isPosted) setError('يجب فك الترحيل أولاً للتعديل');
             },
-            { id: 'cancel', label: 'إلغاء', onClick: resetNew },
-          ]}
+            onNew: resetNew,
+            newLabel: 'عرض جديد',
+            transactionSettingsDocumentType: 'PRICE_QUOTE',
+            onTransactionSettingsSaved: () => {
+              invalidateAfterTransactionSettingsSave(invalidateQuery, 'PRICE_QUOTE');
+            },
+            onPrint: printQuote,
+            onVoid: () => void handleCancelQuote(),
+            voidPending: lifecyclePending,
+            onRestore: () => void handleRestoreQuote(),
+            restorePending: lifecyclePending,
+            voidLabel: 'إلغاء العرض',
+            restoreLabel: 'استعادة العرض',
+          }}
+          extraActions={
+            <DocumentFollowUpButton
+              label="إنشاء فاتورة مبيعات"
+              disabled={!selectedId || Boolean(isCancelled)}
+              pending={convertMutation.isPending}
+              onClick={() => void openSalesInvoiceFromQuote()}
+            />
+          }
         />
 
         {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
@@ -519,10 +776,19 @@ export function PriceQuoteForm() {
         <ErpFormHeaderCard
           extrasLabel="خيارات إضافية"
           headerActions={
+            <InternalNotesScratchpad
+              notes={internalNotes}
+              onChange={setInternalNotes}
+              disabled={Boolean(isPosted || converted || isCancelled)}
+              className="inline-flex"
+            />
+          }
+          sourceActions={
             <DocumentSourceLoadBar
               key={sourceBarKey}
               hasExistingLines={entered.length > 0}
-              disabled={Boolean(loaded?.isConverted)}
+              disabled={Boolean(loaded?.isConverted || loaded?.isPosted)}
+              currentAffectsStock={false}
               onHydrate={handleSourceHydrate}
             />
           }
@@ -530,7 +796,13 @@ export function PriceQuoteForm() {
             <>
               <div className="space-y-1">
                 <label className={erpLabelClass}>رقم العرض</label>
-                <input className={erpInputClass} value={quoteNumber} onChange={(e) => setQuoteNumber(e.target.value)} />
+                <input
+                  className={erpInputClass}
+                  value={quoteNumber}
+                  onChange={(e) => setQuoteNumber(e.target.value)}
+                  placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل الرقم يدوياً'}
+                  readOnly={serialAutomatic || Boolean(loaded?.isPosted)}
+                />
               </div>
               <DatePickerWithHijri label="تاريخ عرض السعر" value={date} onChange={setDate} />
               <DatePickerWithHijri label="تاريخ انتهاء العرض" value={validUntil} onChange={setValidUntil} />
@@ -540,7 +812,12 @@ export function PriceQuoteForm() {
             <>
               <div className="space-y-1">
                 <label className={erpLabelClass}>العميل</label>
-                <CustomerSelect value={customerId} onChange={setCustomerId} className={erpInputClass} />
+                <CustomerSelect
+                  value={customerId}
+                  onChange={setCustomerId}
+                  className={erpInputClass}
+                  includeAllAccounts={shouldShowAllAccountsInPartyField(quoteTxSettings)}
+                />
               </div>
               <div className="space-y-1">
                 <label className={erpLabelClass}>الشرح / البيان</label>
@@ -602,44 +879,71 @@ export function PriceQuoteForm() {
             onChange={setLines}
             headerDescription={description}
             warehouseId={warehouseId}
+            enforceBelowCost={enforceBelowCost}
           />
         </div>
 
-        <div className="sticky bottom-0 z-30 mt-auto flex w-full flex-wrap items-center justify-between gap-3 border-t border-border/80 bg-background/95 px-6 py-3 shadow-lg backdrop-blur-md">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={converted || convertMutation.isPending}
-              className="gap-1.5 border-primary/30 font-semibold text-primary hover:bg-primary/10"
-              onClick={() => void handleConvert('invoice')}
-            >
-              <ArrowRightLeft className="h-3.5 w-3.5" />
-              تحويل إلى فاتورة مبيعات
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={converted || convertMutation.isPending}
-              className="gap-1.5 border-emerald-600/30 font-semibold text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
-              onClick={() => void handleConvert('order')}
-            >
-              <Receipt className="h-3.5 w-3.5" />
-              تحويل إلى أمر بيع
-            </Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-4 text-xs">
-            <span>قبل الضريبة: <b className="font-mono">{money(totals.gross)}</b></span>
-            <span>الخصم: <b className="font-mono">{money(totals.discount)}</b></span>
-            <span>ضريبة 14%: <b className="font-mono">{money(totals.tax)}</b></span>
-            <span className="text-sm">
-              إجمالي عرض السعر:{' '}
-              <b className="font-mono text-base text-emerald-600">{money(totals.net)} ج.م</b>
-            </span>
-          </div>
-        </div>
+        <InvoiceExtrasPanel
+          open={extrasOpen}
+          onToggle={() => setExtrasOpen((v) => !v)}
+          rows={invoiceExtras}
+          onChange={setInvoiceExtras}
+          currencies={currencies}
+          defaultCurrency={currencies.find((c) => c.id === currencyId)?.code ?? 'EGP'}
+          defaultExchangeRate={1}
+          defaultCostCenterId={costCenterId || ''}
+          disabled={Boolean(loaded?.isPosted || loaded?.isCancelled || converted)}
+          count={getExtrasPayload().length}
+          headerDescription={description}
+        />
+
+        <SalesInvoiceBottomSplit
+          totalsOnly
+          summary={financialSummary}
+          applyTax
+          showEta={false}
+          currencyCode={currencies.find((c) => c.id === currencyId)?.code ?? 'EGP'}
+          lines={quoteSummaryLines}
+          savedLines={(loaded?.lines ?? []).map((line) => ({
+            itemId: line.itemId,
+            itemName: line.item?.arabicName,
+            quantity: Number(line.quantity) || 0,
+            unitPrice: Number(line.unitPrice) || 0,
+            discount: Number(line.discountPercentage) || 0,
+            taxRate: Number(line.taxPercentage) || 0,
+          }))}
+          warehouseId={warehouseId}
+          selectedInvoiceId={selectedId}
+          isPosted={isPosted}
+          stockSign={-1}
+          journalEmptyTitle="القيد يظهر بعد تحويل عرض السعر إلى فاتورة وترحيلها."
+          termsAction={
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={converted || convertMutation.isPending}
+                className="gap-1.5 border-primary/30 font-semibold text-primary hover:bg-primary/10"
+                onClick={() => void handleConvert('invoice')}
+              >
+                <ArrowRightLeft className="h-3.5 w-3.5" />
+                إنشاء فاتورة مبيعات
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={converted || convertMutation.isPending}
+                className="gap-1.5 border-emerald-600/30 font-semibold text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+                onClick={() => void handleConvert('order')}
+              >
+                <Receipt className="h-3.5 w-3.5" />
+                تحويل إلى أمر بيع
+              </Button>
+            </div>
+          }
+        />
 
         <DocumentBrowseDrawer open={browseOpen} onClose={() => setBrowseOpen(false)} title="عروض الأسعار السابقة">
           <GenericRecordsList
@@ -660,11 +964,14 @@ export function PriceQuoteForm() {
                 getValue: (r) => Number(r.netAmount ?? 0).toLocaleString('ar-EG'),
               },
             ]}
-            resolveStatus={(r) =>
-              r.isConverted
-                ? { variant: 'info', label: 'محول' }
-                : { variant: 'warning', label: 'مسودة' }
-            }
+            resolveStatus={(r) => {
+              if (r.isConverted) return { variant: 'info' as const, label: 'محول' };
+              const st = savedDocumentRowStatus({
+                isPosted: Boolean(r.isPosted),
+                isCancelled: Boolean(r.isCancelled),
+              });
+              return { variant: st.tone, label: st.label };
+            }}
             onSelect={(id) => {
               setSelectedId(id);
               setBrowseOpen(false);

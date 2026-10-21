@@ -1,6 +1,7 @@
 import {
   INVOICE_LINE_COLUMN_DEFS,
   SALES_INVOICE_STORAGE_DEFAULT,
+  stripSalesInvoiceHiddenColumns,
   type InvoiceLineColumnId,
 } from '@/lib/invoices/invoiceLineColumns';
 import type { DocumentProfileColumnKey } from './types';
@@ -23,5 +24,7 @@ export function columnsFromDocumentProfile(
     for (const id of cols) extra.add(id);
   }
   const merged = new Set<InvoiceLineColumnId>([...SALES_INVOICE_STORAGE_DEFAULT, ...extra]);
-  return INVOICE_LINE_COLUMN_DEFS.filter((c) => merged.has(c.id)).map((c) => c.id);
+  return stripSalesInvoiceHiddenColumns(
+    INVOICE_LINE_COLUMN_DEFS.filter((c) => merged.has(c.id)).map((c) => c.id)
+  );
 }

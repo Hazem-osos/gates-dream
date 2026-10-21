@@ -26,9 +26,17 @@ type MovementRow = {
   quantityDelta: number | string;
   unitCost?: number | string | null;
   documentDate?: string;
+  createdAt?: string;
   item?: { serial?: string | null; arabicName?: string | null };
   warehouse?: { code?: string | null; arabicName?: string | null };
 };
+
+function fmtWhen(iso?: string): string {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'medium' });
+}
 
 function labelType(type: string): string {
   return MOVEMENT_TYPE_AR[type] ?? type.replace(/_/g, ' ');
@@ -41,13 +49,24 @@ function fmtQty(v: number | string | undefined): string {
   return `${sign}${n.toLocaleString('ar-EG', { maximumFractionDigits: 4 })}`;
 }
 
+type MovementSourceFallback = {
+  sourceType: string;
+  sourceNumber: string;
+};
+
 type Props = {
   documentId: string | null;
   isPosted: boolean;
+  /** حركات قديمة قبل ربط sourceDocumentId (مثلاً إذن صرف GI بالمسلسل). */
+  movementSourceFallback?: MovementSourceFallback | null;
 };
 
-export function DocumentLinkedStockMovementsTab({ documentId, isPosted }: Props) {
-  const enabled = Boolean(documentId && isPosted);
+export function DocumentLinkedStockMovementsTab({
+  documentId,
+  isPosted,
+  movementSourceFallback,
+}: Props) {
+  const enabled = Boolean(documentId);
   const { data, isLoading, isFetching } = useApiQuery<MovementRow[]>(
     ['inventory-movements-by-doc', documentId],
     '/inventory/movements',
@@ -55,26 +74,46 @@ export function DocumentLinkedStockMovementsTab({ documentId, isPosted }: Props)
     { enabled, skipErrorNotify: true }
   );
 
+  const primaryRows = data?.data ?? [];
+  const fallbackKey = movementSourceFallback?.sourceNumber?.trim()
+    ? `${movementSourceFallback.sourceType}|${movementSourceFallback.sourceNumber}`
+    : '';
+  const needFallback =
+    enabled &&
+    !isLoading &&
+    !isFetching &&
+    primaryRows.length === 0 &&
+    Boolean(fallbackKey);
+
+  const { data: fallbackData, isLoading: fallbackLoading } = useApiQuery<MovementRow[]>(
+    ['inventory-movements-by-source', fallbackKey],
+    '/inventory/movements',
+    {
+      sourceType: movementSourceFallback?.sourceType,
+      sourceNumber: movementSourceFallback?.sourceNumber,
+      limit: 100,
+    },
+    { enabled: needFallback, skipErrorNotify: true }
+  );
+
   if (!documentId) {
     return <EmptyState title="احفظ المستند أولاً لعرض حركات المخزون." />;
   }
 
-  if (!isPosted) {
-    return (
-      <p className="text-sm text-slate-500 py-2">
-        تُسجَّل حركات المخزون (التقسير) تلقائياً عند حفظ وترحيل المستند.
-      </p>
-    );
-  }
-
-  if (isLoading || isFetching) {
+  if (isLoading || isFetching || (needFallback && fallbackLoading)) {
     return <TableSkeleton rows={4} columns={5} />;
   }
 
-  const rows = data?.data ?? [];
+  const rows = primaryRows.length ? primaryRows : fallbackData?.data ?? [];
   if (!rows.length) {
     return (
-      <EmptyState title="لا توجد حركات مخزنية مرتبطة بهذا المستند بعد." />
+      <EmptyState
+        title={
+          isPosted
+            ? 'لا توجد حركات مخزنية مرتبطة بهذا المستند بعد.'
+            : 'لا توجد حركات مخزنية بعد — رحّل المستند لتسجيل التأثير المخزني (أو راجع الحركات بعد فك الترحيل).'
+        }
+      />
     );
   }
 
@@ -86,6 +125,8 @@ export function DocumentLinkedStockMovementsTab({ documentId, isPosted }: Props)
             <th className="py-2 px-1 font-semibold">الصنف</th>
             <th className="py-2 px-1 font-semibold">المخزن</th>
             <th className="py-2 px-1 font-semibold">نوع الحركة</th>
+            <th className="py-2 px-1 font-semibold">تاريخ المستند</th>
+            <th className="py-2 px-1 font-semibold">وقت التسجيل</th>
             <th className="py-2 px-1 font-semibold">الكمية</th>
             <th className="py-2 px-1 font-semibold">التكلفة</th>
           </tr>
@@ -100,6 +141,8 @@ export function DocumentLinkedStockMovementsTab({ documentId, isPosted }: Props)
                 <td className="py-1.5 px-1 text-right">{itemLabel}</td>
                 <td className="py-1.5 px-1">{wh}</td>
                 <td className="py-1.5 px-1">{labelType(row.movementType)}</td>
+                <td className="py-1.5 px-1 font-mono tabular-nums">{fmtWhen(row.documentDate)}</td>
+                <td className="py-1.5 px-1 font-mono tabular-nums">{fmtWhen(row.createdAt)}</td>
                 <td className="py-1.5 px-1 font-mono tabular-nums">{fmtQty(row.quantityDelta)}</td>
                 <td className="py-1.5 px-1 font-mono tabular-nums">
                   {cost ? cost.toLocaleString('ar-EG', { maximumFractionDigits: 4 }) : '—'}

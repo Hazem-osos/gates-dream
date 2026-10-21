@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { BadgePercent, Plus, Trash2 } from 'lucide-react';
 import {
   Button,
@@ -63,6 +65,23 @@ export default function RepresentativesCommissionsPolicyPage() {
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
 
+  type CommissionPolicyDraft = { form: FormState; tiers: TierRow[] };
+  const draftSnapshot = useMemo<CommissionPolicyDraft>(() => ({ form, tiers }), [form, tiers]);
+  const applyCommissionPolicyDraft = useCallback((payload: CommissionPolicyDraft) => {
+    setForm(payload.form);
+    setTiers(payload.tiers);
+    setSelectedId(null);
+    setError('');
+  }, []);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: 'representatives-commissions-policy',
+    editingId: selectedId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.form.arabicName.trim() && !d.form.code.trim(),
+    applyRestore: applyCommissionPolicyDraft,
+    restoreMessage: 'يوجد مسودة سياسة عمولات غير محفوظة',
+  });
+
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
   const patchTier = (key: string, next: Partial<TierRow>) => {
     setTiers((prev) => prev.map((row) => (row.key === key ? { ...row, ...next } : row)));
@@ -88,6 +107,7 @@ export default function RepresentativesCommissionsPolicyPage() {
   };
 
   const handleNew = () => {
+    clearDraft();
     setSelectedId(null);
     setForm(emptyForm());
     setTiers([emptyTier(), emptyTier(), emptyTier()]);
@@ -134,6 +154,7 @@ export default function RepresentativesCommissionsPolicyPage() {
         );
       }
       invalidateQuery(['representatives-commissions-policy']);
+      clearDraft();
       handleNew();
       setSuccess('تم حفظ سياسة العمولة — تقدر تضيف التالي');
     } catch (err: unknown) {
@@ -174,6 +195,14 @@ export default function RepresentativesCommissionsPolicyPage() {
       currentId={selectedId}
       favoriteHref="/inventory/creations/representatives-commissions-policy"
     >
+      <MasterCardDraftRestoreGate<CommissionPolicyDraft>
+        editingId={selectedId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyCommissionPolicyDraft}
+        message="يوجد مسودة سياسة عمولات غير محفوظة."
+      />
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 

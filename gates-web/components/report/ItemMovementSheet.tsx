@@ -22,9 +22,13 @@ function num(value: unknown): number {
 
 function dateLabel(value: unknown): string {
   const raw = typeof value === 'string' ? value : value instanceof Date ? value.toISOString() : '';
-  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/);
   if (!match) return '';
-  return `${match[3]}/${match[2]}/${match[1]}`;
+  const date = `${match[3]}/${match[2]}/${match[1]}`;
+  const hour = match[4];
+  const minute = match[5];
+  if (!hour || (hour === '00' && minute === '00')) return date;
+  return `${date} ${hour}:${minute}`;
 }
 
 function qty(value: unknown): string {
@@ -90,7 +94,8 @@ const DETAIL_COLS: Array<{ key: string; label: string; kind: Kind }> = [
   { key: 'delegateName', label: 'المندوب', kind: 'text' },
 ];
 
-const BASE_COLS = 16;
+const IN_KEYS = ['inQty', 'inPrice', 'inTotal'] as const;
+const OUT_KEYS = ['outQty', 'outPrice', 'outTotal'] as const;
 
 export function ItemMovementSheet({
   rows,
@@ -98,17 +103,20 @@ export function ItemMovementSheet({
   groupBy = 'none',
   title,
   filters = [],
+  visibleColumnIds,
 }: {
   rows: Row[];
   summary?: unknown;
   groupBy?: 'none' | 'warehouse' | 'groups' | 'costCenter';
   title?: string;
   filters?: ReportFilterBadge[];
+  visibleColumnIds?: string[];
 }) {
   const [details, setDetails] = useState(false);
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [openColumn, setOpenColumn] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
+  const on = (key: string) => !visibleColumnIds?.length || visibleColumnIds.includes(key);
   const totals = summary && typeof summary === 'object' ? (summary as Record<string, unknown>) : {};
   const cards = [
     ['إجمالي الكميات الداخلة', qty(totals.totalInQty) || '0'],
@@ -118,6 +126,8 @@ export function ItemMovementSheet({
     ['إجمالي الخصومات', money(totals.totalDiscount) || '0.00'],
     ['فرق الكميات', balanceLabel(totals.qtyDifference)],
   ] as const;
+  const inCount = IN_KEYS.filter(on).length;
+  const outCount = OUT_KEYS.filter(on).length;
 
   const columns = useMemo(() => {
     const head: Array<{ key: string; kind: Kind }> = [
@@ -136,12 +146,15 @@ export function ItemMovementSheet({
       { key: 'outPrice', kind: 'money' },
       { key: 'outTotal', kind: 'money' },
       { key: 'balance', kind: 'balance' },
+      { key: 'companyBalance', kind: 'balance' },
       { key: 'averageCost', kind: 'money' },
       ...ITEM_ATTRS.map((col) => ({ key: col.key, kind: col.kind })),
       ...(details ? DETAIL_COLS.map((col) => ({ key: col.key, kind: col.kind })) : []),
     ];
-    return head;
-  }, [details]);
+    return visibleColumnIds?.length
+      ? head.filter((col) => visibleColumnIds.includes(col.key) || (details && DETAIL_COLS.some((d) => d.key === col.key)))
+      : head;
+  }, [details, visibleColumnIds]);
 
   const valuesByColumn = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -168,7 +181,7 @@ export function ItemMovementSheet({
     );
   }, [columns, picked, rows]);
 
-  const span = BASE_COLS + ITEM_ATTRS.length + (details ? DETAIL_COLS.length : 0);
+  const span = columns.length;
   let previousGroup = '';
 
   const openHeader = (key: string, event: MouseEvent<HTMLButtonElement>) => {
@@ -198,23 +211,27 @@ export function ItemMovementSheet({
         </button>
       </div>
 
-      <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-xl border border-slate-200">
+      <div
+        dir="rtl"
+        className="report-scroll-viewport item-movement-sheet erp-scroll-x overflow-x-auto rounded-xl border border-slate-200"
+      >
         <table className="min-w-full border-collapse text-xs text-slate-800">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
-              <FilterHead label="التاريخ" columnKey="date" rowSpan={2} values={valuesByColumn.get('date') ?? []} picked={picked.date} onOpen={openHeader} />
-              <FilterHead label="المصدر" columnKey="sourceLabel" rowSpan={2} values={valuesByColumn.get('sourceLabel') ?? []} picked={picked.sourceLabel} onOpen={openHeader} />
-              <FilterHead label="رقمه" columnKey="sourceNumber" rowSpan={2} values={valuesByColumn.get('sourceNumber') ?? []} picked={picked.sourceNumber} onOpen={openHeader} />
-              <FilterHead label="الصنف" columnKey="itemName" rowSpan={2} values={valuesByColumn.get('itemName') ?? []} picked={picked.itemName} onOpen={openHeader} />
-              <FilterHead label="المخزن" columnKey="warehouseName" rowSpan={2} values={valuesByColumn.get('warehouseName') ?? []} picked={picked.warehouseName} onOpen={openHeader} />
-              <FilterHead label="المورد أو العميل" columnKey="partyName" rowSpan={2} values={valuesByColumn.get('partyName') ?? []} picked={picked.partyName} onOpen={openHeader} />
-              <FilterHead label="الشرح" columnKey="description" rowSpan={2} values={valuesByColumn.get('description') ?? []} picked={picked.description} onOpen={openHeader} />
-              <FilterHead label="الوحدة" columnKey="unitName" rowSpan={2} values={valuesByColumn.get('unitName') ?? []} picked={picked.unitName} onOpen={openHeader} />
-              <th colSpan={3} className="border-b border-s border-emerald-200 bg-emerald-50 px-2 py-2 text-center font-semibold text-emerald-800">المدخلات</th>
-              <th colSpan={3} className="border-b border-s border-rose-200 bg-rose-50 px-2 py-2 text-center font-semibold text-rose-800">المخرجات</th>
-              <FilterHead label="الرصيد" columnKey="balance" rowSpan={2} values={valuesByColumn.get('balance') ?? []} picked={picked.balance} onOpen={openHeader} />
-              <FilterHead label="متوسط التكلفة" columnKey="averageCost" rowSpan={2} values={valuesByColumn.get('averageCost') ?? []} picked={picked.averageCost} onOpen={openHeader} />
-              {ITEM_ATTRS.map((col) => (
+              {on('date') ? <FilterHead label="التاريخ" columnKey="date" rowSpan={2} values={valuesByColumn.get('date') ?? []} picked={picked.date} onOpen={openHeader} /> : null}
+              {on('sourceLabel') ? <FilterHead label="المصدر" columnKey="sourceLabel" rowSpan={2} values={valuesByColumn.get('sourceLabel') ?? []} picked={picked.sourceLabel} onOpen={openHeader} /> : null}
+              {on('sourceNumber') ? <FilterHead label="رقمه" columnKey="sourceNumber" rowSpan={2} values={valuesByColumn.get('sourceNumber') ?? []} picked={picked.sourceNumber} onOpen={openHeader} /> : null}
+              {on('itemName') ? <FilterHead label="الصنف" columnKey="itemName" rowSpan={2} values={valuesByColumn.get('itemName') ?? []} picked={picked.itemName} onOpen={openHeader} /> : null}
+              {on('warehouseName') ? <FilterHead label="المخزن" columnKey="warehouseName" rowSpan={2} values={valuesByColumn.get('warehouseName') ?? []} picked={picked.warehouseName} onOpen={openHeader} /> : null}
+              {on('partyName') ? <FilterHead label="المورد أو العميل" columnKey="partyName" rowSpan={2} values={valuesByColumn.get('partyName') ?? []} picked={picked.partyName} onOpen={openHeader} /> : null}
+              {on('description') ? <FilterHead label="الشرح" columnKey="description" rowSpan={2} values={valuesByColumn.get('description') ?? []} picked={picked.description} onOpen={openHeader} /> : null}
+              {on('unitName') ? <FilterHead label="الوحدة" columnKey="unitName" rowSpan={2} values={valuesByColumn.get('unitName') ?? []} picked={picked.unitName} onOpen={openHeader} /> : null}
+              {inCount ? <th colSpan={inCount} className="border-b border-s border-emerald-200 bg-emerald-50 px-2 py-2 text-center font-semibold text-emerald-800">المدخلات</th> : null}
+              {outCount ? <th colSpan={outCount} className="border-b border-s border-rose-200 bg-rose-50 px-2 py-2 text-center font-semibold text-rose-800">المخرجات</th> : null}
+              {on('balance') ? <FilterHead label="رصيد المخزن" columnKey="balance" rowSpan={2} values={valuesByColumn.get('balance') ?? []} picked={picked.balance} onOpen={openHeader} /> : null}
+              {on('companyBalance') ? <FilterHead label="الرصيد الإجمالي بالمخازن" columnKey="companyBalance" rowSpan={2} values={valuesByColumn.get('companyBalance') ?? []} picked={picked.companyBalance} onOpen={openHeader} /> : null}
+              {on('averageCost') ? <FilterHead label="متوسط التكلفة" columnKey="averageCost" rowSpan={2} values={valuesByColumn.get('averageCost') ?? []} picked={picked.averageCost} onOpen={openHeader} /> : null}
+              {ITEM_ATTRS.filter((col) => on(col.key)).map((col) => (
                 <FilterHead
                   key={col.key}
                   label={col.label}
@@ -240,20 +257,18 @@ export function ItemMovementSheet({
                 : null}
             </tr>
             <tr>
-              <FilterHead label="الكمية" columnKey="inQty" values={valuesByColumn.get('inQty') ?? []} picked={picked.inQty} onOpen={openHeader} tone="in" />
-              <FilterHead label="السعر" columnKey="inPrice" values={valuesByColumn.get('inPrice') ?? []} picked={picked.inPrice} onOpen={openHeader} tone="in" />
-              <FilterHead label="الإجمالي" columnKey="inTotal" values={valuesByColumn.get('inTotal') ?? []} picked={picked.inTotal} onOpen={openHeader} tone="in" />
-              <FilterHead label="الكمية" columnKey="outQty" values={valuesByColumn.get('outQty') ?? []} picked={picked.outQty} onOpen={openHeader} tone="out" />
-              <FilterHead label="السعر" columnKey="outPrice" values={valuesByColumn.get('outPrice') ?? []} picked={picked.outPrice} onOpen={openHeader} tone="out" />
-              <FilterHead label="الإجمالي" columnKey="outTotal" values={valuesByColumn.get('outTotal') ?? []} picked={picked.outTotal} onOpen={openHeader} tone="out" />
+              {on('inQty') ? <FilterHead label="الكمية" columnKey="inQty" values={valuesByColumn.get('inQty') ?? []} picked={picked.inQty} onOpen={openHeader} tone="in" /> : null}
+              {on('inPrice') ? <FilterHead label="السعر" columnKey="inPrice" values={valuesByColumn.get('inPrice') ?? []} picked={picked.inPrice} onOpen={openHeader} tone="in" /> : null}
+              {on('inTotal') ? <FilterHead label="الإجمالي" columnKey="inTotal" values={valuesByColumn.get('inTotal') ?? []} picked={picked.inTotal} onOpen={openHeader} tone="in" /> : null}
+              {on('outQty') ? <FilterHead label="الكمية" columnKey="outQty" values={valuesByColumn.get('outQty') ?? []} picked={picked.outQty} onOpen={openHeader} tone="out" /> : null}
+              {on('outPrice') ? <FilterHead label="السعر" columnKey="outPrice" values={valuesByColumn.get('outPrice') ?? []} picked={picked.outPrice} onOpen={openHeader} tone="out" /> : null}
+              {on('outTotal') ? <FilterHead label="الإجمالي" columnKey="outTotal" values={valuesByColumn.get('outTotal') ?? []} picked={picked.outTotal} onOpen={openHeader} tone="out" /> : null}
             </tr>
           </thead>
           <tbody>
             {visibleRows.map((row, index) => {
               const group =
-                groupBy === 'none'
-                  ? ''
-                  : text(row, 'groupKey') || `${text(row, 'itemName')}|${text(row, 'warehouseName')}`;
+                text(row, 'groupKey') || `${text(row, 'itemName')}|${text(row, 'warehouseName')}`;
               const showGroup = Boolean(group) && group !== previousGroup;
               previousGroup = group;
               const sourceType = text(row, 'sourceType');
@@ -281,36 +296,53 @@ export function ItemMovementSheet({
                           <span className="font-semibold text-slate-900">
                             المخزن: {text(row, 'warehouseName') || 'بدون مخزن'}
                           </span>
+                        ) : groupBy === 'none' ? (
+                          <span className="font-semibold text-slate-900">
+                            الصنف: {text(row, 'itemName') || '—'}
+                          </span>
                         ) : (
                           <span className="font-semibold text-slate-900">الصنف: {text(row, 'itemName') || '—'}</span>
                         )}
                       </td>
                     </tr>
                   ) : null}
-                  <tr className="odd:bg-white even:bg-slate-50/60">
-                    <td className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">{dateLabel(row.date)}</td>
-                    <td className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">
-                      <SourceLink href={href && !sourceNumber ? href : null} label={sourceLabel} />
-                    </td>
-                    <td className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">
-                      <SourceLink href={href && sourceNumber ? href : null} label={sourceNumber} />
-                    </td>
-                    <td className="border-b border-slate-100 px-2 py-1.5 font-medium">{text(row, 'itemName')}</td>
-                    <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'warehouseName')}</td>
-                    <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'partyName')}</td>
-                    <td className="border-b border-slate-100 px-2 py-1.5 max-w-[16rem]">{text(row, 'description')}</td>
-                    <td className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">{text(row, 'unitName')}</td>
-                    <td className="border-b border-s border-emerald-50 px-2 py-1.5 text-center tabular-nums">{qty(row.inQty)}</td>
-                    <td className="border-b border-emerald-50 px-2 py-1.5 text-center tabular-nums">{money(row.inPrice)}</td>
-                    <td className="border-b border-emerald-50 px-2 py-1.5 text-center tabular-nums">{money(row.inTotal)}</td>
-                    <td className="border-b border-s border-rose-50 px-2 py-1.5 text-center tabular-nums">{qty(row.outQty)}</td>
-                    <td className="border-b border-rose-50 px-2 py-1.5 text-center tabular-nums">{money(row.outPrice)}</td>
-                    <td className="border-b border-rose-50 px-2 py-1.5 text-center tabular-nums">{money(row.outTotal)}</td>
-                    <td className="border-b border-s border-slate-100 px-2 py-1.5 text-center font-semibold tabular-nums">{balanceLabel(row.balance)}</td>
-                    <td className="border-b border-s border-slate-100 px-2 py-1.5 text-center tabular-nums">
-                      {row.averageCost == null ? '' : moneyAlways(row.averageCost)}
-                    </td>
-                    {ITEM_ATTRS.map((col) => (
+                  <tr
+                    className={`item-movement-data-row ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}
+                  >
+                    {on('date') ? (
+                      <td className="sticky-date-cell border-b border-slate-100 px-2 py-1.5 whitespace-nowrap tabular-nums">
+                        {dateLabel(row.date)}
+                      </td>
+                    ) : null}
+                    {on('sourceLabel') ? (
+                      <td className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">
+                        <SourceLink href={href && !sourceNumber ? href : null} label={sourceLabel} />
+                      </td>
+                    ) : null}
+                    {on('sourceNumber') ? (
+                      <td className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">
+                        <SourceLink href={href && sourceNumber ? href : null} label={sourceNumber} />
+                      </td>
+                    ) : null}
+                    {on('itemName') ? <td className="border-b border-slate-100 px-2 py-1.5 font-medium">{text(row, 'itemName')}</td> : null}
+                    {on('warehouseName') ? <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'warehouseName')}</td> : null}
+                    {on('partyName') ? <td className="border-b border-slate-100 px-2 py-1.5">{text(row, 'partyName')}</td> : null}
+                    {on('description') ? <td className="border-b border-slate-100 px-2 py-1.5 max-w-[16rem]">{text(row, 'description')}</td> : null}
+                    {on('unitName') ? <td className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">{text(row, 'unitName')}</td> : null}
+                    {on('inQty') ? <td className="border-b border-s border-emerald-50 px-2 py-1.5 text-center tabular-nums">{qty(row.inQty)}</td> : null}
+                    {on('inPrice') ? <td className="border-b border-emerald-50 px-2 py-1.5 text-center tabular-nums">{money(row.inPrice)}</td> : null}
+                    {on('inTotal') ? <td className="border-b border-emerald-50 px-2 py-1.5 text-center tabular-nums">{money(row.inTotal)}</td> : null}
+                    {on('outQty') ? <td className="border-b border-s border-rose-50 px-2 py-1.5 text-center tabular-nums">{qty(row.outQty)}</td> : null}
+                    {on('outPrice') ? <td className="border-b border-rose-50 px-2 py-1.5 text-center tabular-nums">{money(row.outPrice)}</td> : null}
+                    {on('outTotal') ? <td className="border-b border-rose-50 px-2 py-1.5 text-center tabular-nums">{money(row.outTotal)}</td> : null}
+                    {on('balance') ? <td className="border-b border-s border-slate-100 px-2 py-1.5 text-center font-semibold tabular-nums">{balanceLabel(row.balance)}</td> : null}
+                    {on('companyBalance') ? <td className="border-b border-s border-slate-100 px-2 py-1.5 text-center font-semibold tabular-nums">{balanceLabel(row.companyBalance)}</td> : null}
+                    {on('averageCost') ? (
+                      <td className="border-b border-s border-slate-100 px-2 py-1.5 text-center tabular-nums">
+                        {row.averageCost == null ? '' : moneyAlways(row.averageCost)}
+                      </td>
+                    ) : null}
+                    {ITEM_ATTRS.filter((col) => on(col.key)).map((col) => (
                       <td key={col.key} className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap">
                         {col.kind === 'qty' ? qty(row[col.key]) : text(row, col.key)}
                       </td>
@@ -400,7 +432,8 @@ function columnLabel(key: string): string {
     outQty: 'كمية المخرجات',
     outPrice: 'سعر المخرجات',
     outTotal: 'إجمالي المخرجات',
-    balance: 'الرصيد',
+    balance: 'رصيد المخزن',
+    companyBalance: 'الرصيد الإجمالي بالمخازن',
     averageCost: 'متوسط التكلفة',
   };
   return labels[key] ?? key;

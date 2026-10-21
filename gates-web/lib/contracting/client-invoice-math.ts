@@ -72,9 +72,12 @@ export function computeLiveClientBreakdown(params: {
   const advanceCap = grossCurrentWorks * toMoney(contract.advanceRecoveryRate);
   const advancePaymentRecovery =
     remainingAdvance > 0 && grossCurrentWorks > 0 ? Math.min(remainingAdvance, advanceCap) : 0;
-  const retentionDeduction = grossCurrentWorks * toMoney(contract.retentionRate);
+  const retentionDeduction =
+    grossCurrentWorks *
+    (toMoney(contract.retentionRate) + toMoney(contract.finalRetentionRate));
   const engineeringStampsDeduction = grossCurrentWorks * toMoney(contract.engineeringStampsRate);
-  const penalties = Math.max(0, otherClientPenalties);
+  const penalties =
+    Math.max(0, otherClientPenalties) + grossCurrentWorks * toMoney(contract.otherDeductionsRate);
   const netMaterialsOnSite = materialsOnSiteCurrent - materialsOnSiteDeduction;
   const netPayableByClient =
     grossCurrentWorks +

@@ -78,6 +78,10 @@ export function withItemCodeHierarchy<T>(
       ? sorted.map((row) => hints.parentId!(row)).filter((id): id is string => Boolean(id))
       : []
   );
+  const byId = hints?.id
+    ? new Map(sorted.map((row) => [hints.id!(row), row] as const))
+    : null;
+
   return sorted.map((row) => {
     const code = getCode(row);
     const dottedParent = isParentItemCode(code, codes);
@@ -92,9 +96,21 @@ export function withItemCodeHierarchy<T>(
       apiExecutable === false ||
       parentByFk ||
       dottedParent;
+
+    let depth = itemCodeDepth(code);
+    if (hints?.parentId && hints?.id && byId) {
+      let chain = 0;
+      let parentId = hints.parentId(row);
+      while (parentId && byId.has(parentId)) {
+        chain += 1;
+        parentId = hints.parentId(byId.get(parentId)!) ?? null;
+      }
+      depth = Math.max(depth, chain);
+    }
+
     return {
       ...row,
-      __depth: itemCodeDepth(code),
+      __depth: depth,
       __isParent: isParent,
       __isExecutable: !isParent,
     };
@@ -126,6 +142,55 @@ export const workItemHierarchyHints: HierarchyHints<{
   isExecutable: (row) => row.isExecutable,
   hasChildren: (row) => (row._count?.children != null ? row._count.children > 0 : undefined),
 };
+
+/** رئيسي (جذر) vs رئيسي فرعي (مجموعة تحت الجذر). التنفيذي = null. */
+export function boqHeaderRoleLabel(isParent: boolean, depth: number): string | null {
+  if (!isParent) return null;
+  return depth <= 0 ? 'رئيسي' : 'رئيسي فرعي';
+}
+
+/** الكمية تُدخل على البنود التنفيذية فقط (أبناء الرؤوس، وليس الرؤوس). */
+export function canEnterBoqLineQuantity(isParent: boolean): boolean {
+  return !isParent;
+}
+
+/** A nested dotted code is visible only when every ancestor code is expanded. Roots are always visible. */
+export function isHierarchicalRowVisible(
+  code: string,
+  expandedCodes: ReadonlySet<string>
+): boolean {
+  const trimmed = String(code ?? '').trim();
+  if (!trimmed.includes('.')) return true;
+  const parts = trimmed.split('.');
+  for (let i = 1; i < parts.length; i++) {
+    if (!expandedCodes.has(parts.slice(0, i).join('.'))) return false;
+  }
+  return true;
+}
+
+/** parentId tree: row visible when every ancestor id is expanded. Roots always visible. */
+export function isParentIdTreeRowVisible(
+  row: { id: string; parentId?: string | null },
+  expandedParentIds: ReadonlySet<string>,
+  byId: ReadonlyMap<string, { id: string; parentId?: string | null }>
+): boolean {
+  let parentId = row.parentId ?? null;
+  while (parentId) {
+    if (!expandedParentIds.has(parentId)) return false;
+    parentId = byId.get(parentId)?.parentId ?? null;
+  }
+  return true;
+}
+
+export function parentIdsWithChildren<T extends { id: string; parentId?: string | null }>(
+  rows: readonly T[]
+): Set<string> {
+  const parents = new Set<string>();
+  for (const row of rows) {
+    if (row.parentId) parents.add(row.parentId);
+  }
+  return parents;
+}
 
 export function parentCodeFromItemCode(itemCode: string): string | null {
   const trimmed = String(itemCode ?? '').trim();

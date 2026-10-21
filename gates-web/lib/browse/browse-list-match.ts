@@ -32,6 +32,28 @@ export function rowMatchesSearch(row: Record<string, unknown>, search: string): 
   return collectSearchText(row).includes(q);
 }
 
+/** Invoice «السابق» drawer: match number and party before deep object scan. */
+export function invoiceBrowseRowMatchesSearch(row: Record<string, unknown>, search: string): boolean {
+  const q = search.trim().toLowerCase();
+  if (!q) return true;
+  const number = String(row.invoiceNumber ?? row.record ?? '').toLowerCase();
+  if (number.includes(q)) return true;
+  const customer = row.customer;
+  const supplier = row.supplier;
+  const partyNames = [
+    customer && typeof customer === 'object' ? (customer as Record<string, unknown>).arabicName : null,
+    customer && typeof customer === 'object' ? (customer as Record<string, unknown>).englishName : null,
+    customer && typeof customer === 'object' ? (customer as Record<string, unknown>).code : null,
+    supplier && typeof supplier === 'object' ? (supplier as Record<string, unknown>).arabicName : null,
+    supplier && typeof supplier === 'object' ? (supplier as Record<string, unknown>).englishName : null,
+    supplier && typeof supplier === 'object' ? (supplier as Record<string, unknown>).code : null,
+  ]
+    .map((v) => String(v ?? '').toLowerCase())
+    .filter(Boolean);
+  if (partyNames.some((name) => name.includes(q))) return true;
+  return rowMatchesSearch(row, search);
+}
+
 export function rowMatchesDateRange(
   row: Record<string, unknown>,
   startDate: string,

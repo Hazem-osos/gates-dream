@@ -4,6 +4,7 @@ import { Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { journalDocumentHref, journalSourceLabelFromRow } from '@/lib/accounting/journal-source';
 import { journalEntryHref } from '@/lib/reportEngine/reportRowHref';
+import { isReportColumnVisible } from '@/lib/reportEngine/reportColumnVisible';
 
 type Row = Record<string, unknown>;
 
@@ -47,7 +48,28 @@ function origin(row: Row): string {
   return label;
 }
 
-function LineCells({ row, onOpen }: { row: Row; onOpen: (href: string) => void }) {
+const COLS: Array<{ id: string; label: string }> = [
+  { id: 'date', label: 'التاريخ' },
+  { id: 'ledgerAccount', label: 'الحساب' },
+  { id: 'costCenter', label: 'مركز التكلفة' },
+  { id: 'debit', label: 'مدين' },
+  { id: 'credit', label: 'دائن' },
+  { id: 'description', label: 'الشرح' },
+  { id: 'voucherNumber', label: 'الرقم' },
+  { id: 'sourceType', label: 'الأصل' },
+  { id: 'sourceNumber', label: 'رقمه' },
+];
+
+function LineCells({
+  row,
+  onOpen,
+  visibleColumnIds,
+}: {
+  row: Row;
+  onOpen: (href: string) => void;
+  visibleColumnIds?: string[];
+}) {
+  const on = (id: string) => isReportColumnVisible(visibleColumnIds, id);
   const href = journalEntryHref(row);
   const number = text(row, 'voucherNumber') || text(row, 'documentNumber');
   const sourceNumber = text(row, 'sourceNumber');
@@ -60,35 +82,47 @@ function LineCells({ row, onOpen }: { row: Row; onOpen: (href: string) => void }
   });
   return (
     <>
-      <td className="border border-slate-300 px-2 py-1">{accountName(row)}</td>
-      <td className="border border-slate-300 px-2 py-1">{text(row, 'costCenter')}</td>
-      <td className="border border-slate-300 px-2 py-1 text-center text-red-700">{money(amount(row.debit))}</td>
-      <td className="border border-slate-300 px-2 py-1 text-center text-red-700">{money(amount(row.credit))}</td>
-      <td className="border border-slate-300 px-2 py-1">{text(row, 'description')}</td>
-      <td className="border border-slate-300 px-2 py-1 text-center">
-        {href && number ? (
-          <button type="button" className="font-medium text-[#0E78AA] underline" onClick={() => onOpen(href)}>
-            {number}
-          </button>
-        ) : (
-          number
-        )}
-      </td>
-      <td className="border border-slate-300 px-2 py-1 text-center">{origin(row)}</td>
-      <td className="border border-slate-300 px-2 py-1 text-center">
-        {sourceHref && sourceNumber ? (
-          <button type="button" className="font-medium text-[#0E78AA] underline" onClick={() => onOpen(sourceHref)}>
-            {sourceNumber}
-          </button>
-        ) : (
-          sourceNumber
-        )}
-      </td>
+      {on('ledgerAccount') ? <td className="border border-slate-300 px-2 py-1">{accountName(row)}</td> : null}
+      {on('costCenter') ? <td className="border border-slate-300 px-2 py-1">{text(row, 'costCenter')}</td> : null}
+      {on('debit') ? <td className="border border-slate-300 px-2 py-1 text-center text-red-700">{money(amount(row.debit))}</td> : null}
+      {on('credit') ? <td className="border border-slate-300 px-2 py-1 text-center text-red-700">{money(amount(row.credit))}</td> : null}
+      {on('description') ? <td className="border border-slate-300 px-2 py-1">{text(row, 'description')}</td> : null}
+      {on('voucherNumber') ? (
+        <td className="border border-slate-300 px-2 py-1 text-center">
+          {href && number ? (
+            <button type="button" className="font-medium text-[#0E78AA] underline" onClick={() => onOpen(href)}>
+              {number}
+            </button>
+          ) : (
+            number
+          )}
+        </td>
+      ) : null}
+      {on('sourceType') ? <td className="border border-slate-300 px-2 py-1 text-center">{origin(row)}</td> : null}
+      {on('sourceNumber') ? (
+        <td className="border border-slate-300 px-2 py-1 text-center">
+          {sourceHref && sourceNumber ? (
+            <button type="button" className="font-medium text-[#0E78AA] underline" onClick={() => onOpen(sourceHref)}>
+              {sourceNumber}
+            </button>
+          ) : (
+            sourceNumber
+          )}
+        </td>
+      ) : null}
     </>
   );
 }
 
-export function DailyJournalSheet({ rows, mode }: { rows: Row[]; mode: 'day' | 'entry' }) {
+export function DailyJournalSheet({
+  rows,
+  mode,
+  visibleColumnIds,
+}: {
+  rows: Row[];
+  mode: 'day' | 'entry';
+  visibleColumnIds?: string[];
+}) {
   const router = useRouter();
   const groups = new Map<string, { label: string; lines: Row[] }>();
   for (const row of rows) {
@@ -108,9 +142,9 @@ export function DailyJournalSheet({ rows, mode }: { rows: Row[]; mode: 'day' | '
       <table className="w-full border-collapse text-sm" dir="rtl">
         <thead>
           <tr className="bg-[#1787B8] text-white">
-            {['التاريخ', 'الحساب', 'مركز التكلفة', 'مدين', 'دائن', 'الشرح', 'الرقم', 'الأصل', 'رقمه'].map((label) => (
-              <th key={label} className="whitespace-nowrap border border-white/30 px-2 py-2 font-medium">
-                {label}
+            {COLS.filter((col) => isReportColumnVisible(visibleColumnIds, col.id)).map((col) => (
+              <th key={col.id} className="whitespace-nowrap border border-white/30 px-2 py-2 font-medium">
+                {col.label}
               </th>
             ))}
           </tr>
@@ -123,7 +157,7 @@ export function DailyJournalSheet({ rows, mode }: { rows: Row[]; mode: 'day' | '
               <Fragment key={blockIndex}>
                 {block.lines.map((row, index) => (
                   <tr key={`${blockIndex}-${index}`} className={index % 2 === 0 ? 'bg-sky-50/50' : 'bg-white'}>
-                    {index === 0 ? (
+                    {index === 0 && isReportColumnVisible(visibleColumnIds, 'date') ? (
                       <td
                         rowSpan={block.lines.length}
                         className="min-w-[7.5rem] whitespace-nowrap border border-slate-300 bg-emerald-50 px-2 py-1 text-center align-middle font-semibold tabular-nums"
@@ -131,7 +165,7 @@ export function DailyJournalSheet({ rows, mode }: { rows: Row[]; mode: 'day' | '
                         {block.label}
                       </td>
                     ) : null}
-                    <LineCells row={row} onOpen={(href) => router.push(href)} />
+                    <LineCells row={row} onOpen={(href) => router.push(href)} visibleColumnIds={visibleColumnIds} />
                   </tr>
                 ))}
                 <tr className="bg-emerald-100 font-semibold">

@@ -2,9 +2,9 @@
 
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import React, { useState, useEffect, useMemo } from 'react';
+import { Button } from '@/components/ui/button';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ListChecks } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { ExtractsPageChrome } from '@/components/extracts/ExtractsPageChrome';
 import {
   AppTable,
@@ -13,7 +13,15 @@ import {
   compactControlClass,
 } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
-import { sumExecutable, withItemCodeHierarchy, workItemHierarchyHints } from '@/lib/contracting/boq-hierarchy';
+import {
+  canEnterBoqLineQuantity,
+  isParentIdTreeRowVisible,
+  parentIdsWithChildren,
+  sumExecutable,
+  withItemCodeHierarchy,
+  workItemHierarchyHints,
+} from '@/lib/contracting/boq-hierarchy';
+import { BoqHierarchyTreeCell } from '@/components/contracting/BoqHierarchyTreeCell';
 import { formatEgp, formatQty, toMoney } from '@/lib/subcontracts/money';
 
 function fmt(v: unknown) {
@@ -34,6 +42,7 @@ export default function AgendaItemsPage() {
   const [pageSize] = useState(10);
   const [codeFilter, setCodeFilter] = useState('');
   const [nameFilter, setNameFilter] = useState('');
+  const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(() => new Set());
   const tabs = ['الكل', 'تشطيبات', 'أعمال فوق الأرض', 'أعمال تحت الأرض', 'تجهيزات'];
 
   const { data: projectsResponse } = useApiQuery<{ id: string; arabicName?: string; serial?: string }[]>(
@@ -78,6 +87,7 @@ export default function AgendaItemsPage() {
       _count?: { children?: number };
       unit?: string | null;
       quantity?: number | string | null;
+      unitPrice?: number | string | null;
       totalPrice?: number | string | null;
       itemGroupName?: string | null;
     }[]
@@ -107,6 +117,30 @@ export default function AgendaItemsPage() {
     () => withItemCodeHierarchy(visibleItems, (row) => row.itemNumber || '', workItemHierarchyHints),
     [visibleItems]
   );
+
+  const workItemById = useMemo(() => {
+    const map = new Map<string, (typeof workItems)[0]>();
+    for (const row of workItems) map.set(row.id, row);
+    return map;
+  }, [workItems]);
+
+  const parentIdsWithKids = useMemo(() => parentIdsWithChildren(workItems), [workItems]);
+
+  const visibleHierarchical = useMemo(
+    () =>
+      hierarchical.filter((row) =>
+        isParentIdTreeRowVisible(row, expandedParentIds, workItemById)
+      ),
+    [hierarchical, expandedParentIds, workItemById]
+  );
+
+  useEffect(() => {
+    const roots = new Set<string>();
+    for (const row of workItems) {
+      if (!row.parentId && parentIdsWithChildren(workItems).has(row.id)) roots.add(row.id);
+    }
+    setExpandedParentIds(roots);
+  }, [projectId, workItems]);
 
   const totalQty = sumExecutable(hierarchical, (w) => toMoney(w.quantity));
   const totalValue = sumExecutable(hierarchical, (w) => toMoney(w.totalPrice));
@@ -138,9 +172,19 @@ export default function AgendaItemsPage() {
         onSelect: () => undefined,
       }}
       extraActions={
-        <Button type="button" variant="secondary" size="sm" onClick={() => setShowTotalView((v) => !v)}>
-          {showTotalView ? 'عرض البنود' : 'إجمالي بنود الأعمال'}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={() => setShowTotalView((v) => !v)}>
+            {showTotalView ? 'عرض البنود' : 'إجمالي بنود الأعمال'}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => router.push('/extracts/operations/projects/execution-plan')}
+          >
+            مخطط التنفيذ
+          </Button>
+        </div>
       }
     >
       <FormSectionCard title="تصفية البنود" subtitle="اختر المشروع ثم راجع البنود" icon={ListChecks}>
@@ -198,8 +242,9 @@ export default function AgendaItemsPage() {
           <AppTable
             columns={[
               { id: 'name', header: 'إسم البند', cell: (row) => fmt(row.arabicName) },
-              { id: 'qty', header: 'الكمية', cell: (row) => fmt(row.quantity) },
-              { id: 'value', header: 'القيمة', cell: (row) => fmt(row.totalPrice) },
+              { id: 'qty', header: 'الكمية', cell: (row) => (row.__isParent ? '—' : formatQty(row.quantity)) },
+              { id: 'price', header: 'سعر الوحدة', cell: (row) => (row.__isParent ? '—' : formatEgp(row.unitPrice)) },
+              { id: 'value', header: 'القيمة', cell: (row) => (row.__isParent ? '—' : formatEgp(row.totalPrice)) },
             ]}
             data={hierarchical}
             getRowKey={(row) => `${row.id}-sum`}
@@ -213,7 +258,8 @@ export default function AgendaItemsPage() {
               { id: 'name', header: 'إسم البند', cell: (row) => fmt(row.arabicName) },
               { id: 'code', header: 'الكود', cell: (row) => fmt(row.itemNumber) },
               { id: 'unit', header: 'الوحدة', cell: (row) => fmt(row.unit) },
-              { id: 'qty', header: 'الكمية', cell: (row) => fmt(row.quantity) },
+              { id: 'qty', header: 'الكمية', cell: (row) => (row.__isParent ? '—' : formatQty(row.quantity)) },
+              { id: 'price', header: 'سعر الوحدة', cell: (row) => (row.__isParent ? '—' : formatEgp(row.unitPrice)) },
               { id: 'group', header: 'فئة العميل', cell: (row) => fmt(row.itemGroupName) },
             ]}
             data={hierarchical}
@@ -224,6 +270,20 @@ export default function AgendaItemsPage() {
           />
         </div>
       ) : (
+        <>
+          <div className="mb-2 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setExpandedParentIds(new Set(parentIdsWithKids))}
+            >
+              توسيع الشجرة
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setExpandedParentIds(new Set())}>
+              طي الشجرة
+            </Button>
+          </div>
         <AppTable
           columns={[
             { id: 'idx', header: 'م', cell: (_row, index) => index + 1 },
@@ -231,19 +291,46 @@ export default function AgendaItemsPage() {
               id: 'code',
               header: 'الكود',
               cell: (row) => (
-                <span style={{ paddingInlineStart: row.__depth * 12 }}>
-                  {fmt(row.itemNumber)}
-                  {row.__isParent ? <span className="mr-1 text-[10px] text-[#0E78AA]"> رئيسي</span> : null}
-                </span>
+                <BoqHierarchyTreeCell
+                  code={fmt(row.itemNumber)}
+                  depth={row.__depth}
+                  isParent={row.__isParent}
+                  hasChildren={parentIdsWithKids.has(row.id)}
+                  expanded={expandedParentIds.has(row.id)}
+                  onToggleExpand={() => {
+                    setExpandedParentIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(row.id)) next.delete(row.id);
+                      else next.add(row.id);
+                      return next;
+                    });
+                  }}
+                />
               ),
             },
             { id: 'name', header: 'إسم البند', cell: (row) => fmt(row.arabicName) },
             { id: 'unit', header: 'الوحدة', cell: (row) => fmt(row.unit) },
-            { id: 'qty', header: 'الكمية', cell: (row) => (row.__isParent ? '—' : formatQty(row.quantity)) },
-            { id: 'total', header: 'إجمالي', cell: (row) => (row.__isParent ? '—' : formatEgp(row.totalPrice)) },
+            {
+              id: 'qty',
+              header: 'الكمية',
+              cell: (row) =>
+                canEnterBoqLineQuantity(row.__isParent) ? formatQty(row.quantity) : '—',
+            },
+            {
+              id: 'price',
+              header: 'سعر الوحدة',
+              cell: (row) =>
+                canEnterBoqLineQuantity(row.__isParent) ? formatEgp(row.unitPrice) : '—',
+            },
+            {
+              id: 'total',
+              header: 'إجمالي',
+              cell: (row) =>
+                canEnterBoqLineQuantity(row.__isParent) ? formatEgp(row.totalPrice) : '—',
+            },
             { id: 'group', header: 'البند العام', cell: (row) => fmt(row.itemGroupName) },
           ]}
-          data={hierarchical}
+          data={visibleHierarchical}
           getRowKey={(row) => row.id}
           isLoading={workLoading}
           emptyTitle={!projectId ? 'اختر مشروعاً لعرض بنود الأعمال' : 'لا توجد بنود مسجّلة لهذا المشروع'}
@@ -255,6 +342,7 @@ export default function AgendaItemsPage() {
             onPageChange: setPage,
           }}
         />
+        </>
       )}
 
       <FormSectionCard title="الإجماليات" className="mt-4">

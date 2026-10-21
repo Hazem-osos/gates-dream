@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useMasterCardCreateDraft } from '@/lib/hooks/useMasterCardCreateDraft';
+import { MasterCardDraftRestoreGate } from '@/components/erp/MasterCardDraftRestoreGate';
 import { Users } from 'lucide-react';
 import {
   CompactFormField,
@@ -72,6 +74,25 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
   const [deleting, setDeleting] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
 
+  type PartyGroupDraft = ReturnType<typeof emptyForm>;
+  const draftSnapshot = useMemo(() => formData, [formData]);
+  const applyPartyGroupDraft = useCallback((payload: PartyGroupDraft) => {
+    setFormData(payload);
+    setSelectedId(null);
+    setError('');
+  }, []);
+  const { restoreOffer, acceptRestore, dismissRestore, clearDraft } = useMasterCardCreateDraft({
+    documentType: kind === 'customer' ? 'customer-group-card' : 'supplier-group-card',
+    editingId: selectedId,
+    value: draftSnapshot,
+    isEmpty: (d) => !d.arabicName.trim() && !d.code.trim(),
+    applyRestore: applyPartyGroupDraft,
+    restoreMessage:
+      kind === 'customer'
+        ? 'يوجد مسودة مجموعة عملاء غير محفوظة'
+        : 'يوجد مسودة مجموعة موردين غير محفوظة',
+  });
+
   const { data, isLoading } = useApiQuery<PartyGroupRow[]>(config.queryKey, config.api, {
     limit: 500,
     isActive: true,
@@ -80,6 +101,7 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
 
   const createMutation = useApiMutation<unknown, Record<string, unknown>>(config.api, 'POST', {
     onSuccess: () => {
+      clearDraft();
       invalidateQuery(config.queryKey);
       setSelectedId(null);
       setFormData(emptyForm());
@@ -92,6 +114,7 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
     'PUT',
     {
       onSuccess: () => {
+        clearDraft();
         invalidateQuery(config.queryKey);
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
@@ -120,6 +143,7 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
   };
 
   const handleNew = () => {
+    clearDraft();
     setSelectedId(null);
     setFormData(emptyForm());
     setError('');
@@ -195,6 +219,18 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
       onBrowseList={() => setShowGuide(true)}
       favoriteHref={kind === 'customer' ? '/accounting/cards/customer-group' : '/accounting/cards/supplier-group'}
     >
+      <MasterCardDraftRestoreGate<PartyGroupDraft>
+        editingId={selectedId}
+        restoreOffer={restoreOffer}
+        acceptRestore={acceptRestore}
+        dismissRestore={dismissRestore}
+        onRestored={applyPartyGroupDraft}
+        message={
+          kind === 'customer'
+            ? 'يوجد مسودة مجموعة عملاء غير محفوظة.'
+            : 'يوجد مسودة مجموعة موردين غير محفوظة.'
+        }
+      />
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
 
       <div className="mb-4">

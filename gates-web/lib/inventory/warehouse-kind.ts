@@ -48,3 +48,17 @@ export function inheritWarehouseAccounts(
   }
   return { inventoryAccountId, costAccountId };
 }
+
+export function warehouseEmptyStockAccountsMessage(input: {
+  inventoryAccountId?: string | null;
+  costAccountId?: string | null;
+}): string | null {
+  const inventoryEmpty = !input.inventoryAccountId?.trim();
+  const costEmpty = !input.costAccountId?.trim();
+  if (!inventoryEmpty && !costEmpty) return null;
+  if (inventoryEmpty && costEmpty) {
+    return 'حساب المخزون وحساب تكلفة البضاعة المباعة فارغان. هل تريد الاستمرار؟';
+  }
+  if (inventoryEmpty) return 'حساب المخزون فارغ. هل تريد الاستمرار؟';
+  return 'حساب تكلفة البضاعة المباعة فارغ. هل تريد الاستمرار؟';
+}

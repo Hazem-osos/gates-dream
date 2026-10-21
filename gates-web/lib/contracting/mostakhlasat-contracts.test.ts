@@ -3,6 +3,7 @@ import { ELEMENT_TYPES } from './labels';
 import {
   buildLegacyExtractItemsFromWorkRows,
   buildLegacyExtractPayload,
+  legacyContractorStatementSummary,
   enterpriseDraftInvoiceItems,
   executableOwnerBoqItems,
   inferWorkItemParentId,
@@ -178,6 +179,22 @@ describe('legacy extract preview/create body', () => {
     expect(items).toEqual([
       { workItemId: 'c', itemName: 'خرسانة', itemNumber: '1.1', quantity: 0.15, unit: undefined, unitPrice: 13500 },
     ]);
+  });
+
+  it('builds the contractor statement settlement from current works and contractor percents', () => {
+    const summary = legacyContractorStatementSummary({
+      currentWorks: 100_000,
+      previousWorks: 50_000,
+      advancePercent: 10,
+      insurancePercent: 5,
+      taxPercent: 1,
+    });
+    expect(summary.executedWorks).toBe(150_000);
+    expect(summary.currentWorks).toBe(100_000);
+    expect(summary.advanceDeduction).toBe(10_000);
+    expect(summary.insuranceDeduction).toBe(5_000);
+    expect(summary.taxDeduction).toBe(1_000);
+    expect(summary.netPayable).toBe(84_000);
   });
 
   it('maps 409 duplicate-number and 422 header/over-qty errors', () => {

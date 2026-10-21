@@ -1,21 +1,15 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Paperclip, Upload } from 'lucide-react';
+import { Paperclip, ScanLine, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { notifyApiSuccess } from '@/lib/api/api-success-notify';
-import {
-  archiveAttachment,
-  listAttachments,
-  uploadAttachmentFile,
-} from '@/lib/attachments/api';
-import {
-  DOCUMENT_CATEGORIES,
-  DOCUMENT_CATEGORY_LABEL,
-  type AttachmentLinkFilters,
-  type DocumentAttachment,
-  type DocumentCategory,
+import { deleteAttachment, listAttachments, uploadAttachmentFile } from '@/lib/attachments/api';
+import type {
+  AttachmentLinkFilters,
+  DocumentAttachment,
+  DocumentCategory,
 } from '@/lib/attachments/types';
 import { queryKeys } from '@/lib/query/query-keys';
 import { AttachmentChipList } from './AttachmentChipList';
@@ -24,17 +18,20 @@ import { AttachmentViewerModal } from './AttachmentViewerModal';
 export function AttachmentDropzone({
   links,
   title = 'المرفقات والمستندات',
-  defaultCategory = 'GENERAL',
   accept,
+  defaultCategory = 'GENERAL',
 }: {
   links: AttachmentLinkFilters;
   title?: string;
-  defaultCategory?: DocumentCategory;
   accept?: string;
+  defaultCategory?: DocumentCategory;
 }) {
-  const [category, setCategory] = useState<DocumentCategory>(defaultCategory);
   const [viewer, setViewer] = useState<DocumentAttachment | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [mobileCapture, setMobileCapture] = useState(false);
+  useEffect(() => {
+    setMobileCapture(/Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
+  }, []);
   const queryKey = useMemo(() => queryKeys.attachments.list(links), [links]);
 
   const listQ = useQuery({
@@ -44,17 +41,18 @@ export function AttachmentDropzone({
   });
 
   const uploadMut = useMutation({
-    mutationFn: (file: File) => uploadAttachmentFile({ file, fileCategory: category, links }),
+    mutationFn: (file: File) =>
+      uploadAttachmentFile({ file, fileCategory: defaultCategory, links }),
     onSuccess: async () => {
       notifyApiSuccess('تم رفع المرفق');
       await listQ.refetch();
     },
   });
 
-  const archiveMut = useMutation({
-    mutationFn: (row: DocumentAttachment) => archiveAttachment(row.id),
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteAttachment(id),
     onSuccess: async () => {
-      notifyApiSuccess('تم أرشفة المرفق');
+      notifyApiSuccess('تم حذف المرفق');
       await listQ.refetch();
     },
   });
@@ -65,24 +63,37 @@ export function AttachmentDropzone({
     uploadMut.mutate(file);
   };
 
+  const handleDelete = (row: DocumentAttachment) => {
+    if (!window.confirm(`حذف «${row.originalFileName}»؟`)) return;
+    deleteMut.mutate(row.id);
+  };
+
+  const browseAccept =
+    accept ?? '.pdf,.jpg,.jpeg,.png,.webp,.gif,.dwg,.dxf,.docx,.xlsx,.zip';
+
   return (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="flex items-center gap-2 text-base font-bold text-[#0E78AA]">
-          <Paperclip className="h-4 w-4" />
-          {title}
-        </h3>
-        <select
-          className="rounded-lg border border-[#D6EAF3] bg-white px-3 py-1.5 text-sm"
-          value={category}
-          onChange={(event) => setCategory(event.target.value as DocumentCategory)}
-        >
-          {DOCUMENT_CATEGORIES.map((value) => (
-            <option key={value} value={value}>
-              {DOCUMENT_CATEGORY_LABEL[value]}
-            </option>
-          ))}
-        </select>
+      <h3 className="flex items-center gap-2 text-base font-bold text-[#0E78AA]">
+        <Paperclip className="h-4 w-4" />
+        {title}
+      </h3>
+      <p className="text-xs text-slate-500">نوع المرفق: عام</p>
+
+      <div className="flex flex-wrap gap-2">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#0E78AA] bg-[#0E78AA] px-3 py-2 text-sm font-semibold text-white">
+          <ScanLine className="h-4 w-4" />
+          مسح ضوئي
+          <input
+            type="file"
+            className="sr-only"
+            accept="image/*,application/pdf"
+            {...(mobileCapture ? { capture: 'environment' as const } : {})}
+            onChange={(event) => {
+              onFiles(event.target.files);
+              event.currentTarget.value = '';
+            }}
+          />
+        </label>
       </div>
 
       <label
@@ -103,7 +114,7 @@ export function AttachmentDropzone({
         <input
           type="file"
           className="sr-only"
-          accept={accept ?? '.pdf,.jpg,.jpeg,.png,.webp,.gif,.dwg,.dxf,.docx,.xlsx,.zip'}
+          accept={browseAccept}
           onChange={(event) => {
             onFiles(event.target.files);
             event.currentTarget.value = '';
@@ -111,7 +122,6 @@ export function AttachmentDropzone({
         />
         <Upload className="h-5 w-5 text-[#0E78AA]" />
         <span className="text-sm font-semibold text-[#094C6B]">اسحب الملف هنا أو انقر للرفع</span>
-        <span className="text-xs text-slate-500">الرفع يتم عبر رابط موقّت — لا يُحفظ الملف كـ Base64 داخل السجل</span>
         {uploadMut.isPending ? <span className="text-xs text-[#0E78AA]">جاري الرفع…</span> : null}
         {uploadMut.isError ? (
           <span className="text-xs text-red-600">
@@ -123,7 +133,7 @@ export function AttachmentDropzone({
       <AttachmentChipList
         items={listQ.data ?? []}
         onOpen={setViewer}
-        onDelete={(row) => archiveMut.mutate(row)}
+        onDelete={handleDelete}
       />
 
       {listQ.isError ? (

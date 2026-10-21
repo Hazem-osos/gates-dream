@@ -18,7 +18,7 @@ export type UseCancelDraftInvoiceOptions = {
 };
 
 /**
- * Draft invoice cancel with snapshot rollback and unconditional list/badge
+ * Permanent draft invoice delete with snapshot rollback and unconditional list/badge
  * invalidation after settle. Posted invoices must not use this hook.
  */
 export function useCancelDraftInvoice<T extends CancelDraftInvoiceRow = CancelDraftInvoiceRow>(
@@ -27,7 +27,7 @@ export function useCancelDraftInvoice<T extends CancelDraftInvoiceRow = CancelDr
   const queryClient = useQueryClient();
 
   return useOptimisticMutation<T, string>(
-    (id) => apiClient.post<T>(`/invoices/${id}/cancel`, {}),
+    (id) => apiClient.delete<T>(`/invoices/${id}`),
     {
       cancelQueryKeys: [['invoices']],
       onOptimistic: ({ variables, queryClient: qc }) => {
@@ -58,7 +58,7 @@ export function useCancelDraftInvoice<T extends CancelDraftInvoiceRow = CancelDr
         };
       },
       onError: (error) => {
-        toast.error('تعذر إلغاء المسودة', {
+        toast.error('تعذر حذف المستند غير المرحّل', {
           description: error.message || 'تم استرجاع قائمة الفواتير.',
         });
       },

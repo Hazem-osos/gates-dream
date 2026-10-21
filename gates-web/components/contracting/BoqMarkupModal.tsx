@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Calculator } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,8 @@ import {
 import { apiClient } from '@/lib/api/client';
 import { notifyApiSuccess } from '@/lib/api/api-success-notify';
 import type { OwnerBoqItem } from '@/lib/contracting/types';
-import { formatEgp, percentInputToRate, rateToPercentInput, toMoney } from '@/lib/subcontracts/money';
+import { BoqSellingLadder } from '@/components/contracting/BoqSellingLadder';
+import { percentInputToRate, rateToPercentInput, toMoney } from '@/lib/subcontracts/money';
 
 type Rates = {
   generalOverheadRate: string;
@@ -52,23 +53,6 @@ export function BoqMarkupModal({
     contractTaxesRate: rateToPercentInput(existing?.contractTaxesRate ?? 0),
     applyAtProjectLevel: false,
   });
-
-  const calc = useMemo(() => {
-    const direct = toMoney(item?.directCostEstimated);
-    const oh =
-      1 +
-      percentInputToRate(rates.generalOverheadRate) +
-      percentInputToRate(rates.siteOverheadRate) +
-      percentInputToRate(rates.contingencyRiskRate);
-    const withOh = direct * oh;
-    const selling = withOh * (1 + percentInputToRate(rates.profitMarginRate)) * (1 + percentInputToRate(rates.contractTaxesRate));
-    return {
-      direct,
-      withOh,
-      selling,
-      total: selling * toMoney(item?.contractQuantity),
-    };
-  }, [item, rates]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -145,23 +129,19 @@ export function BoqMarkupModal({
             </div>
           </AdvancedFieldsSection>
 
-          <div className="mb-4 grid grid-cols-2 gap-3 rounded-xl bg-[#F6FBFD] p-4 text-sm">
-            <div>
-              <p className="text-slate-500">التكلفة المباشرة</p>
-              <p className="font-bold tabular-nums text-[#094C6B]">{formatEgp(calc.direct)}</p>
-            </div>
-            <div>
-              <p className="text-slate-500">بعد الأعباء غير المباشرة</p>
-              <p className="font-bold tabular-nums text-[#094C6B]">{formatEgp(calc.withOh)}</p>
-            </div>
-            <div>
-              <p className="text-slate-500">سعر بيع الوحدة النهائي</p>
-              <p className="font-bold tabular-nums text-[#0E78AA]">{formatEgp(calc.selling)}</p>
-            </div>
-            <div>
-              <p className="text-slate-500">إجمالي قيمة البند</p>
-              <p className="font-bold tabular-nums text-[#0E78AA]">{formatEgp(calc.total)}</p>
-            </div>
+          <div className="mb-4 rounded-xl bg-[#F6FBFD] p-4">
+            <p className="mb-2 text-sm font-semibold text-[#094C6B]">مسار السعر حتى سعر البيع</p>
+            <BoqSellingLadder
+              directUnitCost={toMoney(item.directCostEstimated)}
+              quantity={toMoney(item.contractQuantity)}
+              markup={{
+                generalOverheadRate: percentInputToRate(rates.generalOverheadRate),
+                siteOverheadRate: percentInputToRate(rates.siteOverheadRate),
+                contingencyRiskRate: percentInputToRate(rates.contingencyRiskRate),
+                profitMarginRate: percentInputToRate(rates.profitMarginRate),
+                contractTaxesRate: percentInputToRate(rates.contractTaxesRate),
+              }}
+            />
           </div>
         </div>
         <FormStickyFooter

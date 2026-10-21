@@ -36,10 +36,26 @@ const AUTO_GL_TO_KIND: Record<string, JournalSourceType> = {
   TRF: 'STOCK_TRANSACTION',
   STK: 'STOCK_TRANSACTION',
   ADJ: 'STOCK_TRANSACTION',
+  OADJ: 'STOCK_TRANSACTION',
   OB: 'STOCK_TRANSACTION',
   OPEN: 'STOCK_TRANSACTION',
   ASM: 'STOCK_TRANSACTION',
   DSM: 'STOCK_TRANSACTION',
+};
+
+/** Screen title for Auto-GL short codes — never the generic «حركة مخزنية». */
+const STOCK_SOURCE_SCREEN_LABELS: Record<string, string> = {
+  GI: 'إذن صرف مخزني',
+  GR: 'إذن إضافة مخزني',
+  TRF: 'تحويل مخزني',
+  STK: 'الجرد',
+  ADJ: 'تسوية مخزنية',
+  OADJ: 'تسوية أخرى',
+  OB: 'بضاعة أول المدة',
+  OPEN: 'بضاعة أول المدة',
+  ASM: 'تجميع أصناف',
+  DSM: 'تفكيك أصناف',
+  MO: 'عملية تصنيع',
 };
 
 const KIND_SET = new Set<string>(JOURNAL_SOURCE_TYPES);
@@ -92,7 +108,15 @@ export function journalSourceLabel(
   if (entryType === 'OPENING_BALANCE') return 'قيد افتتاحي';
   if (family === 'KP01') return 'إشعار خصم بنكي';
   if (family === 'KR01') return 'إشعار إضافة بنكي';
-  if (family === 'MO' || entryType.startsWith('PROD')) return 'أمر تصنيع';
+  if (family === 'MO' || entryType.startsWith('PROD')) return 'عملية تصنيع';
+  if (STOCK_SOURCE_SCREEN_LABELS[family]) return STOCK_SOURCE_SCREEN_LABELS[family];
+  if (entryType === 'GOODS_ISSUE') return 'إذن صرف مخزني';
+  if (entryType === 'GOODS_RECEIPT') return 'إذن إضافة مخزني';
+  if (entryType === 'TRANSFER') return 'تحويل مخزني';
+  if (entryType === 'STOCKTAKING') return 'الجرد';
+  if (entryType === 'ADJUSTMENT') return family === 'OADJ' ? 'تسوية أخرى' : 'تسوية مخزنية';
+  if (entryType === 'ASSEMBLY') return 'تجميع أصناف';
+  if (entryType === 'DISASSEMBLY') return 'تفكيك أصناف';
   const kind = resolveJournalSourceKind(sourceType, sourceKind);
   if (hint?.voucherFund === 'bank' && kind === 'PAYMENT_VOUCHER') return 'إشعار خصم بنكي';
   if (hint?.voucherFund === 'bank' && kind === 'RECEIPT_VOUCHER') return 'إشعار إضافة بنكي';
@@ -152,6 +176,19 @@ export function isDailyJournalVoucherMutable(row: {
 }): boolean {
   if (isSourcedJournalEntry(row)) return false;
   return String(row.entryType ?? '').trim().toUpperCase() !== 'OPENING_BALANCE';
+}
+
+/** Restore cancelled entry from daily journal screen — manual vouchers only (matches backend). */
+export function canRestoreJournalEntry(row: {
+  sourceType?: string | null;
+  sourceKind?: string | null;
+  sourceId?: string | null;
+  entryType?: string | null;
+  isCyclic?: boolean | null;
+  isRecurring?: boolean | null;
+}): boolean {
+  if (!isDailyJournalVoucherMutable(row)) return false;
+  return resolveJournalSourceKind(row.sourceType, row.sourceKind) === 'MANUAL';
 }
 
 export function journalDocumentHref(row: {
@@ -223,8 +260,9 @@ function stockSourceHref(sourceType: string | null | undefined, sourceId: string
     case 'GR':
       return `/inventory/operations/receipt?id=${q}`;
     case 'TRF':
-    case 'STK':
       return `/inventory/operations/transfer?id=${q}`;
+    case 'STK':
+      return `/inventory/operations/stocktaking?id=${q}`;
     case 'OB':
     case 'OPEN':
       return `/inventory/operations/opening-stock?id=${q}`;
@@ -232,8 +270,10 @@ function stockSourceHref(sourceType: string | null | undefined, sourceId: string
       return `/inventory/operations/assembly?id=${q}`;
     case 'DSM':
       return `/inventory/operations/disassembly?id=${q}`;
+    case 'OADJ':
+      return `/inventory/operations/other-adjustment?id=${q}`;
     default:
-      return `/inventory/operations/adjustment?id=${q}`;
+      return `/inventory/operations/other-adjustment?id=${q}`;
   }
 }
 
@@ -269,8 +309,9 @@ export function movementDocumentHref(
     case 'GR':
       return `/inventory/operations/receipt?id=${q}`;
     case 'TRF':
-    case 'STK':
       return `/inventory/operations/transfer?id=${q}`;
+    case 'STK':
+      return `/inventory/operations/stocktaking?id=${q}`;
     case 'OB':
     case 'OPEN':
       return `/inventory/operations/opening-stock?id=${q}`;
@@ -278,6 +319,8 @@ export function movementDocumentHref(
       return `/inventory/operations/assembly?id=${q}`;
     case 'DSM':
       return `/inventory/operations/disassembly?id=${q}`;
+    case 'OADJ':
+      return `/inventory/operations/other-adjustment?id=${q}`;
     case 'MO':
       return `/manufacturing/operations/operation?orderId=${q}`;
     default:
@@ -313,7 +356,7 @@ export function journalSourceHref(
     case 'CHEQUE_ENDORSEMENT':
       return `/accounting/operations/securities`;
     case 'SECURITIES_RECEIPT':
-      return `/accounting/operations/securities/reciept?id=${q}`;
+      return `/accounting/operations/securities/receipt?id=${q}`;
     case 'SECURITIES_PAYMENT':
       return `/accounting/operations/securities/payment?id=${q}`;
     default:

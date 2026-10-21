@@ -37,7 +37,9 @@ type Props = {
   warehouseId?: string;
   lockUnitPrice?: boolean;
   allowAddLines?: boolean;
+  addLineBlockedMessage?: string;
   headerDescription?: string;
+  readOnly?: boolean;
 };
 
 export function ReturnInvoiceLinesGrid({
@@ -46,7 +48,9 @@ export function ReturnInvoiceLinesGrid({
   warehouseId,
   lockUnitPrice = false,
   allowAddLines = true,
+  addLineBlockedMessage,
   headerDescription = '',
+  readOnly = false,
 }: Props) {
   const [visibleColumnIds, setVisibleColumnIds] = useVisibleColumnIds(
     'gates:columns:purchase-invoice',
@@ -61,15 +65,22 @@ export function ReturnInvoiceLinesGrid({
   const handleChange = (next: PurchaseInvoiceLine[]) => {
     onChange(
       next.map((l, index) => {
-        const prev = lines[index];
+        const prev =
+          (l.originalInvoiceLineId
+            ? lines.find((row) => row.originalInvoiceLineId === l.originalInvoiceLineId)
+            : undefined) ?? lines[index];
+        const linked = Boolean(prev?.originalInvoiceLineId);
+        const maxQty = prev?.returnableQty;
+        const quantity =
+          maxQty != null && l.quantity > maxQty + 1e-6 ? maxQty : l.quantity < 0 ? 0 : l.quantity;
         return {
-          itemId: l.itemId,
+          itemId: linked ? prev!.itemId : l.itemId,
           unitId: l.unitId,
-          quantity: l.quantity,
+          quantity,
           baseQuantity: l.baseQuantity,
           conversionFactor: l.conversionFactor,
           baseUnitId: l.baseUnitId,
-          unitPrice: lockUnitPrice && prev?.originalInvoiceLineId ? prev.unitPrice : l.unitPrice,
+          unitPrice: linked && (lockUnitPrice || Boolean(prev?.originalInvoiceLineId)) ? prev!.unitPrice : l.unitPrice,
           discount: l.discount,
           discountValue: l.discountValue,
           discountType: l.discountType,
@@ -100,8 +111,10 @@ export function ReturnInvoiceLinesGrid({
         }
         modernUi
         inputClassName={compactControlClass}
+        readOnly={readOnly}
         lockUnitPrice={lockUnitPrice}
         hideAddLine={!allowAddLines}
+        addLineBlockedMessage={addLineBlockedMessage}
         showAverageCostOnQuantity
       />
       {lines.some((l) => l.originalInvoiceLineId) ? (

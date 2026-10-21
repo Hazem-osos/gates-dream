@@ -4,6 +4,7 @@ import { AlertTriangle } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/button';
 import { formatEgp, formatPercent, formatQty, toMoney } from '@/lib/subcontracts/money';
+import { pricedBoqTotal } from '@/lib/subcontracts/contract-view';
 import type { SubcontractBoqItem } from '@/lib/subcontracts/types';
 
 function progressPercent(item: SubcontractBoqItem): number {
@@ -23,7 +24,7 @@ export function SubcontractBoqTable({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-bold text-[#0E78AA]">جدول الكميات وتنفيذ البنود</h2>
+        <h2 className="text-lg font-bold text-[#0E78AA]">بنود العقد</h2>
         {onImport ? (
           <Button size="sm" onClick={onImport}>
             إضافة / استيراد بنود BOQ
@@ -48,12 +49,12 @@ export function SubcontractBoqTable({
           <table className="w-full min-w-[980px] text-center text-sm">
             <thead>
               <tr className="bg-[#0E78AA] text-white">
-                <th className="px-3 py-3 font-semibold">كود البند</th>
-                <th className="px-3 py-3 font-semibold">الوصف</th>
+                <th className="px-3 py-3 font-semibold">الكود</th>
+                <th className="px-3 py-3 font-semibold">البند</th>
                 <th className="px-3 py-3 font-semibold">الوحدة</th>
-                <th className="px-3 py-3 font-semibold">كمية العقد</th>
-                <th className="px-3 py-3 font-semibold">سعر الوحدة</th>
-                <th className="px-3 py-3 font-semibold">الإجمالي</th>
+                <th className="px-3 py-3 font-semibold">الكمية</th>
+                <th className="px-3 py-3 font-semibold">الفئة تسعير</th>
+                <th className="px-3 py-3 font-semibold">القيمة</th>
                 <th className="px-3 py-3 font-semibold">المنفذ تراكميًا</th>
                 <th className="px-3 py-3 font-semibold">نسبة الإنجاز</th>
                 <th className="px-3 py-3 font-semibold">المتبقي</th>
@@ -104,6 +105,15 @@ export function SubcontractBoqTable({
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-[#0E78AA] bg-[#F0F7FB] font-semibold">
+                <td className="px-3 py-3 text-start" colSpan={5}>
+                  صافي قيمة التعاقد لتسعير
+                </td>
+                <td className="px-3 py-3 tabular-nums text-[#0E78AA]">{formatEgp(pricedBoqTotal(items))}</td>
+                <td colSpan={3} />
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}

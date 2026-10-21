@@ -4,7 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ChevronDown, Home, Settings } from 'lucide-react';
-import { settingsHrefForNav, sourceHrefForSettingsPath } from '@/lib/transaction-settings/types';
+import {
+  documentSettingsOpenHref,
+  sourceHrefForSettingsPath,
+} from '@/lib/transaction-settings/types';
 import { SidebarUserCard } from '@/app/components/SidebarUserCard';
 import { PrefetchNavLink } from '@/components/navigation/PrefetchNavLink';
 import { ModuleNavSearch } from '@/app/components/navigation/ModuleNavSearch';
@@ -45,7 +48,7 @@ function badgeClasses(badge: ModuleNavBadge): string {
 }
 
 function NavLinkRow({ link, active }: { link: FlatModuleNavLink; active: boolean }) {
-  const settingsHref = settingsHrefForNav(link.href);
+  const settingsHref = documentSettingsOpenHref(link.href);
   return (
     <div className="group relative">
       <PrefetchNavLink
@@ -73,7 +76,7 @@ function NavLinkRow({ link, active }: { link: FlatModuleNavLink; active: boolean
         <PrefetchNavLink
           href={settingsHref}
           aria-label="إعدادات الشاشة"
-          className="absolute left-1 top-1/2 z-10 -translate-y-1/2 rounded-md p-1 text-slate-400 opacity-0 transition-opacity hover:text-[#0E78AA] group-hover:opacity-100"
+          className="pointer-events-none absolute left-1 top-1/2 z-10 -translate-y-1/2 rounded-md p-1 text-slate-400 opacity-0 transition-opacity hover:text-[#0E78AA] group-hover:pointer-events-auto group-hover:opacity-100"
           onClick={(e) => e.stopPropagation()}
           data-tour="settings-gear"
         >

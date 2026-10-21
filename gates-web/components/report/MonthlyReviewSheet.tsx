@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo } from 'react';
+import { AccountLedgerLink } from '@/components/report/AccountLedgerLink';
+import { BalanceRowEye } from '@/components/report/BalanceAnalysisProvider';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 const MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
@@ -48,7 +50,13 @@ function Pair({ debit, credit, tone }: { debit: number; credit: number; tone?: '
   );
 }
 
-export function MonthlyReviewSheet({ rows }: { rows: Row[] }) {
+export function MonthlyReviewSheet({
+  rows,
+  drillQuery,
+}: {
+  rows: Row[];
+  drillQuery?: Record<string, string>;
+}) {
   const totals = rows.reduce(
     (sum: {
       openingDebit: number;
@@ -136,7 +144,10 @@ export function MonthlyReviewSheet({ rows }: { rows: Row[] }) {
         <table className="w-max min-w-full border-collapse text-sm" dir="rtl">
           <thead>
             <tr className="bg-[#0E4C6E] text-white">
-              <th rowSpan={2} className="sticky right-0 z-20 min-w-56 border-e border-white/10 bg-[#0E4C6E] px-4 py-3 text-right font-medium">
+              <th rowSpan={2} className="sticky right-0 z-20 w-10 border-e border-white/10 bg-[#0E4C6E] px-1 py-3 no-print">
+                تحليل
+              </th>
+              <th rowSpan={2} className="sticky right-10 z-20 min-w-56 border-e border-white/10 bg-[#0E4C6E] px-4 py-3 text-right font-medium">
                 الحساب
               </th>
               <th colSpan={2} className="border-e border-white/10 px-2 py-2 font-medium">
@@ -163,11 +174,28 @@ export function MonthlyReviewSheet({ rows }: { rows: Row[] }) {
             {rows.map((row, index) => (
               <tr key={String(row.accountId ?? index)} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50/80'}>
                 <td
-                  className={`sticky right-0 z-10 border-b border-e border-slate-100 px-4 py-2 font-medium text-slate-800 ${
+                  className={`sticky right-0 z-10 border-b border-e border-slate-100 px-1 py-2 text-center no-print ${
                     index % 2 === 0 ? 'bg-white' : 'bg-slate-50'
                   }`}
                 >
-                  {String(row.account ?? '')}
+                  <BalanceRowEye
+                    accountId={typeof row.accountId === 'string' ? row.accountId : undefined}
+                    label={String(row.account ?? '')}
+                    query={drillQuery}
+                  />
+                </td>
+                <td
+                  className={`sticky right-10 z-10 border-b border-e border-slate-100 px-4 py-2 font-medium text-slate-800 ${
+                    index % 2 === 0 ? 'bg-white' : 'bg-slate-50'
+                  }`}
+                >
+                  <AccountLedgerLink
+                    accountId={typeof row.accountId === 'string' ? row.accountId : undefined}
+                    query={drillQuery}
+                    showIcon={false}
+                  >
+                    {String(row.account ?? '')}
+                  </AccountLedgerLink>
                 </td>
                 <Pair debit={amount(row.openingDebit)} credit={amount(row.openingCredit)} />
                 {MONTHS.map((_, monthIndex) => (
@@ -188,7 +216,8 @@ export function MonthlyReviewSheet({ rows }: { rows: Row[] }) {
           </tbody>
           <tfoot>
             <tr className="bg-[#0E4C6E] font-semibold text-white">
-              <td className="sticky right-0 z-10 bg-[#0E4C6E] px-4 py-3">المجموع</td>
+              <td className="sticky right-0 z-10 bg-[#0E4C6E] px-1 py-3 no-print" />
+              <td className="sticky right-10 z-10 bg-[#0E4C6E] px-4 py-3">المجموع</td>
               <td className="px-2 py-3 text-center tabular-nums">{money(totals.openingDebit)}</td>
               <td className="border-e border-white/10 px-2 py-3 text-center tabular-nums">{money(totals.openingCredit)}</td>
               {totals.months.map((month, index) => (

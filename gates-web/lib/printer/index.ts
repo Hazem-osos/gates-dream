@@ -18,6 +18,7 @@ export {
   readSalesPrintPrefs,
   writeSalesPrintPrefs,
   dispatchAutoPrintAfterSave,
+  maybeAutoPrintAfterSave,
   AUTO_PRINT_A4_EVENT,
   AUTO_PRINT_THERMAL_EVENT,
 } from './print-prefs';

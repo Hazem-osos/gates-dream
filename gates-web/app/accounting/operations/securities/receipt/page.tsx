@@ -1,7 +1,12 @@
 'use client';
 
+import { Suspense } from 'react';
 import { SecuritiesPaperEngine } from '@/components/accounting/securities/SecuritiesPaperEngine';
 
 export default function SecuritiesReceiptPage() {
-  return <SecuritiesPaperEngine kind="receipt" />;
+  return (
+    <Suspense fallback={<p className="p-6 text-sm text-muted-foreground">جاري فتح ورقة المقبوضات…</p>}>
+      <SecuritiesPaperEngine kind="receipt" />
+    </Suspense>
+  );
 }

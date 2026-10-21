@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
@@ -11,7 +11,9 @@ import {
   type SelectableSourceType,
   type SourceDocumentListItem,
   type SourceHydratePayload,
+  type SourceLoadRole,
 } from '@/lib/invoices/sourceDocument';
+import { useSourceTypesForDocument } from '@/lib/transaction-settings/use-source-load-types';
 import { SourceHydrateConfirmDialog } from './SourceHydrateConfirmDialog';
 import {
   DocumentSectionNumberPair,
@@ -27,8 +29,10 @@ type Props = {
   onHydrate: (payload: SourceHydratePayload) => void;
   hasExistingLines: boolean;
   disabled?: boolean;
-  /** When omitted, all source sections are shown (default ERP behavior). */
+  /** When omitted, complementary stock types are used (or returns-only via sourceRole). */
   allowedTypes?: readonly SelectableSourceType[];
+  currentAffectsStock?: boolean;
+  sourceRole?: SourceLoadRole;
 };
 
 export function InvoiceSourceDocumentControl({
@@ -40,12 +44,24 @@ export function InvoiceSourceDocumentControl({
   hasExistingLines,
   disabled = false,
   allowedTypes,
+  currentAffectsStock = false,
+  sourceRole = 'general',
 }: Props) {
+  const resolvedTypes = useSourceTypesForDocument({
+    currentAffectsStock,
+    sourceRole,
+    allowedTypes,
+  });
   const typeOptions = useMemo(() => {
-    if (!allowedTypes?.length) return SOURCE_TYPE_OPTIONS;
-    const allowed = new Set(allowedTypes);
+    const allowed = new Set(resolvedTypes);
     return SOURCE_TYPE_OPTIONS.filter((opt) => allowed.has(opt.value));
-  }, [allowedTypes]);
+  }, [resolvedTypes]);
+
+  useEffect(() => {
+    if (!sourceType || sourceType === 'NONE') return;
+    if (typeOptions.some((opt) => opt.value === sourceType)) return;
+    onTypeChange('');
+  }, [onTypeChange, sourceType, typeOptions]);
   const [search, setSearch] = useState('');
   const [pending, setPending] = useState<SourceDocumentListItem | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -97,7 +113,7 @@ export function InvoiceSourceDocumentControl({
   };
 
   return (
-    <div className="flex justify-end" data-tour="source-reference">
+    <div className="inline-flex">
       <DocumentSectionNumberPair>
         <div className="w-[9.5rem] shrink-0">
           <label className={sectionNumberLabelClass}>القسم</label>

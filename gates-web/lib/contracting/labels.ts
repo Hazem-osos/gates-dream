@@ -2,6 +2,7 @@ import type { StatusTone } from '@/components/ui/StatusBadge';
 import type {
   BOQCostElementType,
   BoqItemUnit,
+  ClientContractStatus,
   ClientInvoiceStatus,
   MeasurementSheetStatus,
   ProjectBOQItemStatus,
@@ -61,6 +62,12 @@ export const SHEET_STATUS_TONE: Record<MeasurementSheetStatus, StatusTone> = {
   SITE_ENGINEER_VERIFIED: 'info',
   CONSULTANT_APPROVED: 'success',
   INVOICED_IN_EXTRACT: 'neutral',
+};
+
+export const CLIENT_CONTRACT_STATUS_AR: Record<ClientContractStatus, string> = {
+  ACTIVE: 'ساري',
+  SUSPENDED: 'موقوف',
+  COMPLETED: 'مكتمل',
 };
 
 export const CLIENT_INVOICE_LABEL: Record<ClientInvoiceStatus, string> = {

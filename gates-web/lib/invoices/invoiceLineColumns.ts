@@ -58,19 +58,19 @@ export const INVOICE_LINE_COLUMN_DEFS: InvoiceLineColumnDef[] = [
   { id: 'item', labelAr: 'الصنف', locked: true, defaultVisible: true, focusField: 'item' },
   { id: 'notes', labelAr: 'ملاحظات', defaultVisible: true, focusField: 'notes' },
   { id: 'barcode', labelAr: 'الباركود', defaultVisible: false, focusField: 'barcode' },
-  { id: 'warehouse', labelAr: 'المخزن', locked: true, defaultVisible: true, focusField: 'warehouse' },
-  { id: 'stockBalance', labelAr: 'الكمية المتاحة', locked: true, defaultVisible: true },
-  { id: 'unit', labelAr: 'الوحدة', locked: true, defaultVisible: true, focusField: 'unit' },
-  { id: 'baseUnit', labelAr: 'الوحدة الأساسية', locked: true, defaultVisible: true },
+  { id: 'warehouse', labelAr: 'المخزن', defaultVisible: true, focusField: 'warehouse' },
+  { id: 'stockBalance', labelAr: 'رصيد الصنف', defaultVisible: true },
+  { id: 'unit', labelAr: 'الوحدة', defaultVisible: true, focusField: 'unit' },
+  { id: 'baseUnit', labelAr: 'الوحدة الأساسية', defaultVisible: true },
   { id: 'baseQuantity', labelAr: 'كمية الوحدة الأساسية', defaultVisible: false, focusField: 'baseQuantity' },
-  { id: 'quantity', labelAr: 'الكمية', locked: true, defaultVisible: true, focusField: 'quantity' },
-  { id: 'unitPrice', labelAr: 'السعر', locked: true, defaultVisible: true, focusField: 'unitPrice' },
+  { id: 'quantity', labelAr: 'الكمية', defaultVisible: true, focusField: 'quantity' },
+  { id: 'unitPrice', labelAr: 'السعر', defaultVisible: true, focusField: 'unitPrice' },
   { id: 'landedCost', labelAr: 'سعر الوحدة الفعلي', defaultVisible: false },
-  { id: 'discount', labelAr: 'الخصم', locked: true, defaultVisible: true, focusField: 'discount' },
-  { id: 'taxRate', labelAr: 'ضريبة القيمة المضافة (ض.ق.م)', locked: true, defaultVisible: true, focusField: 'taxRate' },
+  { id: 'discount', labelAr: 'الخصم', defaultVisible: true, focusField: 'discount' },
+  { id: 'taxRate', labelAr: 'ضريبة القيمة المضافة (ض.ق.م)', defaultVisible: true, focusField: 'taxRate' },
   { id: 'withholdingTax', labelAr: 'خصم المنبع', defaultVisible: false, focusField: 'withholdingTax' },
   { id: 'withholdingAmount', labelAr: 'قيمة الخصم', defaultVisible: false, focusField: 'withholdingAmount' },
-  { id: 'total', labelAr: 'الإجمالي', locked: true, defaultVisible: true },
+  { id: 'total', labelAr: 'الإجمالي', defaultVisible: true },
   { id: 'costCenter', labelAr: 'مركز التكلفة', defaultVisible: false, focusField: 'costCenter' },
   { id: 'lineAccount', labelAr: 'حساب إيراد مخصص', defaultVisible: false, focusField: 'lineAccount' },
   { id: 'color', labelAr: 'اللون', defaultVisible: false, focusField: 'color' },
@@ -103,7 +103,12 @@ export const INVOICE_LINE_COLUMN_GROUPS: InvoiceLineColumnGroup[] = [
 export type InvoiceColumnStorageKey = 'gates:columns:sales-invoice' | 'gates:columns:purchase-invoice';
 
 /** Bump when locked/default columns change so browsers pick up new layout. */
-const COLUMN_LAYOUT_VERSION = 8;
+const COLUMN_LAYOUT_VERSION = 11;
+
+const ALWAYS_VISIBLE_COLUMN_IDS: InvoiceLineColumnId[] = ['rowIndex', 'item', 'rowDelete'];
+
+/** Landed / «actual unit» cost is internal costing only — not shown on purchase or return grids. */
+const LANDED_COST_HIDDEN_COLUMNS = new Set<InvoiceLineColumnId>(['landedCost']);
 
 export const SALES_INVOICE_STORAGE_DEFAULT: InvoiceLineColumnId[] = [
   'rowIndex',
@@ -131,7 +136,6 @@ export const PURCHASE_INVOICE_STORAGE_DEFAULT: InvoiceLineColumnId[] = [
   'baseUnit',
   'quantity',
   'unitPrice',
-  'landedCost',
   'discount',
   'taxRate',
   'total',
@@ -162,15 +166,25 @@ export function getDefaultVisibleColumnIds(storageKey: InvoiceColumnStorageKey):
 }
 
 function lockedIds() {
-  return INVOICE_LINE_COLUMN_DEFS.filter((c) => c.locked).map((c) => c.id);
+  return [...ALWAYS_VISIBLE_COLUMN_IDS];
 }
 
-function mergeVisible(parsed: InvoiceLineColumnId[], fallback: InvoiceLineColumnId[]): InvoiceLineColumnId[] {
+function mergeVisible(
+  parsed: InvoiceLineColumnId[],
+  fallback: InvoiceLineColumnId[],
+  storageKey?: InvoiceColumnStorageKey
+): InvoiceLineColumnId[] {
   const allowed = new Set(INVOICE_LINE_COLUMN_DEFS.map((c) => c.id));
   const visibleSet = new Set<InvoiceLineColumnId>([
     ...lockedIds(),
     ...parsed.filter((id) => allowed.has(id)),
   ]);
+  if (
+    storageKey === 'gates:columns:sales-invoice' ||
+    storageKey === 'gates:columns:purchase-invoice'
+  ) {
+    for (const id of LANDED_COST_HIDDEN_COLUMNS) visibleSet.delete(id);
+  }
   if (visibleSet.has('withholdingTax') || visibleSet.has('withholdingAmount')) {
     visibleSet.add('withholdingTax');
     visibleSet.add('withholdingAmount');
@@ -196,7 +210,7 @@ export function loadVisibleColumnIds(
     const raw = localStorage.getItem(companyKey) ?? localStorage.getItem(storageKey);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as InvoiceLineColumnId[];
-    return mergeVisible(parsed, fallback);
+    return mergeVisible(parsed, fallback, storageKey);
   } catch {
     return fallback;
   }
@@ -266,6 +280,26 @@ export function toggleColumnGroup(
 export const CUSTOMIZABLE_INVOICE_COLUMNS = INVOICE_LINE_COLUMN_DEFS.filter(
   (c) => c.id !== 'rowDelete' && c.id !== 'withholdingAmount'
 );
+
+export function customizableInvoiceColumns(
+  storageKey: InvoiceColumnStorageKey
+): InvoiceLineColumnDef[] {
+  if (
+    storageKey === 'gates:columns:sales-invoice' ||
+    storageKey === 'gates:columns:purchase-invoice'
+  ) {
+    return CUSTOMIZABLE_INVOICE_COLUMNS.filter((col) => !LANDED_COST_HIDDEN_COLUMNS.has(col.id));
+  }
+  return CUSTOMIZABLE_INVOICE_COLUMNS;
+}
+
+export function stripSalesInvoiceHiddenColumns(ids: InvoiceLineColumnId[]): InvoiceLineColumnId[] {
+  return ids.filter((id) => !LANDED_COST_HIDDEN_COLUMNS.has(id));
+}
+
+export function stripPurchaseInvoiceHiddenColumns(ids: InvoiceLineColumnId[]): InvoiceLineColumnId[] {
+  return stripSalesInvoiceHiddenColumns(ids);
+}
 
 export function toggleColumn(
   visibleIds: InvoiceLineColumnId[],

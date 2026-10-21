@@ -485,8 +485,21 @@ export default function ProjectsPage() {
                         ),
                     },
                     {
+                      label: 'مخطط التنفيذ',
+                      onClick: () => router.push('/extracts/operations/projects/execution-plan'),
+                    },
+                    {
                       label: 'البنود العامة للمستخلصات',
                       onClick: () => router.push('/extracts/operations/general-extract-items'),
+                    },
+                    {
+                      label: 'توزيع مخطط التنفيذ',
+                      onClick: () =>
+                        router.push(
+                          selectedProjectId
+                            ? `/extracts/operations/execution-plan-distribution?projectId=${selectedProjectId}`
+                            : '/extracts/operations/execution-plan-distribution'
+                        ),
                     },
                     {
                       label: 'مستخلصات المقاولات',
