@@ -1,0 +1,100 @@
+# Gates ERP on Render — import in project:
+# https://dashboard.render.com/project/prj-dbcckr4s728c73enkkk0
+#
+# MySQL: Render has no managed MySQL (only Postgres). Use Railway MySQL URL
+# or any external MySQL until you host MySQL elsewhere. See docs/deployment/RENDER.md.
+
+services:
+  - type: redis
+    name: gates-redis
+    plan: starter
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+  - type: web
+    name: gates-backend
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    dockerfilePath: ./gates-backend/Dockerfile
+    dockerContext: ./gates-backend
+    healthCheckPath: /health/live
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_AUTH_MODE
+        value: enforce
+      - key: REDIS_ENABLED
+        value: true
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: gates-redis
+          property: connectionString
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: JWT_DEV_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+
+  - type: web
+    name: gates-workers
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    dockerfilePath: ./gates-backend/Dockerfile
+    dockerContext: ./gates-backend
+    healthCheckPath: /health/live
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GATES_RUN_WORKERS
+        value: "1"
+      - key: REDIS_ENABLED
+        value: true
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: gates-redis
+          property: connectionString
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: gates-backend
+          envVarKey: DATABASE_URL
+      - key: JWT_DEV_SECRET
+        fromService:
+          type: web
+          name: gates-backend
+          envVarKey: JWT_DEV_SECRET
+      - key: ENCRYPTION_KEY
+        fromService:
+          type: web
+          name: gates-backend
+          envVarKey: ENCRYPTION_KEY
+
+  - type: web
+    name: gates-web
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    dockerfilePath: ./gates-web/Dockerfile
+    dockerContext: ./gates-web
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_AUTH_LOGIN_PATH
+        value: /auth/login
+      - key: NEXT_PUBLIC_AUTH_MODE
+        value: enforce
+      - key: BACKEND_PROXY_TARGET
+        value: http://gates-backend:10000
+        scopes:
+          - build
+          - runtime
+      - key: BACKEND_INTERNAL_URL
+        value: http://gates-backend:10000
