@@ -74,11 +74,8 @@ function recoverFromFailedOutput(out) {
     migrateResolve('rolled-back', '20260924170000_whatsapp_embedded_signup');
   }
   if (out.includes('P3009') || out.includes('failed migrations')) {
-    const re = /The `([^`]+)` migration/g;
-    let match;
-    while ((match = re.exec(out)) !== null) {
-      migrateResolve('rolled-back', match[1]);
-    }
+    // Restored DBs often have a stale row with finished_at IS NULL from a crashed deploy.
+    // Do not blanket rolled-back on named migrations — that can rewind a healthy schema.
     clearStuckPrismaMigrationRows();
   }
 }
