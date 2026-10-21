@@ -65,6 +65,11 @@ function clearStuckPrismaMigrationRows() {
   return run('npx', ['prisma', 'db', 'execute', '--file', repairPath], { allowFail: true });
 }
 
+function migrationNameFromP3018(out) {
+  const match = out.match(/Migration name:\s*(\S+)/);
+  return match?.[1] ?? null;
+}
+
 function recoverFromFailedOutput(out) {
   if (out.includes('20261004230000_contract_variation_orders')) {
     runVoRepairSql();
@@ -78,13 +83,20 @@ function recoverFromFailedOutput(out) {
     // Do not blanket rolled-back on named migrations — that can rewind a healthy schema.
     clearStuckPrismaMigrationRows();
   }
-  if (out.includes('P3018') && out.includes('20250816120000_wave0_m0_m1_platform_gl')) {
-    migrateResolve('applied', '20250816120000_wave0_m0_m1_platform_gl');
+  if (out.includes('P3018')) {
+    const repairPath = path.join(root, 'scripts/render/fix-prisma-migration-table.sql');
+    console.log('Applying migration table repair SQL after P3018…');
+    run('npx', ['prisma', 'db', 'execute', '--file', repairPath], { allowFail: true });
+    const failedName = migrationNameFromP3018(out);
+    if (failedName) {
+      migrateResolve('applied', failedName);
+    }
     clearStuckPrismaMigrationRows();
   }
 }
 
 export function runMigrateDeployWithRecovery() {
+  const maxRecoveryPasses = 12;
   let attempt = migrateDeployWithConnectionRetry();
   if (attempt.ok) {
     console.log('prisma migrate deploy succeeded.');
@@ -96,26 +108,23 @@ export function runMigrateDeployWithRecovery() {
     return attempt.status || 1;
   }
 
-  console.log('migrate deploy failed — running recovery…');
-  recoverFromFailedOutput(attempt.out);
-
-  attempt = migrateDeployWithConnectionRetry();
-  if (attempt.ok) {
-    console.log('prisma migrate deploy succeeded after recovery.');
-    return 0;
-  }
-
-  if (
-    attempt.out.includes('P3009') ||
-    attempt.out.includes('failed migrations') ||
-    attempt.out.includes('P3018')
-  ) {
+  for (let pass = 0; pass < maxRecoveryPasses; pass += 1) {
+    console.log(`migrate deploy failed — running recovery (pass ${pass + 1}/${maxRecoveryPasses})…`);
     recoverFromFailedOutput(attempt.out);
     attempt = migrateDeployWithConnectionRetry();
     if (attempt.ok) {
-      console.log('prisma migrate deploy succeeded after follow-up recovery.');
+      console.log(`prisma migrate deploy succeeded after recovery pass ${pass + 1}.`);
       return 0;
     }
+    if (isTooManyConnections(attempt.out)) {
+      process.stderr.write(attempt.out);
+      return attempt.status || 1;
+    }
+    const recoverable =
+      attempt.out.includes('P3009') ||
+      attempt.out.includes('failed migrations') ||
+      attempt.out.includes('P3018');
+    if (!recoverable) break;
   }
 
   process.stderr.write(attempt.out);
