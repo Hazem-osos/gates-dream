@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC_URL="${DATABASE_URL:-}"
+SRC_URL="${RAILWAY_DATABASE_URL:-${MIGRATION_SOURCE_DATABASE_URL:-}}"
 DST_HOST="${RENDER_MYSQL_HOST:-gates-mysql}"
 DST_PORT="${RENDER_MYSQL_PORT:-3306}"
 DST_DB="${RENDER_MYSQL_DATABASE:-railway}"

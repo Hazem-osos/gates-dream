@@ -78,6 +78,10 @@ function recoverFromFailedOutput(out) {
     // Do not blanket rolled-back on named migrations — that can rewind a healthy schema.
     clearStuckPrismaMigrationRows();
   }
+  if (out.includes('P3018') && out.includes('20250816120000_wave0_m0_m1_platform_gl')) {
+    migrateResolve('applied', '20250816120000_wave0_m0_m1_platform_gl');
+    clearStuckPrismaMigrationRows();
+  }
 }
 
 export function runMigrateDeployWithRecovery() {
