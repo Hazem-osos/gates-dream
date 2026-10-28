@@ -17,6 +17,7 @@ export const APP_MODULE_SECTIONS: AppModuleSection[] = [
   { key: 'realestate', icon: '🏢', label: 'الاستثمار العقاري', color: '#9747FF' },
   { key: 'pos', icon: '🛒', label: 'نقاط البيع', color: '#CB5B53' },
   { key: 'inventory', icon: '📦', label: 'المخازن', color: '#FFD600' },
+  { key: 'fixedassets', icon: '🏗️', label: 'الأصول الثابتة', color: '#0E79AA' },
   { key: 'accounts', icon: '📊', label: 'الحسابات العامة', color: '#E7A8AA' },
   { key: 'settings', icon: '⚙️', label: 'الإعدادات المحاسبية', color: '#CB5B53' },
 ];
@@ -31,6 +32,7 @@ export const SECTION_PATH_PREFIX: Record<string, string> = {
   realestate: '/real-estate-investment',
   pos: '/pos',
   inventory: '/inventory',
+  fixedassets: '/fixed-assets',
   accounts: '/accounting',
   settings: '/accounting-settings',
 };

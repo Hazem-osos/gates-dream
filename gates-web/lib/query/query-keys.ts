@@ -91,6 +91,18 @@ export const queryKeys = {
     all: ['electronic-invoices'] as const,
     dashboard: () => ['electronic-invoices', 'dashboard'] as const,
   },
+  fixedAssets: {
+    all: ['fixed-assets'] as const,
+    categories: () => ['fixed-assets', 'categories'] as const,
+    assets: (params?: Record<string, unknown>) => ['fixed-assets', 'assets', params ?? {}] as const,
+    asset: (id: string) => ['fixed-assets', 'asset', id] as const,
+    schedule: (id: string) => ['fixed-assets', 'schedule', id] as const,
+    summary: () => ['fixed-assets', 'summary'] as const,
+    runs: () => ['fixed-assets', 'runs'] as const,
+    run: (id: string) => ['fixed-assets', 'run', id] as const,
+    disposals: () => ['fixed-assets', 'disposals'] as const,
+    movement: (params?: Record<string, unknown>) => ['fixed-assets', 'movement', params ?? {}] as const,
+  },
   automation: {
     all: ['automation'] as const,
     rules: (params?: Record<string, unknown>) => ['automation', 'rules', params ?? {}] as const,

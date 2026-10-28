@@ -236,6 +236,7 @@ import operationsManagementRoutes from './modules/operations-management/routes/o
 import translationRoutes from './modules/translation/routes/translation.routes';
 import importExportRoutes from './modules/import-export/routes/index.routes';
 import tradeRoutes from './modules/trade/routes/index.routes';
+import fixedAssetsRoutes from './modules/fixed-assets/routes/fixed-assets.routes';
 import { env } from './shared/config/env';
 
 const app: Express = express();
@@ -699,6 +700,9 @@ app.use('/api/v1/translation', cache({ ttl: 300 }), translationRoutes);
 // Import/Export routes
 app.use('/api/v1/import-export', cache({ ttl: 300 }), importExportRoutes);
 app.use('/api/v1/trade', tradeRoutes);
+
+// Fixed assets (الأصول الثابتة)
+app.use('/api/v1/fixed-assets', fixedAssetsRoutes);
 
 // GraphQL endpoint (for complex queries)
 // Note: graphqlMiddleware already includes authenticate and setTenantContext

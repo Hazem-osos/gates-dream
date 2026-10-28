@@ -97,6 +97,7 @@ export const arMessages: MessageTree = {
     realestate: 'الاستثمار العقاري',
     pos: 'نقاط البيع',
     inventory: 'المخازن',
+    fixedassets: 'الأصول الثابتة',
     accounts: 'الحسابات العامة',
     settings: 'الإعدادات المحاسبية',
   },

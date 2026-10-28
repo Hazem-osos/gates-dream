@@ -97,6 +97,7 @@ export const enMessages: MessageTree = {
     realestate: 'Real Estate',
     pos: 'Point of Sale',
     inventory: 'Inventory',
+    fixedassets: 'Fixed Assets',
     accounts: 'General Ledger',
     settings: 'Accounting settings',
   },

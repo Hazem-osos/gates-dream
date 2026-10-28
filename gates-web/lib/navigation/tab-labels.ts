@@ -7,6 +7,7 @@ import { inventoryModules } from '@/app/components/InventorySidebar';
 import { extractsModules } from '@/app/components/ExtractsSidebar';
 import { manufacturingModules } from '@/app/components/ManufacturingSidebar';
 import { exportImportModules } from '@/app/components/ExportImportSidebar';
+import { fixedAssetsModules } from '@/app/components/FixedAssetsSidebar';
 import { electronicInvoicesModules } from '@/app/components/ElectronicInvoicesSidebar';
 import { estsmar3akaryModules } from '@/app/components/SidebarEstsmar3akary';
 import { hrModules } from '@/app/components/hr/hr-sidebar.config';
@@ -56,6 +57,7 @@ const PATH_LABEL_EXACT: Record<string, string> = {
   '/manufacturing/settings/transactions/manufacturing-order': 'إعدادات عملية التصنيع',
   '/manufacturing/settings/transactions/manufacturing-work-order': 'إعدادات أمر الشغل',
   '/importexport': 'الاستيراد والتصدير',
+  '/fixed-assets': 'الأصول الثابتة',
   '/electronic-invoices': 'الفواتير الإلكترونية',
   '/real-estate-investment': 'الاستثمار العقاري',
   '/real-estate': 'التطوير العقاري والمحفظة',
@@ -80,6 +82,7 @@ const PATH_LABEL_EXACT: Record<string, string> = {
   '/inventory/settings/transactions/purchase-order': 'إعدادات أمر الشراء',
   '/inventory/settings/transactions/price-quote': 'إعدادات عرض السعر',
   '/inventory/settings/transactions/sales-order': 'إعدادات أمر البيع',
+  '/accounting/settings': 'إعدادات الحسابات',
   '/accounting/settings/transactions/payment-voucher': 'إعدادات سند الصرف',
   '/accounting/settings/transactions/receipt-voucher': 'إعدادات سند القبض',
   '/accounting/settings/transactions/journal-entry': 'إعدادات قيد اليومية',
@@ -204,6 +207,7 @@ function buildHrefLabelIndex(): Map<string, string> {
     extractsModules,
     manufacturingModules,
     exportImportModules,
+    fixedAssetsModules,
     electronicInvoicesModules,
     estsmar3akaryModules,
     hrModules,

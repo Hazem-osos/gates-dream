@@ -19,6 +19,7 @@ const ExportImportSidebar = dynamic(() => import('./components/ExportImportSideb
 const ElectronicInvoicesSidebar = dynamic(() => import('./components/ElectronicInvoicesSidebar'));
 const HRSidebar = dynamic(() => import('./components/HRSidebar'));
 const InventorySidebar = dynamic(() => import('./components/InventorySidebar'));
+const FixedAssetsSidebar = dynamic(() => import('./components/FixedAssetsSidebar'));
 import { AppSidebarShell, mainContentOffsetStyle } from './components/AppSidebarShell';
 import { QueryProvider } from '@/lib/providers/QueryProvider';
 import { PrivacyModeProvider } from '@/lib/providers/PrivacyModeProvider';
@@ -97,6 +98,7 @@ export function ErpApp({ children }: { children: ReactNode }) {
   const isElectronicInvoices = Boolean(pathname?.startsWith('/electronic-invoices'));
   const isInventory = Boolean(pathname?.startsWith('/inventory'));
   const isHR = Boolean(pathname?.startsWith('/hr'));
+  const isFixedAssets = Boolean(pathname?.startsWith('/fixed-assets'));
 
   const navExpanded = rightSidebarOpen;
   const mainOffset = mainContentOffsetStyle(navExpanded);
@@ -115,6 +117,8 @@ export function ErpApp({ children }: { children: ReactNode }) {
     <ExtractsSidebar collapsed={!navExpanded} />
   ) : isHR ? (
     <HRSidebar collapsed={!navExpanded} />
+  ) : isFixedAssets ? (
+    <FixedAssetsSidebar collapsed={!navExpanded} />
   ) : isRealEstate ? (
     <SidebarEstsmar3akary collapsed={!navExpanded} />
   ) : (

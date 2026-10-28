@@ -112,6 +112,18 @@ const META_BY_KEY: Record<string, ModuleSidebarMeta> = {
       accentText: 'text-purple-800 dark:text-purple-300',
     },
   },
+  fixedassets: {
+    title: 'الأصول الثابتة',
+    subtitle: 'السجل والإهلاك والاستبعاد',
+    emoji: '🏗️',
+    theme: {
+      iconBg: 'bg-sky-100 dark:bg-sky-950/50',
+      iconText: 'text-sky-700 dark:text-sky-300',
+      accentBorder: 'border-sky-600',
+      accentBg: 'bg-sky-50 dark:bg-sky-950/40',
+      accentText: 'text-sky-800 dark:text-sky-300',
+    },
+  },
   'electronic-invoices': {
     title: 'الفواتير الإلكترونية',
     subtitle: 'ETA والفوترة',

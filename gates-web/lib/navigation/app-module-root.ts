@@ -3,6 +3,7 @@ export const APP_TAB_MODULE_ROOTS = [
   '/accounting-settings',
   '/electronic-invoices',
   '/real-estate-investment',
+  '/fixed-assets',
   '/accounting',
   '/real-estate',
   '/inventory',

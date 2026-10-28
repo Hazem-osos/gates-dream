@@ -82,6 +82,9 @@ const hasRolePermission = (
       { resource: 'pos', action: 'view' },
       { resource: 'pos', action: 'edit' },
       { resource: 'account', action: 'view' },
+      { resource: 'fixed-asset', action: 'view' },
+      { resource: 'fixed-asset', action: 'edit' },
+      { resource: 'fixed-asset', action: 'post' },
     ],
     hr_manager: [
       { resource: 'employee', action: 'view' },

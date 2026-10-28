@@ -389,6 +389,10 @@ model Company {
   whatsappAuthorizedUsers                   WhatsappAuthorizedUser[]
   automationRules                           AutomationRule[]
   automationActionRuns                      AutomationActionRun[]
+  fixedAssetCategories                      FixedAssetCategory[]
+  fixedAssets                               FixedAsset[]
+  fixedAssetDepreciationRuns                FixedAssetDepreciationRun[]
+  fixedAssetDisposals                       FixedAssetDisposal[]
 
   @@unique([legacyCompanyCode])
   @@map("companies")
@@ -12573,4 +12577,230 @@ model LegacyAccountOverride {
   @@unique([targetCompanyId, sourceCompanyCode, legacyAccountCode], map: "legacy_account_overrides_scope_key")
   @@index([targetCompanyId])
   @@map("legacy_account_overrides")
+}
+
+// ---------------------------------------------------------------------------
+// Fixed assets (الأصول الثابتة) — EAS 10. Plan: docs/architecture/FIXED_ASSETS_MODULE_PLAN.md
+// The asset register is a sub-ledger of the GL. Every value change posts a
+// journal in the same transaction; the cached totals on FixedAsset follow
+// the posted run lines and disposals.
+// ---------------------------------------------------------------------------
+
+enum FixedAssetDepreciationMethod {
+  STRAIGHT_LINE
+  DECLINING_BALANCE
+  NONE
+}
+
+enum FixedAssetStatus {
+  DRAFT
+  ACTIVE
+  FULLY_DEPRECIATED
+  DISPOSED
+}
+
+/// PURCHASE posts Dr asset / Cr supplier or account. EXISTING is already in the
+/// GL (opening balance, or a purchase invoice charged to the asset account).
+enum FixedAssetAcquisitionType {
+  PURCHASE
+  EXISTING
+}
+
+enum FixedAssetDocumentStatus {
+  POSTED
+  UNPOSTED
+}
+
+enum FixedAssetDisposalType {
+  SALE
+  SCRAP
+}
+
+model FixedAssetCategory {
+  id                               String                       @id @default(uuid())
+  companyId                        String
+  code                             String                       @db.VarChar(30)
+  arabicName                       String                       @db.VarChar(200)
+  englishName                      String?                      @db.VarChar(200)
+  parentId                         String?
+  depreciationMethod               FixedAssetDepreciationMethod @default(STRAIGHT_LINE)
+  usefulLifeMonths                 Int?
+  /// Annual rate in percent, declining balance only (e.g. 25 = 25%).
+  decliningRate                    Decimal?                     @db.Decimal(9, 4)
+  salvagePercent                   Decimal                      @default(0) @db.Decimal(9, 4)
+  assetAccountId                   String?                      @db.VarChar(191)
+  accumulatedDepreciationAccountId String?                      @db.VarChar(191)
+  depreciationExpenseAccountId     String?                      @db.VarChar(191)
+  disposalGainAccountId            String?                      @db.VarChar(191)
+  disposalLossAccountId            String?                      @db.VarChar(191)
+  isActive                         Boolean                      @default(true)
+  createdAt                        DateTime                     @default(now())
+  updatedAt                        DateTime                     @updatedAt
+
+  company  Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   FixedAssetCategory?  @relation("FixedAssetCategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children FixedAssetCategory[] @relation("FixedAssetCategoryTree")
+  assets   FixedAsset[]
+
+  @@unique([companyId, code])
+  @@index([companyId, parentId])
+  @@map("fixed_asset_categories")
+}
+
+model FixedAsset {
+  id                               String                       @id @default(uuid())
+  companyId                        String
+  code                             String                       @db.VarChar(30)
+  arabicName                       String                       @db.VarChar(200)
+  englishName                      String?                      @db.VarChar(200)
+  categoryId                       String
+  status                           FixedAssetStatus             @default(DRAFT)
+  acquisitionType                  FixedAssetAcquisitionType    @default(PURCHASE)
+  acquisitionDate                  DateTime                     @db.Date
+  /// Depreciation starts here (EAS 10: available for use), 15th-of-month rule.
+  inServiceDate                    DateTime                     @db.Date
+  cost                             Decimal                      @db.Decimal(18, 4)
+  /// Recoverable input VAT on a PURCHASE (debited to the VAT account, not the cost).
+  vatAmount                        Decimal                      @default(0) @db.Decimal(18, 4)
+  salvageValue                     Decimal                      @default(0) @db.Decimal(18, 4)
+  usefulLifeMonths                 Int
+  depreciationMethod               FixedAssetDepreciationMethod @default(STRAIGHT_LINE)
+  decliningRate                    Decimal?                     @db.Decimal(9, 4)
+  /// Depreciation already booked before the asset entered Gates (no journal).
+  openingAccumulatedDepreciation   Decimal                      @default(0) @db.Decimal(18, 4)
+  openingDepreciatedThrough        DateTime?                    @db.Date
+  /// Cache: opening + posted run lines + posted disposal catch-up.
+  accumulatedDepreciation          Decimal                      @default(0) @db.Decimal(18, 4)
+  /// Cache: last month-end covered by depreciation.
+  depreciatedThrough               DateTime?                    @db.Date
+  assetAccountId                   String                       @db.VarChar(191)
+  accumulatedDepreciationAccountId String                       @db.VarChar(191)
+  depreciationExpenseAccountId     String                       @db.VarChar(191)
+  /// PURCHASE credit side: supplier ledger (supplierId) or this account.
+  creditAccountId                  String?                      @db.VarChar(191)
+  supplierId                       String?                      @db.VarChar(191)
+  journalEntryId                   String?                      @db.VarChar(191)
+  branchId                         String?                      @db.VarChar(191)
+  costCenterId                     String?                      @db.VarChar(191)
+  custodianEmployeeId              String?                      @db.VarChar(191)
+  location                         String?                      @db.VarChar(200)
+  serialNumber                     String?                      @db.VarChar(100)
+  barcode                          String?                      @db.VarChar(100)
+  invoiceReference                 String?                      @db.VarChar(100)
+  warrantyExpiry                   DateTime?                    @db.Date
+  notes                            String?                      @db.Text
+  postedAt                         DateTime?
+  postedBy                         String?                      @db.VarChar(191)
+  createdBy                        String?                      @db.VarChar(191)
+  version                          Int                          @default(1)
+  createdAt                        DateTime                     @default(now())
+  updatedAt                        DateTime                     @updatedAt
+
+  company           Company                         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category          FixedAssetCategory              @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  depreciationLines FixedAssetDepreciationLine[]
+  disposals         FixedAssetDisposal[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@index([companyId, categoryId])
+  @@index([companyId, barcode])
+  @@map("fixed_assets")
+}
+
+/// One monthly depreciation run per company and month. Runs are sequential:
+/// a new run must be for a later month than the last posted one.
+model FixedAssetDepreciationRun {
+  id              String                   @id @default(uuid())
+  companyId       String
+  runNumber       String                   @db.VarChar(30)
+  /// Last day of the month this run depreciates through.
+  periodEnd       DateTime                 @db.Date
+  status          FixedAssetDocumentStatus @default(POSTED)
+  /// `${companyId}:${YYYY-MM}` while posted, null when unposted — DB guard
+  /// against posting the same month twice.
+  activePeriodKey String?                  @unique @db.VarChar(80)
+  totalAmount     Decimal                  @default(0) @db.Decimal(18, 4)
+  journalEntryId  String?                  @db.VarChar(191)
+  branchId        String?                  @db.VarChar(191)
+  notes           String?                  @db.Text
+  postedAt        DateTime?
+  postedBy        String?                  @db.VarChar(191)
+  createdBy       String?                  @db.VarChar(191)
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  company Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines   FixedAssetDepreciationLine[]
+
+  @@unique([companyId, runNumber])
+  @@index([companyId, periodEnd])
+  @@map("fixed_asset_depreciation_runs")
+}
+
+/// Child of a run (no companyId) — always reach it through its run.
+/// One row per asset per month, so catch-up months stay visible.
+model FixedAssetDepreciationLine {
+  id                               String   @id @default(uuid())
+  runId                            String
+  assetId                          String
+  /// Last day of the depreciated month.
+  periodMonth                      DateTime @db.Date
+  amount                           Decimal  @db.Decimal(18, 4)
+  accumulatedAfter                 Decimal  @db.Decimal(18, 4)
+  depreciationExpenseAccountId     String   @db.VarChar(191)
+  accumulatedDepreciationAccountId String   @db.VarChar(191)
+  costCenterId                     String?  @db.VarChar(191)
+
+  run   FixedAssetDepreciationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  asset FixedAsset                @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@unique([runId, assetId, periodMonth])
+  @@index([assetId, periodMonth])
+  @@map("fixed_asset_depreciation_lines")
+}
+
+model FixedAssetDisposal {
+  id                     String                   @id @default(uuid())
+  companyId              String
+  disposalNumber         String                   @db.VarChar(30)
+  assetId                String
+  disposalType           FixedAssetDisposalType
+  disposalDate           DateTime                 @db.Date
+  status                 FixedAssetDocumentStatus @default(POSTED)
+  /// `${assetId}` while posted — one posted disposal per asset.
+  activeAssetKey         String?                  @unique @db.VarChar(191)
+  proceeds               Decimal                  @default(0) @db.Decimal(18, 4)
+  /// Output VAT on a sale (credited to the VAT account, outside the gain/loss).
+  vatAmount              Decimal                  @default(0) @db.Decimal(18, 4)
+  /// Proceeds debit side: customer ledger (customerId) or this account.
+  proceedsAccountId      String?                  @db.VarChar(191)
+  customerId             String?                  @db.VarChar(191)
+  /// Depreciation for the months between the last run and the disposal date.
+  catchUpDepreciation    Decimal                  @default(0) @db.Decimal(18, 4)
+  catchUpMonths          Int                      @default(0)
+  costAmount             Decimal                  @db.Decimal(18, 4)
+  accumulatedAmount      Decimal                  @db.Decimal(18, 4)
+  bookValue              Decimal                  @db.Decimal(18, 4)
+  /// Positive = gain, negative = loss.
+  gainLoss               Decimal                  @db.Decimal(18, 4)
+  /// Asset state before the disposal, restored on unpost.
+  previousStatus         FixedAssetStatus
+  previousDepreciatedThrough DateTime?            @db.Date
+  journalEntryId         String?                  @db.VarChar(191)
+  branchId               String?                  @db.VarChar(191)
+  notes                  String?                  @db.Text
+  postedAt               DateTime?
+  postedBy               String?                  @db.VarChar(191)
+  createdBy              String?                  @db.VarChar(191)
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+
+  company Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  asset   FixedAsset @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, disposalNumber])
+  @@index([companyId, disposalDate])
+  @@index([assetId])
+  @@map("fixed_asset_disposals")
 }

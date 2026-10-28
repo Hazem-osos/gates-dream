@@ -51,6 +51,7 @@ const PATH_RESOURCE: Array<{ prefix: string; resource: string; module?: string }
   { prefix: '/importexport/accreditations/letter-of-guarantee', resource: 'letter-of-guarantee', module: 'trade' },
   { prefix: '/importexport/accreditations/documentary-credit', resource: 'documentary-credit', module: 'trade' },
   { prefix: '/importexport/', resource: 'import-export', module: 'trade' },
+  { prefix: '/fixed-assets', resource: 'fixed-asset', module: 'accounting' },
   { prefix: '/manufacturing/operations/sales-order', resource: 'invoice', module: 'inventory' },
   { prefix: '/manufacturing/', resource: 'sensor', module: 'manufacturing' },
   { prefix: '/settings/company', resource: 'company', module: 'system' },

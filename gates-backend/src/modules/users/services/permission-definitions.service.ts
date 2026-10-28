@@ -79,6 +79,7 @@ const ROUTE_ONLY_RESOURCES: {
   { resource: 'securities-receipt', label: 'أوراق القبض', module: 'treasury', actions: ['view', 'edit', 'post'] },
   { resource: 'securities-payment', label: 'أوراق الدفع', module: 'treasury', actions: ['view', 'edit', 'post'] },
   { resource: 'securities-renewal', label: 'تجديد الأوراق', module: 'treasury', actions: ['view', 'edit', 'post'] },
+  { resource: 'fixed-asset', label: 'الأصول الثابتة', module: 'accounting', actions: ['view', 'edit', 'delete', 'post', 'unpost'] },
   // Inventory
   { resource: 'item-price', label: 'أسعار الأصناف', module: 'inventory', actions: CRUD },
   { resource: 'item-unit', label: 'وحدات الأصناف', module: 'inventory', actions: CRUD },
