@@ -24,6 +24,7 @@ import {
 } from '../academy/academy.schema';
 import { uploadAiDocumentMemory } from '../rag/upload.middleware';
 import { aiQuotaGuard } from '../security/ai-quota.guard';
+import { aiAccessGate } from '../../platform-admin/services/platform-ai-gate';
 
 function asyncHandler(
   handler: (req: AuthRequest, res: Response) => Promise<unknown>
@@ -39,6 +40,13 @@ export function createAiRouter(controller: AiController, academyController: Acad
 
   router.use(authenticate);
   router.use(setTenantContext);
+  // Platform admin kill switches. Reads of stored conversations stay available; anything that
+  // acts is blocked here, and every model call is blocked again inside the provider.
+  router.use((req: AuthRequest, res: Response, next: NextFunction) =>
+    req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS'
+      ? next()
+      : aiAccessGate(req, res, next)
+  );
 
   router.get('/health', reportView, asyncHandler(controller.health));
   router.get('/quota', reportView, asyncHandler(controller.quota));

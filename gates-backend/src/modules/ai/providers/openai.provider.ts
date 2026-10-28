@@ -1,6 +1,8 @@
 import { AppError } from '../../../shared/middleware/error-handler';
 import { getAiRuntimeConfig, isAiConfigured } from '../config/ai.config';
-import { recordAiUsageFromResponse } from '../security/ai-quota.guard';
+import { getAiQuotaCompanyId, recordAiUsageFromResponse } from '../security/ai-quota.guard';
+import { assertAiAllowed } from '../../platform-admin/services/platform-ai-gate';
+import { getTenantContext } from '../../../shared/database/tenant-context';
 import type {
   AIProvider,
   ChatCompletionChunk,
@@ -121,6 +123,7 @@ function providerHttpError(status: number, message: string): AppError {
 }
 
 async function postChatCompletions(body: string, stream: boolean): Promise<Response> {
+  await assertAiAllowed(getAiQuotaCompanyId() ?? getTenantContext()?.companyId);
   const apiKey = requireConfiguredKey();
   const { baseUrl } = getAiRuntimeConfig();
   try {

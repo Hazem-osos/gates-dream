@@ -53,6 +53,14 @@ router.post(
   authorize({ resource: 'company', action: 'edit' }),
   validate({ body: activateSchema }),
   async (req: AuthRequest, res: Response) => {
+    // Licenses are granted by Gates from the platform admin panel (/admin). A company admin
+    // activating or extending its own license would make licensing meaningless.
+    if (!['true', '1', 'yes', 'on'].includes((process.env.ALLOW_TENANT_SELF_LICENSING ?? '').trim().toLowerCase())) {
+      return void res.status(403).json({
+        status: 'error',
+        message: 'التراخيص تُدار من إدارة Gates فقط. تواصل مع فريق Gates لتفعيل أو تجديد الترخيص.',
+      });
+    }
     try {
       const companyId = req.companyId ?? req.tenantId;
       if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');

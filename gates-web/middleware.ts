@@ -15,7 +15,8 @@ function authGateEnabled(): boolean {
   return process.env.NODE_ENV === 'production';
 }
 
-const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password', '/logout', '/share'];
+// `/admin` is guarded client-side by its own platform-admin token, not the tenant cookie.
+const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password', '/logout', '/share', '/admin'];
 
 function isPublicPath(pathname: string): boolean {
   if (

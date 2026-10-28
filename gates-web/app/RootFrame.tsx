@@ -42,6 +42,11 @@ export function RootFrame({ children }: { children: ReactNode }) {
     return <main className="min-h-screen bg-background text-foreground">{children}</main>;
   }
 
+  // Platform admin panel: its own login, token and shell — never the tenant ERP chrome.
+  if (pathname === '/admin' || pathname?.startsWith('/admin/')) {
+    return <LightQuery>{children}</LightQuery>;
+  }
+
   if (isPublicAppPath(pathname)) {
     return (
       <LightQuery>

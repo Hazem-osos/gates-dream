@@ -115,12 +115,15 @@ model Company {
   aiTokensUsedThisMonth   Int      @default(0)
   /// Start of the current 30-day quota window.
   aiQuotaResetDate        DateTime @default(now())
+  /// Platform admin kill switch for Gates Intelligence on this company.
+  aiEnabled               Boolean  @default(true)
   deletedAt         DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
   branches                                  Branch[]
   users                                     User[]
+  userActivityDays                          UserActivityDay[]
   settings                                  CompanySettings?
   accounts                                  Account[]
   costCenters                               CostCenter[]
@@ -721,10 +724,14 @@ model User {
   preferredLanguage String?  @default("ar")
   avatarUrl         String?  @db.Text
   isActive          Boolean  @default(true)
+  /// Platform admin panel: last successful password login.
+  lastLoginAt       DateTime?
+  loginCount        Int      @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   company             Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  activityDays        UserActivityDay[]
   branchPermissions   UserBranchPermission[]
   groupMemberships    UserGroupMember[]
   permissions         UserPermission[]
@@ -11817,6 +11824,76 @@ model TenantSubscription {
 
   @@index([status])
   @@map("tenant_subscriptions")
+}
+
+// ============================================
+// Platform admin (/admin) — above all tenants
+// ============================================
+
+/// Gates staff who run the platform. Not a tenant user: no companyId, separate login and token.
+model PlatformAdmin {
+  id           String    @id @default(uuid())
+  email        String    @unique @db.VarChar(191)
+  passwordHash String
+  name         String?   @db.VarChar(120)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("platform_admins")
+}
+
+/// Every change made from the platform admin panel.
+model PlatformAuditLog {
+  id              String   @id @default(uuid())
+  adminId         String?
+  adminEmail      String   @db.VarChar(191)
+  action          String   @db.VarChar(80)
+  targetType      String   @db.VarChar(40)
+  targetId        String?  @db.VarChar(64)
+  /// Company the change touched, when there is one (platform-wide rows, not a tenant scope).
+  targetCompanyId String?  @db.VarChar(64)
+  details         Json?
+  ip              String?  @db.VarChar(64)
+  userAgent       String?  @db.VarChar(255)
+  at              DateTime @default(now())
+
+  @@index([at])
+  @@index([targetCompanyId, at])
+  @@index([adminId, at])
+  @@map("platform_audit_logs")
+}
+
+/// Platform-wide switches (AI kill switch, maintenance mode). Key/value.
+model PlatformSetting {
+  key       String   @id @db.VarChar(100)
+  value     Json
+  updatedBy String?  @db.VarChar(191)
+  updatedAt DateTime @updatedAt
+
+  @@map("platform_settings")
+}
+
+/// One row per user per day: how much the user actually used the system.
+model UserActivityDay {
+  id            String   @id @default(uuid())
+  userId        String
+  companyId     String
+  day           DateTime @db.Date
+  requestCount  Int      @default(0)
+  /// Distinct minutes in which the user made at least one request.
+  activeMinutes Int      @default(0)
+  firstSeenAt   DateTime
+  lastSeenAt    DateTime
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+  @@index([companyId, day])
+  @@index([day])
+  @@map("user_activity_days")
 }
 
 // ============================================

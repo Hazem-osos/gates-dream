@@ -175,6 +175,7 @@ import userGroupRoutes from './modules/users/routes/user-group.routes';
 import permissionDefinitionsRoutes from './modules/users/routes/permission-definitions.routes';
 import roleDefinitionsRoutes from './modules/users/routes/role-definitions.routes';
 import authRoutes from './modules/auth/routes/auth.routes';
+import platformAdminRoutes from './modules/platform-admin/routes/platform-admin.routes';
 import projectRoutes from './modules/extracts/routes/project.routes';
 import contractorRoutes from './modules/extracts/routes/contractor.routes';
 import extractRoutes from './modules/extracts/routes/extract.routes';
@@ -391,6 +392,9 @@ app.get('/health/ready', async (_req: Request, res: Response) => {
 
 // Auth routes (login/register carry their own limiter; /me and /verify must not)
 app.use('/api/v1/auth', authRoutes);
+// Platform admin panel (/admin): own token + guard, above every tenant — must stay outside the
+// tenant JWT gate and setTenantContext below.
+app.use('/api/v1/platform-admin', platformAdminRoutes);
 app.use('/api/v1/public/share', publicShareRouter);
 app.use('/api/v1/public/pos/receipts', posPublicReceiptRoutes);
 

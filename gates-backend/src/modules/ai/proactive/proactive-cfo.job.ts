@@ -13,6 +13,7 @@ import { ReceivablesRiskDetector } from './detectors/receivables-risk.detector';
 import { StockRunoutDetector } from './detectors/stock-runout.detector';
 import { insightStore, type InsightStore } from './insight.store';
 import { synthesizeInsightSummaries } from './synthesize-insights';
+import { assertAiAllowed } from '../../platform-admin/services/platform-ai-gate';
 
 export type ProactiveScanResult = {
   companyId: string;
@@ -29,6 +30,12 @@ export class ProactiveCfoJob {
   ) {}
 
   async runForCompany(companyId: string, asOf = new Date()): Promise<ProactiveScanResult> {
+    try {
+      await assertAiAllowed(companyId);
+    } catch {
+      // Gates Intelligence switched off by the platform admin (globally or for this company).
+      return { companyId, findings: 0, saved: 0, expired: 0 };
+    }
     const expired = await this.store.expireStale(companyId, asOf);
     const findings: DetectorFinding[] = [];
     for (const detector of this.detectors) {

@@ -1,6 +1,8 @@
 import { AppError } from '../../../shared/middleware/error-handler';
 import { getAiRuntimeConfig, isAiConfigured } from '../config/ai.config';
-import { recordAiUsageFromResponse } from '../security/ai-quota.guard';
+import { getAiQuotaCompanyId, recordAiUsageFromResponse } from '../security/ai-quota.guard';
+import { assertAiAllowed } from '../../platform-admin/services/platform-ai-gate';
+import { getTenantContext } from '../../../shared/database/tenant-context';
 
 export const EMBEDDING_MODEL = 'text-embedding-3-small';
 export const EMBEDDING_DIMENSIONS = 1536;
@@ -11,6 +13,7 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
   if (!isAiConfigured()) {
     throw new AppError(503, 'Gates Intelligence غير مُعد. أضف OPENAI_API_KEY في إعدادات الخادم.');
   }
+  await assertAiAllowed(getAiQuotaCompanyId() ?? getTenantContext()?.companyId);
   const cfg = getAiRuntimeConfig();
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {

@@ -6,6 +6,8 @@ import { AppError } from './error-handler';
 import { logger } from '../logger';
 import { authenticate } from './auth.middleware';
 import { runWithTenantContext } from '../database/tenant-context';
+import { resolveApiAuthMode } from './api-auth-mode.middleware';
+import { assertTenantRequestAllowed } from '../../modules/platform-admin/services/platform-access.service';
 
 /**
  * Every API request used to read `company` from MySQL just to confirm it exists
@@ -73,6 +75,14 @@ export const setTenantContext = async (
     if (!company.isActive) {
       throw new AppError(403, 'Company account is inactive');
     }
+
+    // Platform admin controls: maintenance mode, the company's license window, and a user
+    // that was disabled or deleted after their token was issued.
+    await assertTenantRequestAllowed({
+      companyId: tenantId,
+      userId: req.user?.sub,
+      checkUser: Boolean(req.user?.sub) && resolveApiAuthMode() !== 'anonymous',
+    });
 
     // Store tenant context in request object for use in services
     // Services must filter queries by companyId for tenant isolation

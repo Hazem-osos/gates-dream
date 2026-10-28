@@ -16,6 +16,7 @@ import type { AuthRequest } from '../auth/types';
 import { logger } from '../logger';
 import { AppError } from './error-handler';
 import { checkAndTouchRequestAuth } from '../auth/request-auth-state';
+import { trackUserActivity } from '../../modules/platform-admin/services/user-activity-tracker';
 
 // ── Authenticate (required) ───────────────────────────────────────────────────
 
@@ -97,6 +98,8 @@ export const authenticate: RequestHandler = async (
     req.tenantId = payload.tenant_id ?? payload.company_id;
     req.companyId = payload.company_id;
     req.branchId = payload.branch_id;
+
+    if (payload.company_id) trackUserActivity(payload.sub, payload.company_id);
 
     logger.debug(
       { userId: payload.sub, email: payload.email, tenantId: req.tenantId },

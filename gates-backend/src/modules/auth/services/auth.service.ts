@@ -27,6 +27,7 @@ import { userService } from '../../users/services/user.service';
 import { tenantProvisioningService } from '../../accounting/services/tenant-provisioning.service';
 import { refuseProductionSeed } from '../../../shared/config/prod-seed';
 import { redisClient } from '../../../shared/cache/redis';
+import { assertLoginAllowed } from '../../platform-admin/services/platform-access.service';
 import type { JwtPayload } from '../../../shared/auth/types';
 import type {
   RegisterInput,
@@ -219,7 +220,6 @@ async function releaseResetToken(jti: string): Promise<void> {
   }
 }
 
-
 /**
  * Effective roles for a locally-issued token. Keycloak supplies these in
  * `realm_access`; without it we derive them from the user's grant-all
@@ -398,6 +398,18 @@ export class AuthService {
 
     if (!dbUser || !isMatch) {
       throw new AppError(401, 'Invalid username or password');
+    }
+
+    // Maintenance mode, disabled company, suspended / expired license.
+    await assertLoginAllowed(dbUser.companyId);
+
+    try {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { lastLoginAt: new Date(), loginCount: { increment: 1 } },
+      });
+    } catch (err) {
+      logger.warn({ err, userId: dbUser.id }, '[Auth] could not record last login');
     }
 
     const roles = await resolveUserRoles(dbUser.id, dbUser.companyId);
