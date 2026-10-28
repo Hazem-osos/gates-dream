@@ -58,6 +58,13 @@ const envSchema = z.object({
     z.string().min(16, 'JWT_DEV_SECRET must be at least 16 characters when set').optional()
   ),
 
+  /**
+   * POST /auth/register attaches the new user to an existing company (the oldest active one by
+   * default). In production that is a real customer, so the endpoint is closed unless this is
+   * explicitly set. Users are created by a company admin instead.
+   */
+  ALLOW_PUBLIC_REGISTRATION: optionalEnvBoolean(),
+
   /** Company new dev users attach to when POST /auth/register is used (optional; else first active company or seed id). */
   DEFAULT_REGISTRATION_COMPANY_ID: z.preprocess(
     (v) => (v === '' || v === null || typeof v === 'undefined' ? undefined : v),

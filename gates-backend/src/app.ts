@@ -1,4 +1,7 @@
 import './shared/format/english-digits';
+// Must stay near the top: forwards rejected async handlers to the error handler instead of
+// letting them reach `unhandledRejection` (which exits the process).
+import './shared/http/express-async-errors';
 import express, { Express, Request, Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';

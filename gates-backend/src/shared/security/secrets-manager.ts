@@ -20,6 +20,11 @@ const TAG_LENGTH = 16;
 function getEncryptionKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY;
   if (!key) {
+    // The fallback below is a constant published in this public repository. Never use it
+    // for real customer secrets.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('ENCRYPTION_KEY must be set in production');
+    }
     logger.warn('ENCRYPTION_KEY not set, using default (NOT SECURE FOR PRODUCTION)');
     // Generate a deterministic key from a default (NOT SECURE - for development only)
     return crypto.scryptSync('default-key-change-in-production', 'salt', 32);
@@ -203,10 +208,17 @@ export function rotateEncryptionKey(): void {
 /**
  * Validate that encryption key is set (call on startup)
  */
-export function validateEncryptionKey(): void {
-  if (process.env.NODE_ENV === 'production' && !process.env.ENCRYPTION_KEY) {
-    logger.error('ENCRYPTION_KEY not set in production - encryption will fail');
+export function validateEncryptionKey(env: NodeJS.ProcessEnv = process.env): void {
+  if (env.NODE_ENV !== 'production') return;
+  const key = env.ENCRYPTION_KEY?.trim();
+  if (!key) {
+    logger.error('ENCRYPTION_KEY not set in production');
     throw new Error('ENCRYPTION_KEY must be set in production');
+  }
+  // aes-256-gcm needs exactly 32 bytes; the key is read as hex.
+  if (!/^[0-9a-fA-F]{64}$/.test(key)) {
+    logger.error('ENCRYPTION_KEY is not 64 hex characters (32 bytes)');
+    throw new Error('ENCRYPTION_KEY must be 64 hex characters in production');
   }
 }
 

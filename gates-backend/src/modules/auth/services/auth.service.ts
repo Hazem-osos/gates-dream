@@ -266,6 +266,11 @@ export class AuthService {
    */
   async register(body: RegisterInput): Promise<RegisterResult> {
     this.assertDevModeActive();
+    // Security: without this, anyone on the internet could create a user inside a real
+    // customer company (the oldest active one) in production.
+    if (env.NODE_ENV === 'production' && !env.ALLOW_PUBLIC_REGISTRATION) {
+      throw new AppError(403, 'التسجيل الذاتي غير متاح. اطلب من مدير الشركة إنشاء حساب لك.');
+    }
 
     const companyId = await resolveRegistrationCompanyId();
     if (!companyId) {

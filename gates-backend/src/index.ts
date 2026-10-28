@@ -81,6 +81,11 @@ try {
   logger.info('Encryption key validated');
 } catch (error) {
   logger.error({ error }, 'Encryption key validation failed');
+  // Security: running on would encrypt customer credentials (WhatsApp, SMTP, ETA, legacy SQL)
+  // with a key that is published in the repository. Refuse to start instead.
+  if (env.NODE_ENV === 'production') {
+    process.exit(1);
+  }
 }
 
 initializeCertificatePins();
