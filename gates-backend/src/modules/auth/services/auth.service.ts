@@ -27,8 +27,12 @@ import { userService } from '../../users/services/user.service';
 import { tenantProvisioningService } from '../../accounting/services/tenant-provisioning.service';
 import { refuseProductionSeed } from '../../../shared/config/prod-seed';
 import { redisClient } from '../../../shared/cache/redis';
-import { assertLoginAllowed } from '../../platform-admin/services/platform-access.service';
+import {
+  assertLoginAllowed,
+  invalidateUserAccess,
+} from '../../platform-admin/services/platform-access.service';
 import type { JwtPayload } from '../../../shared/auth/types';
+import { passwordVersion } from '../../../shared/auth/password-version';
 import type {
   RegisterInput,
   LoginInput,
@@ -424,6 +428,8 @@ export class AuthService {
       username: dbUser.username,
       company_id: dbUser.companyId,
       tenant_id: dbUser.companyId,
+      // Changing the password ends this session (checked in platform-access userError).
+      pv: passwordVersion(dbUser.passwordHash),
       ...(roles.length ? { realm_access: { roles }, role: roles[0] } : {}),
     };
 
@@ -649,6 +655,8 @@ export class AuthService {
       await releaseResetToken(payload.jti);
       throw err;
     }
+    // Sessions issued with the old password stop at the next request, not after the cache TTL.
+    await invalidateUserAccess(payload.sub);
   }
 
   private assertDevModeActive(): void {

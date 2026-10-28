@@ -135,7 +135,15 @@ router.post(
   validate({ body: createApiKeySchema }),
   async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.body.userId || req.user?.sub;
+      // SECURITY: the key belongs to the caller. A body `userId` naming someone else is
+      // refused (same rule as tenantId), so a key can never be minted in another user's name.
+      const userId = req.user?.sub;
+      if (req.body.userId && req.body.userId !== userId) {
+        return void res.status(403).json({
+          status: 'error',
+          message: 'لا يمكن إنشاء مفتاح API باسم مستخدم آخر.',
+        });
+      }
       const resolvedTenant = resolveApiKeyTenantId(
         req.tenantId || req.companyId,
         req.body.tenantId

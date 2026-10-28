@@ -415,6 +415,11 @@ app.use('/webhooks/meta/whatsapp', metaWhatsappWebhookRoutes);
 import { apiVersionMiddleware } from './shared/middleware/api-version.middleware';
 app.use('/api', apiVersionMiddleware);
 
+// Security: general per-IP limit for the whole API (was defined but never mounted).
+// Runs before auth so floods are cut before any JWT/DB work. Login has its own limiter.
+import { apiRateLimiter } from './shared/middleware/rate-limit.middleware';
+app.use('/api/v1', apiRateLimiter);
+
 // API routes - Module-based routing
 // Auth gate: JWT enforced by default; only skipped when API_AUTH_MODE is
 // explicitly set to `anonymous` (local dev only — H21 fix, Item 39: this is

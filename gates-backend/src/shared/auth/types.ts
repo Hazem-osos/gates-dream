@@ -20,6 +20,8 @@ export interface JwtPayload {
   iat?: number; // issued-at (epoch seconds)
   exp?: number; // expiry   (epoch seconds)
   jti?: string;
+  /** Password version at login (see shared/auth/password-version.ts). Local logins only. */
+  pv?: string;
 
   // ── Keycloak role claims ─────────────────────────────────────────────────
   realm_access?: {

@@ -1,6 +1,7 @@
 import prisma from '../../../shared/database/prisma';
 import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
+import { invalidateUserAccess } from '../../platform-admin/services/platform-access.service';
 import bcrypt from 'bcryptjs';
 
 export interface CreateUserData {
@@ -300,6 +301,11 @@ export class UserService {
         },
       });
 
+      // A new password or a deactivation must end existing sessions at the next request.
+      if (passwordHash || data.isActive === false) {
+        await invalidateUserAccess(userId);
+      }
+
       // Remove password hash from response
       const { passwordHash: _, ...userResponse } = user;
 
@@ -413,6 +419,8 @@ export class UserService {
         where: { id: userId },
         data: { passwordHash: newPasswordHash },
       });
+      // Every session issued with the old password (this one included) ends at the next request.
+      await invalidateUserAccess(userId);
 
       logger.info({ companyId, userId }, 'User password changed');
       return { success: true };

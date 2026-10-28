@@ -82,6 +82,7 @@ export const setTenantContext = async (
       companyId: tenantId,
       userId: req.user?.sub,
       checkUser: Boolean(req.user?.sub) && resolveApiAuthMode() !== 'anonymous',
+      passwordVersion: req.user?.pv,
     });
 
     // Store tenant context in request object for use in services

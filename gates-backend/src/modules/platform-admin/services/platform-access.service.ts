@@ -17,6 +17,7 @@ import { logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { getTenantCached, invalidateTenantCache } from '../../../shared/cache/tenant-metadata-cache';
 import { getPlatformSettings } from './platform-settings.service';
+import { isTokenFromOldPassword, passwordVersion } from '../../../shared/auth/password-version';
 
 export const platformAccessCacheKeys = {
   company: (companyId: string) => `platform:access:company:${companyId}`,
@@ -37,6 +38,8 @@ interface CachedCompanyAccess {
 interface CachedUserAccess {
   exists: boolean;
   isActive: boolean;
+  /** Fingerprint of the current password hash (never the hash itself). */
+  pv?: string;
 }
 
 export type LicenseState = 'UNLICENSED' | 'ACTIVE' | 'TRIAL' | 'SUSPENDED' | 'EXPIRED' | 'NOT_STARTED';
@@ -123,8 +126,15 @@ async function loadUserAccess(userId: string): Promise<CachedUserAccess> {
   return getTenantCached(
     platformAccessCacheKeys.user(userId),
     async () => {
-      const user = await prisma.user.findUnique({ where: { id: userId }, select: { isActive: true } });
-      return { exists: Boolean(user), isActive: Boolean(user?.isActive) };
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { isActive: true, passwordHash: true },
+      });
+      return {
+        exists: Boolean(user),
+        isActive: Boolean(user?.isActive),
+        pv: passwordVersion(user?.passwordHash),
+      };
     },
     30,
     120
@@ -153,7 +163,7 @@ async function companyError(companyId: string): Promise<AppError | null> {
   return licenseBlockError(evaluateLicenseState(access.sub));
 }
 
-async function userError(userId: string): Promise<AppError | null> {
+async function userError(userId: string, tokenPv?: string): Promise<AppError | null> {
   let access: CachedUserAccess;
   try {
     access = await loadUserAccess(userId);
@@ -168,6 +178,15 @@ async function userError(userId: string): Promise<AppError | null> {
   if (access.exists && !access.isActive) {
     return new AppError(403, 'تم إيقاف هذا المستخدم. تواصل مع مدير النظام.', true, 'USER_DISABLED');
   }
+  // Security: a 30-day token must not outlive a password change (stolen or shared token).
+  if (isTokenFromOldPassword(tokenPv, access.pv)) {
+    return new AppError(
+      401,
+      'تم تغيير كلمة المرور. سجّل الدخول مرة أخرى.',
+      true,
+      'SESSION_PASSWORD_CHANGED'
+    );
+  }
   return null;
 }
 
@@ -176,13 +195,15 @@ export async function assertTenantRequestAllowed(input: {
   companyId: string;
   userId?: string;
   checkUser: boolean;
+  /** `pv` claim of the access token, when it has one. */
+  passwordVersion?: string;
 }): Promise<void> {
   const maintenance = await maintenanceError();
   if (maintenance) throw maintenance;
   const company = await companyError(input.companyId);
   if (company) throw company;
   if (input.checkUser && input.userId) {
-    const user = await userError(input.userId);
+    const user = await userError(input.userId, input.passwordVersion);
     if (user) throw user;
   }
 }

@@ -19,7 +19,9 @@ const API_RATE_WINDOW_MS = 15 * 60 * 1000;
  * IP for the whole tenant. Default is now ERP-sized; override with
  * API_RATE_LIMIT_MAX if needed.
  */
-const API_RATE_MAX = Number.parseInt(process.env.API_RATE_LIMIT_MAX ?? '', 10) || 5000;
+// 20k / 15 min per client IP (~22 req/s): a whole office behind one NAT stays well inside it,
+// while floods and scrapers are cut off. Override with API_RATE_LIMIT_MAX.
+const API_RATE_MAX = Number.parseInt(process.env.API_RATE_LIMIT_MAX ?? '', 10) || 20000;
 
 const AUTH_RATE_MAX =
   Number.parseInt(process.env.AUTH_RATE_LIMIT_MAX ?? '', 10) || 30;
@@ -33,11 +35,19 @@ export function isAuthRateLimitBypassPath(req: Request): boolean {
   return /\/auth\/(login|register|logout|refresh|me|verify|profile)(\/|\?|$)/i.test(url);
 }
 
+/**
+ * Never count requests whose real client IP is unknown: they all share the proxy's address,
+ * so one bucket would throttle every user of every company at once.
+ */
+export function skipApiRateLimit(req: Request): boolean {
+  return isAuthRateLimitBypassPath(req) || resolveClientIp(req).sharedProxy;
+}
+
 export const apiRateLimiter = rateLimit({
   store: new SharedRateLimitStore('api'),
   windowMs: API_RATE_WINDOW_MS,
   max: API_RATE_MAX,
-  skip: isAuthRateLimitBypassPath,
+  skip: skipApiRateLimit,
   keyGenerator: clientIpKey,
   validate: { xForwardedForHeader: false },
   message: {
