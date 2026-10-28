@@ -128,7 +128,19 @@ const nextConfig: NextConfig = {
           },
           {
             key: 'Referrer-Policy',
-            value: 'origin-when-cross-origin',
+            value: 'strict-origin-when-cross-origin',
+          },
+          // Security baseline that cannot break the app: no plugins, no <base> hijack, no
+          // framing by other sites, forms only post back here. A strict script-src needs
+          // per-request nonces for Next's inline scripts and is a separate step.
+          {
+            key: 'Content-Security-Policy',
+            value: "object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
+          },
+          // Browsers only honour this over HTTPS (Railway); local http is unaffected.
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=31536000',
           },
         ],
       },

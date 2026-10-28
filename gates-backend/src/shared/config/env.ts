@@ -65,6 +65,9 @@ const envSchema = z.object({
    */
   ALLOW_PUBLIC_REGISTRATION: optionalEnvBoolean(),
 
+  /** Bearer token Prometheus must send to read /metrics in production (unset = not served). */
+  METRICS_TOKEN: optionalEnvString(),
+
   /** Company new dev users attach to when POST /auth/register is used (optional; else first active company or seed id). */
   DEFAULT_REGISTRATION_COMPANY_ID: z.preprocess(
     (v) => (v === '' || v === null || typeof v === 'undefined' ? undefined : v),

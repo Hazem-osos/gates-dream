@@ -8,6 +8,11 @@ import { Request, Response, NextFunction } from 'express';
 import { validateComplexity } from './complexity-limiter';
 import { logger } from '../logger';
 
+/** Only outside production may an introspection request skip the complexity check. */
+export function skipComplexityCheck(operationName: string | null | undefined, nodeEnv: string | undefined): boolean {
+  return nodeEnv !== 'production' && operationName === 'IntrospectionQuery';
+}
+
 /**
  * GraphQL Handler
  * Processes GraphQL queries and mutations
@@ -26,8 +31,11 @@ export const graphqlHandler = createHandler({
     };
   },
   onOperation: async (req, res, params) => {
-    // Validate query complexity before execution
-    if (params.operationName !== 'IntrospectionQuery') {
+    // Validate query complexity before execution. The operation name is chosen by the
+    // client, so naming any query "IntrospectionQuery" used to skip this check entirely.
+    // In production every operation is checked (the standard introspection query is deeper
+    // than maxDepth, so introspection is refused there); local tools keep introspection.
+    if (!skipComplexityCheck(params.operationName, process.env.NODE_ENV)) {
       try {
         validateComplexity(params.query, {
           maxComplexity: 100,

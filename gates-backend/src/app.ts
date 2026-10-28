@@ -360,13 +360,15 @@ app.use('/api/v1', securityAuditMiddleware);
 
 // Health check endpoints (no auth required)
 import { healthChecker } from './shared/health/health-checker';
+import { metricsAccessAllowed, publicHealthView } from './shared/monitoring/public-endpoints';
 
 // Comprehensive health check
 app.get('/health', async (_req: Request, res: Response) => {
   try {
     const health = await healthChecker.performHealthCheck();
     const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
-    return void res.status(statusCode).json(health);
+    // Public endpoint: in production, statuses only — no dependency error text.
+    return void res.status(statusCode).json(publicHealthView(health, env.NODE_ENV === 'production'));
   } catch (error) {
     return void res.status(503).json({
       status: 'unhealthy',
@@ -728,7 +730,11 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Metrics endpoint (for Prometheus scraping)
-app.get('/metrics', (_req: Request, res: Response) => {
+app.get('/metrics', (req: Request, res: Response) => {
+  // Security: production serves metrics only with `Authorization: Bearer <METRICS_TOKEN>`.
+  if (!metricsAccessAllowed(req.headers.authorization)) {
+    return void res.status(404).json({ status: 'error', message: 'Not found' });
+  }
   res.set('Content-Type', 'text/plain');
   return void res.send(metricsCollector.getPrometheusFormat());
 });
