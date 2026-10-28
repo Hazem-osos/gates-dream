@@ -8,10 +8,11 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:workers": "nodemon --exec ts-node src/workers/index.ts",
-    "build": "prisma generate",
+    "build": "prisma generate && node scripts/build-dist.mjs",
+    "build:dist": "node scripts/build-dist.mjs",
     "postinstall": "prisma generate",
     "start": "node dist/index.js",
-    "railway:build": "prisma generate",
+    "railway:build": "prisma generate && node scripts/build-dist.mjs",
     "railway:start": "node scripts/railway-start.mjs",
     "railway:deploy:workers": "railway up --service gates-workers --path-as-root .",
     "railway:deploy:backend": "railway up --service gates-backend --path-as-root .",

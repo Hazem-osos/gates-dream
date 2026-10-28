@@ -26,6 +26,7 @@ import { AppError } from '../../../shared/middleware/error-handler';
 import { userService } from '../../users/services/user.service';
 import { tenantProvisioningService } from '../../accounting/services/tenant-provisioning.service';
 import { refuseProductionSeed } from '../../../shared/config/prod-seed';
+import { redisClient } from '../../../shared/cache/redis';
 import type { JwtPayload } from '../../../shared/auth/types';
 import type {
   RegisterInput,
@@ -182,7 +183,42 @@ async function resolveRegistrationCompanyId(): Promise<string | null> {
 // Temporarily paused: keep the login for 30 days instead of 30 minutes.
 const ACCESS_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const RESET_TOKEN_TTL_SECONDS = 30 * 60;
+/** Per-process fallback when Redis is unavailable. */
 const usedResetTokenIds = new Set<string>();
+const resetTokenKey = (jti: string) => `pwreset:used:${jti}`;
+
+/**
+ * Mark a reset token used, atomically and across every API process (Redis SET NX).
+ * Returns false if it was already used. The Redis key outlives the token itself.
+ */
+async function claimResetToken(jti: string): Promise<boolean> {
+  if (redisClient.isReady()) {
+    try {
+      const ok = await redisClient
+        .getClient()
+        .set(resetTokenKey(jti), '1', 'EX', RESET_TOKEN_TTL_SECONDS * 2, 'NX');
+      if (ok !== 'OK') return false;
+      usedResetTokenIds.add(jti);
+      return true;
+    } catch (err) {
+      logger.warn({ err }, 'Reset-token claim in Redis failed — using per-process fallback');
+    }
+  }
+  if (usedResetTokenIds.has(jti)) return false;
+  usedResetTokenIds.add(jti);
+  return true;
+}
+
+async function releaseResetToken(jti: string): Promise<void> {
+  usedResetTokenIds.delete(jti);
+  if (!redisClient.isReady()) return;
+  try {
+    await redisClient.getClient().del(resetTokenKey(jti));
+  } catch (err) {
+    logger.warn({ err }, 'Reset-token release in Redis failed');
+  }
+}
+
 
 /**
  * Effective roles for a locally-issued token. Keycloak supplies these in
@@ -580,16 +616,22 @@ export class AuthService {
     if (payload.purpose !== 'password-reset' || !payload.sub || !payload.jti) {
       throw new AppError(400, 'رابط الاستعادة غير صالح');
     }
-    if (usedResetTokenIds.has(payload.jti)) {
+    // Claim first, then act: two submissions of the same link (or the same link on
+    // two API processes) cannot both change the password.
+    if (!(await claimResetToken(payload.jti))) {
       throw new AppError(400, 'تم استخدام رابط الاستعادة من قبل');
     }
-    const { default: bcrypt } = await import('bcryptjs');
-    const passwordHash = await bcrypt.hash(password, 10);
-    await prisma.user.update({
-      where: { id: payload.sub },
-      data: { passwordHash },
-    });
-    usedResetTokenIds.add(payload.jti);
+    try {
+      const { default: bcrypt } = await import('bcryptjs');
+      const passwordHash = await bcrypt.hash(password, 10);
+      await prisma.user.update({
+        where: { id: payload.sub },
+        data: { passwordHash },
+      });
+    } catch (err) {
+      await releaseResetToken(payload.jti);
+      throw err;
+    }
   }
 
   private assertDevModeActive(): void {

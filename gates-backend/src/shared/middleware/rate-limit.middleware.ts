@@ -2,6 +2,9 @@ import rateLimit from 'express-rate-limit';
 import { Request, Response } from 'express';
 import { logger } from '../logger';
 import { clientIpKey, resolveClientIp } from '../http/client-ip';
+import { SharedRateLimitStore } from './rate-limit-store';
+
+let customLimiterSeq = 0;
 /**
  * Rate Limiting Middleware
  * Prevents abuse by limiting requests per IP address
@@ -31,6 +34,7 @@ export function isAuthRateLimitBypassPath(req: Request): boolean {
 }
 
 export const apiRateLimiter = rateLimit({
+  store: new SharedRateLimitStore('api'),
   windowMs: API_RATE_WINDOW_MS,
   max: API_RATE_MAX,
   skip: isAuthRateLimitBypassPath,
@@ -65,6 +69,7 @@ export const apiRateLimiter = rateLimit({
  * Successful logins are not counted.
  */
 export const authRateLimiter = rateLimit({
+  store: new SharedRateLimitStore('auth'),
   windowMs: 15 * 60 * 1000,
   max: AUTH_RATE_MAX,
   keyGenerator: clientIpKey,
@@ -98,6 +103,7 @@ export const authRateLimiter = rateLimit({
  * Token refresh — clients refresh on focus/visibility; 10/15min was too tight.
  */
 export const tokenRefreshRateLimiter = rateLimit({
+  store: new SharedRateLimitStore('refresh'),
   windowMs: 15 * 60 * 1000,
   max: REFRESH_RATE_MAX,
   message: {
@@ -126,6 +132,7 @@ export const tokenRefreshRateLimiter = rateLimit({
  * Rate limiter for write operations (POST, PUT, DELETE)
  */
 export const writeOperationRateLimiter = rateLimit({
+  store: new SharedRateLimitStore('write'),
   windowMs: 15 * 60 * 1000,
   max: 200,
   message: {
@@ -159,7 +166,11 @@ export const createRateLimiter = (options: {
   message?: string;
   skipSuccessfulRequests?: boolean;
 }) => {
+  // Limiters are built at module load, in the same order in every process,
+  // so this sequence gives each one the same shared Redis key prefix everywhere.
+  customLimiterSeq += 1;
   return rateLimit({
+    store: new SharedRateLimitStore(`custom${customLimiterSeq}`),
     windowMs: options.windowMs,
     max: options.max,
     message: options.message || {

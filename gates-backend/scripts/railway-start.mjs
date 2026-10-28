@@ -77,23 +77,107 @@ if (!runWorkers && truthy(process.env.SEED_ON_BOOT)) {
   }
 }
 
-const entry = path.join(root, runWorkers ? 'src/workers/index.ts' : 'src/index.ts');
+/**
+ * Runtime: compiled JavaScript from `npm run build` (dist/) when present — no
+ * TypeScript transpiling at runtime. Falls back to tsx when dist/ was not built,
+ * and GATES_RUNTIME=tsx forces tsx (rollback switch, no rebuild needed).
+ */
+const distEntry = path.join(root, runWorkers ? 'dist/workers/index.js' : 'dist/index.js');
+const srcEntry = path.join(root, runWorkers ? 'src/workers/index.ts' : 'src/index.ts');
+const forceTsx = String(process.env.GATES_RUNTIME ?? '').trim().toLowerCase() === 'tsx';
+const useDist = !forceTsx && existsSync(distEntry);
+const entry = useDist ? distEntry : srcEntry;
 if (!existsSync(entry)) {
   console.error(`${entry} is missing from the deploy.`);
   process.exit(1);
 }
+console.log(
+  useDist
+    ? `Runtime: node (compiled) — ${path.relative(root, entry)}`
+    : `Runtime: tsx — ${path.relative(root, entry)}${forceTsx ? ' (GATES_RUNTIME=tsx)' : ' (dist/ not built)'}`
+);
 
 const childEnv = {
   ...process.env,
-  NODE_OPTIONS: [process.env.NODE_OPTIONS, '--max-old-space-size=1024']
+  NODE_OPTIONS: [
+    process.env.NODE_OPTIONS,
+    '--max-old-space-size=1024',
+    // Stack traces point at src/*.ts lines instead of bundled dist/ lines.
+    useDist ? '--enable-source-maps' : '',
+  ]
     .filter(Boolean)
     .join(' ')
     .trim(),
 };
+/**
+ * Cluster mode (API only, compiled runtime only): WEB_CONCURRENCY=N runs N API
+ * processes in this one container, sharing its port, CPU cores and volume.
+ * This is how the API uses more than one core while gates-backend still has a
+ * Railway volume (Railway replicas cannot share a volume). Default 1 = today's
+ * single process. Each process opens its own DB pool: set DB_CONNECTION_LIMIT
+ * so N × DB_CONNECTION_LIMIT stays well under MySQL max_connections.
+ */
+const requestedConcurrency = Number.parseInt(process.env.WEB_CONCURRENCY ?? '1', 10);
+const concurrency =
+  !runWorkers && useDist && Number.isFinite(requestedConcurrency) && requestedConcurrency > 1
+    ? Math.min(requestedConcurrency, 16)
+    : 1;
+
+if (concurrency > 1) {
+  const cluster = (await import('node:cluster')).default;
+  cluster.setupPrimary({ exec: entry, execArgv: [] });
+  console.log(`Cluster: starting ${concurrency} API processes.`);
+
+  const slotByWorkerId = new Map();
+  let stopping = false;
+  const restartTimes = [];
+
+  const forkSlot = (slot) => {
+    // Slot 1 is the only process that runs singletons (MQTT subscriber, API cron).
+    const worker = cluster.fork({ ...childEnv, GATES_CLUSTER_WORKER: String(slot) });
+    slotByWorkerId.set(worker.id, slot);
+  };
+  for (let slot = 1; slot <= concurrency; slot += 1) forkSlot(slot);
+
+  cluster.on('exit', (worker, code, signal) => {
+    const slot = slotByWorkerId.get(worker.id);
+    slotByWorkerId.delete(worker.id);
+    if (stopping) {
+      if (slotByWorkerId.size === 0) process.exit(0);
+      return;
+    }
+    // Crash loop guard: more than 10 restarts in a minute → exit and let Railway restart us.
+    const now = Date.now();
+    restartTimes.push(now);
+    while (restartTimes.length && now - restartTimes[0] > 60_000) restartTimes.shift();
+    if (restartTimes.length > 10) {
+      console.error('Cluster: API processes keep crashing — exiting so the platform restarts the service.');
+      process.exit(1);
+    }
+    console.error(`Cluster: process ${slot} exited (code ${code}, signal ${signal}) — restarting.`);
+    setTimeout(() => forkSlot(slot), 1_000);
+  });
+
+  const stopAll = (signal) => {
+    if (stopping) return;
+    stopping = true;
+    for (const worker of Object.values(cluster.workers ?? {})) worker?.process.kill(signal);
+    // Same 8 s ceiling as the single-process path below.
+    setTimeout(() => process.exit(0), 8_000).unref();
+  };
+  process.on('SIGTERM', () => stopAll('SIGTERM'));
+  process.on('SIGINT', () => stopAll('SIGINT'));
+} else {
+  startSingleProcess();
+}
+
+function startSingleProcess() {
 const tsxBin = path.join(root, 'node_modules/.bin/tsx');
-const child = existsSync(tsxBin)
-  ? spawn(tsxBin, [entry], { cwd: root, env: childEnv, stdio: 'inherit' })
-  : spawn('npx', ['tsx', entry], { cwd: root, env: childEnv, stdio: 'inherit' });
+const child = useDist
+  ? spawn(process.execPath, [entry], { cwd: root, env: childEnv, stdio: 'inherit' })
+  : existsSync(tsxBin)
+    ? spawn(tsxBin, [entry], { cwd: root, env: childEnv, stdio: 'inherit' })
+    : spawn('npx', ['tsx', entry], { cwd: root, env: childEnv, stdio: 'inherit' });
 
 let shuttingDown = false;
 const shutdown = (signal) => {
@@ -113,3 +197,4 @@ child.on('exit', (code, signal) => {
   }
   process.exit(code ?? 1);
 });
+}

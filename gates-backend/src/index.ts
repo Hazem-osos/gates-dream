@@ -46,6 +46,11 @@ initializeAuth();
 // Initialize distributed tracing (if enabled)
 initializeTracing();
 
+// In cluster mode (WEB_CONCURRENCY > 1, see scripts/railway-start.mjs) several
+// copies of this file run at once. Process-wide singletons — the MQTT
+// subscriber and API-side cron registration — run only in slot 1.
+const isPrimaryApiProcess = (process.env.GATES_CLUSTER_WORKER ?? '1') === '1';
+
 // Initialize Redis (for caching and job queues)
 if (env.REDIS_ENABLED) {
   redisClient.initialize();
@@ -62,7 +67,7 @@ if (env.REDIS_ENABLED) {
 }
 
 // Initialize MQTT subscriber for manufacturing sensors
-if (env.MQTT_ENABLED) {
+if (env.MQTT_ENABLED && isPrimaryApiProcess) {
   sensorSubscriberService.initialize();
 }
 
@@ -80,8 +85,8 @@ try {
 
 initializeCertificatePins();
 
-// Schedule integrity checks (if Redis enabled)
-if (env.REDIS_ENABLED) {
+// Schedule integrity checks (if Redis enabled) — cluster slot 1 only.
+if (env.REDIS_ENABLED && isPrimaryApiProcess) {
   // Wave 6 fix: this dynamic import was a floating, uncaught
   // `import().then()` — a failure here (module error, `scheduleIntegrityCheck`
   // throwing) used to vanish silently with no log and no crash.
