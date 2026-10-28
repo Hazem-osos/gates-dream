@@ -1,0 +1,90 @@
+# Security gate for every push and pull request. It deploys nothing (Railway is deployed by
+# hand from a release worktree; see .claude/rules/release-worktree.md).
+#
+# - backend-security: the security regression tests, including the check that every
+#   POST/PUT/PATCH/DELETE route has a permission guard (scripts/route-authorize-baseline.json).
+# - dependency-audit: fails on any critical vulnerability in production dependencies.
+# - secret-scan: fails if a password, key or token is committed (the repository is public).
+#
+# The full typecheck is not here yet: the tree has pre-existing tsc errors, and an always-red
+# job teaches people to ignore CI. Add it once tsc is clean.
+name: security
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'security/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: gates-backend
+    env:
+      # Unit tests mock the database; this local URL only satisfies the test setup guard.
+      DATABASE_URL: mysql://test:test@localhost:3306/test_db
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: gates-backend/package-lock.json
+      - run: npm ci
+      - name: Mutating routes without a permission guard
+        run: node scripts/audit-route-authorize.mjs
+      - name: Security regression tests
+        run: >
+          npx jest --forceExit --no-coverage
+          src/__tests__/unit/route-authorize-baseline.spec.ts
+          src/__tests__/unit/api-auth-mode.test.ts
+          src/__tests__/unit/api-key-tenant-scoping.spec.ts
+          src/__tests__/unit/api-key-owner.spec.ts
+          src/__tests__/unit/auth-register-production-guard.spec.ts
+          src/__tests__/unit/encryption-key-production.spec.ts
+          src/__tests__/unit/express-async-errors.spec.ts
+          src/__tests__/unit/pos-public-receipt-route.spec.ts
+          src/__tests__/unit/password-change-ends-sessions.spec.ts
+          src/__tests__/unit/api-rate-limit-skip.spec.ts
+          src/__tests__/unit/public-endpoints-hardening.spec.ts
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [gates-backend, gates-web]
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Report high and critical
+        run: npm audit --omit=dev --audit-level=high || true
+      - name: Fail on critical
+        run: npm audit --omit=dev --audit-level=critical
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

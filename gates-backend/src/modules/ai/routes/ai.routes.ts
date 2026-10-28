@@ -99,6 +99,9 @@ export function createAiRouter(controller: AiController, academyController: Acad
   );
   router.post(
     '/actions/:id/ocr-create-item',
+    // Security: this creates a real item. Owning the AI action only needs report:view, so the
+    // item permission must be checked here like any other item create.
+    authorize({ resource: 'item', action: 'edit' }),
     validate({ params: actionIdParamSchema, body: ocrCreateItemSchema }),
     asyncHandler(controller.ocrCreateItem)
   );
