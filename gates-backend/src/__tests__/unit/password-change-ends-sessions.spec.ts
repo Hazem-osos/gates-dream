@@ -61,9 +61,10 @@ describe('tenant request after a password change', () => {
 
   it('rejects a token issued before the password changed with 401', async () => {
     userFindUnique.mockResolvedValue({ isActive: true, passwordHash: NEW_HASH });
+    // Status + message only: the `code` field depends on the AppError version in the tree.
     await expect(check(passwordVersion(OLD_HASH))).rejects.toMatchObject({
       statusCode: 401,
-      code: 'SESSION_PASSWORD_CHANGED',
+      message: 'تم تغيير كلمة المرور. سجّل الدخول مرة أخرى.',
     });
   });
 
@@ -74,6 +75,9 @@ describe('tenant request after a password change', () => {
 
   it('still blocks a disabled user first', async () => {
     userFindUnique.mockResolvedValue({ isActive: false, passwordHash: OLD_HASH });
-    await expect(check(passwordVersion(OLD_HASH))).rejects.toMatchObject({ code: 'USER_DISABLED' });
+    await expect(check(passwordVersion(OLD_HASH))).rejects.toMatchObject({
+      statusCode: 403,
+      message: 'تم إيقاف هذا المستخدم. تواصل مع مدير النظام.',
+    });
   });
 });
