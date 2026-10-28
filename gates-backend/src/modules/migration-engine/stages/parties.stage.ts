@@ -7,9 +7,18 @@ import {
   type PartyClassificationReport,
 } from '../services/party-classifier.service';
 import { resolvePartyLegacyAccount } from '../services/migration-party-account.service';
+import {
+  createPartyLeafAccount,
+  derivedResolution,
+  planPartyLeafAccounts,
+} from '../services/migration-party-account-provision.service';
 import { evaluateAmbiguousPostedGlWithPartyData } from '../services/post-party-gl-evidence.service';
 import type { LegacySupplierRow } from '../services/legacy-party-data.service';
 import { transformCustomerRow, transformSupplierRow } from '../transforms/party-transform';
+import {
+  preserveCustomerLegacyMetadata,
+  preserveSupplierLegacyMetadata,
+} from '../services/migration-party-legacy-metadata.service';
 import type { MigrationStageName, StageRunReport } from '../types';
 
 const STAGE: MigrationStageName = 'PARTIES';
@@ -54,21 +63,57 @@ export async function analyzeParties(ctx: MigrationContext): Promise<PartiesAnal
   return { profile, classification };
 }
 
-async function buildClassification(ctx: MigrationContext, snapshot: Awaited<ReturnType<typeof loadLegacyPartySnapshot>>) {
-  const customerAccounts = new Map<string, Awaited<ReturnType<typeof resolvePartyLegacyAccount>>>();
-  for (const code of snapshot.customerAccountCodes) {
-    customerAccounts.set(code, await resolvePartyLegacyAccount(ctx, code));
+async function buildClassification(
+  ctx: MigrationContext,
+  snapshot: Awaited<ReturnType<typeof loadLegacyPartySnapshot>>,
+  opts: { createMissingLeaves: boolean } = { createMissingLeaves: false }
+) {
+  const resolutions = new Map<string, Awaited<ReturnType<typeof resolvePartyLegacyAccount>>>();
+  for (const code of new Set([...snapshot.customerAccountCodes, ...snapshot.supplierAccountCodes])) {
+    resolutions.set(code, await resolvePartyLegacyAccount(ctx, code));
   }
-  const supplierAccounts = new Map<string, Awaited<ReturnType<typeof resolvePartyLegacyAccount>>>();
-  for (const code of snapshot.supplierAccountCodes) {
-    supplierAccounts.set(code, await resolvePartyLegacyAccount(ctx, code));
+
+  // Party leaves missing from the legacy Account master are created under their header.
+  const missing = [...resolutions.values()]
+    .filter((r) => r.classification === 'MISSING_ACCOUNT' && r.legacyAccountCode)
+    .map((r) => r.legacyAccountCode);
+  const { plans, unresolved } = await planPartyLeafAccounts(ctx, snapshot, missing);
+  for (const plan of plans) {
+    const targetId = opts.createMissingLeaves ? await createPartyLeafAccount(ctx, plan) : undefined;
+    if (!opts.createMissingLeaves) {
+      ctx.idMap.planMapping(ctx.migrationJobId, 'Account', {
+        companyCode: ctx.legacyCompanyCode,
+        accountCode: plan.code,
+      });
+    }
+    resolutions.set(plan.code, derivedResolution(plan, targetId));
   }
+  for (const u of opts.createMissingLeaves ? unresolved : []) {
+    await ctx.issues.record({
+      jobId: ctx.migrationJobId,
+      stage: STAGE,
+      severity: 'WARNING',
+      category: 'PARTY_ACCOUNT_UNRESOLVED',
+      sourceEntity: 'Account',
+      sourceKey: u.code,
+      description: u.reason,
+    });
+  }
+
+  const customerAccounts = new Map(
+    [...snapshot.customerAccountCodes].map((c) => [c, resolutions.get(c)!] as const)
+  );
+  const supplierAccounts = new Map(
+    [...snapshot.supplierAccountCodes].map((c) => [c, resolutions.get(c)!] as const)
+  );
   return classifyPartySnapshot(snapshot, customerAccounts, supplierAccounts);
 }
 
 export async function runPartiesStage(ctx: MigrationContext): Promise<StageRunReport> {
   const snapshot = await loadLegacyPartySnapshot(ctx.source, ctx.legacyCompanyCode);
-  const classification = await buildClassification(ctx, snapshot);
+  const classification = await buildClassification(ctx, snapshot, {
+    createMissingLeaves: !ctx.dryRun,
+  });
 
   let written = 0;
   let simulated = 0;
@@ -115,12 +160,13 @@ async function upsertCustomer(
 ): Promise<'written' | 'simulated' | 'error'> {
   const row = entry.row as import('../services/legacy-party-data.service').LegacyCustomerRow;
   const accountId = entry.accountResolution?.targetAccountId;
-  if (!accountId) return 'error';
-
   const key = { companyCode: ctx.legacyCompanyCode, customerCode: row.customerCode };
+  if (ctx.dryRun) {
+    ctx.idMap.planMapping(ctx.migrationJobId, 'Customer', key);
+    return 'simulated';
+  }
+  if (!accountId) return 'error';
   if (await ctx.idMap.findMapping(ctx.migrationJobId, 'Customer', key)) return 'written';
-
-  if (ctx.dryRun) return 'simulated';
 
   const existing = await ctx.prisma.customer.findFirst({
     where: { companyId: ctx.targetCompanyId, code: row.customerCode },
@@ -141,6 +187,7 @@ async function upsertCustomer(
 
   const data = transformCustomerRow(row, ctx.targetCompanyId, accountId);
   const created = await ctx.prisma.customer.create({ data });
+  if (row._raw) await preserveCustomerLegacyMetadata(ctx, row.customerCode, row._raw);
   await ctx.idMap.recordMapping({
     jobId: ctx.migrationJobId,
     sourceEntity: 'Customer',
@@ -158,12 +205,13 @@ async function upsertSupplier(
 ): Promise<'written' | 'simulated' | 'error'> {
   const row = entry.row;
   const accountId = entry.accountResolution?.targetAccountId;
-  if (!accountId) return 'error';
-
   const key = { companyCode: ctx.legacyCompanyCode, supplierCode: row.supplierCode };
+  if (ctx.dryRun) {
+    ctx.idMap.planMapping(ctx.migrationJobId, 'Supplier', key);
+    return 'simulated';
+  }
+  if (!accountId) return 'error';
   if (await ctx.idMap.findMapping(ctx.migrationJobId, 'Supplier', key)) return 'written';
-
-  if (ctx.dryRun) return 'simulated';
 
   const existing = await ctx.prisma.supplier.findFirst({
     where: { companyId: ctx.targetCompanyId, code: row.supplierCode },
@@ -184,6 +232,7 @@ async function upsertSupplier(
 
   const data = transformSupplierRow(row, ctx.targetCompanyId, accountId);
   const created = await ctx.prisma.supplier.create({ data });
+  if (row._raw) await preserveSupplierLegacyMetadata(ctx, row.supplierCode, row._raw);
   await ctx.idMap.recordMapping({
     jobId: ctx.migrationJobId,
     sourceEntity: 'Supplier',

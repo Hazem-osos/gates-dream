@@ -23,6 +23,8 @@ import {
 } from '../services/legacy-account-override.service';
 import { isOwnerApprovedOverrideRow } from '../policies/approved-legacy-account-overrides';
 import type { GlPostedAccountResolution, MigrationStageName, StageRunReport } from '../types';
+import { preserveLegacySnapshot } from '../services/migration-legacy-snapshot-preserve.service';
+import { IMPORTER_PRESERVE_CONFIG } from '../services/migration-core-importer-preserve-config';
 
 const STAGE: MigrationStageName = 'COA';
 
@@ -111,7 +113,7 @@ export async function runCoaStage(ctx: MigrationContext): Promise<StageRunReport
 
   let written = 0;
   let simulated = 0;
-  let warnings = 0;
+  const warnings = 0;
   let errors = 0;
 
   const legacyToTarget = new Map<string, string>();
@@ -132,6 +134,7 @@ export async function runCoaStage(ctx: MigrationContext): Promise<StageRunReport
     }
 
     if (ctx.dryRun) {
+      ctx.idMap.planMapping(ctx.migrationJobId, 'Account', key);
       simulated += 1;
       continue;
     }
@@ -236,6 +239,31 @@ export async function runCoaStage(ctx: MigrationContext): Promise<StageRunReport
       targetId: created.id,
       outcome: 'CREATED_BY_MIGRATION',
     });
+    if (master) {
+      await preserveLegacySnapshot(ctx, {
+        namespace: IMPORTER_PRESERVE_CONFIG.Account.preserveNamespace,
+        sourceKey: code,
+        raw: {
+          CompanyCode: ctx.legacyCompanyCode,
+          BranchCode: '',
+          AccountCode: master.accountCode,
+          ParentAccount: master.parentAccount,
+          FullPath: master.fullPath,
+          AccountLevel: master.accountLevel,
+          AccountNameA: master.arabicName,
+          AccountNameE: master.englishName,
+          AccountStatus: master.accountStatus,
+          AccountType: master.accountType,
+          ReportType: master.reportType,
+          AccountSide: master.accountSide,
+          CurrencyCode: master.currencyCode,
+          CCType: master.ccType,
+          HasChild: master.hasChild ? 'T' : 'F',
+          Deleted: master.deleted ? 'T' : 'F',
+        },
+        mappedColumns: IMPORTER_PRESERVE_CONFIG.Account.mappedColumns,
+      });
+    }
   }
 
   if (!ctx.dryRun) {
@@ -396,8 +424,9 @@ export async function reconcileCoa(ctx: MigrationContext): Promise<CoaReconcileR
 }
 
 function stripConnect(data: ReturnType<typeof transformMasterAccount>) {
-  const { company: _c, ...rest } = data as typeof data & { company?: unknown };
-  return rest;
+  const rest: Partial<typeof data> = { ...data };
+  delete rest.company;
+  return rest as Omit<typeof data, 'company'>;
 }
 
 async function isSemanticallyEquivalent(

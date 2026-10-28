@@ -30,6 +30,59 @@ export function explainMigrationEngineAlert(message?: string): string {
   if (/Legacy source must remain read-only/i.test(m)) {
     return 'مصدر Legacy يجب أن يكون للقراءة فقط — أزل MIGRATION_LEGACY_WRITABLE إن كان مفعّلاً.';
   }
+  if (/Migration target must be local\/disposable/i.test(m)) {
+    return (
+      'قاعدة الهدف ليست محلية/تجريبية. على Railway: إمّا MySQL pilot منفصل، أو بعد موافقة المالك فقط ' +
+      'MIGRATION_ALLOW_PRODUCTION_TARGET=true على gates-backend و gates-workers.'
+    );
+  }
+  if (/Failed to create migration job|Failed to enqueue|inline migration failed/i.test(m)) {
+    return 'تعذّر تشغيل الترحيل — راجع تنبيه «محرك الترحيل» أعلى الصفحة ومتغيرات Railway ثم أعد المحاولة.';
+  }
+  if (/No legacy SQL source configured/i.test(m)) {
+    return (
+      'مصدر SQL القديم غير جاهز. احفظ الاتصال واضغط «اختبار الاتصال»، أو استعد ملف .bak على SQL Server ثم اربطه من «اتصال SQL مباشر».'
+    );
+  }
+  if (/Isolated SQL Server host/i.test(m)) {
+    return (
+      'استعادة .bak من واجهة Gates تتم على SQL Server معزول (عامل restore)، وليست على حاوية MySQL. ' +
+      'إن ظهرت هذه الرسالة فالخدمة غير مفعّلة بعد (MIGRATION_ISOLATED_MSSQL_HOST + MIGRATION_BAK_RESTORE_WORKER). ' +
+      'العميل لا يستعيد الملف على جهازه. «اتصال SQL مباشر» مسار مشغّل فقط.'
+    );
+  }
+  if (/Neither docker nor sqlcmd|Automated \.bak restore is disabled|Backup file missing/i.test(m)) {
+    return (
+      'لا يمكن تشغيل استعادة .bak على هذا الخادم. استعد النسخة يدوياً على SQL Server، ثم اربط المصدر (REMOTE_SQL / LEGACY_FORENSIC_URL) ونفّذ الترحيل من Analyze / Execute.'
+    );
+  }
+  if (/cannot (run|dry-run|COA dry-run|run COA|run parties|run accounting|run items|run inventory|run commercial)/i.test(m) || /cannot run in status/i.test(m)) {
+    return (
+      'المهمة ليست في حالة تسمح بهذه الخطوة. اضغط «إيقاف التشغيل» ثم «تحليل المصدر» أو «معاينة جافة».'
+    );
+  }
+  if (/locked by another runner|already running|شغالة الآن/i.test(m)) {
+    return 'تشغيل واقف على نفس المهمة. اضغط «إيقاف التشغيل» ثم أعد التحليل أو المعاينة.';
+  }
+  if (/cannot pause job in status/i.test(m)) {
+    return 'لا يمكن الإيقاف المؤقت في الحالة الحالية. اضغط «إيقاف التشغيل» لإلغاء التشغيل بالكامل.';
+  }
+  if (/cannot cancel job in status/i.test(m)) {
+    return 'اضغط «إيقاف التشغيل» لإلغاء التشغيل الحالي ثم أعد المحاولة.';
+  }
+  if (/source fingerprint mismatch/i.test(m)) {
+    return 'البصمة المؤقتة للمهمة اتبدلت ببصمة SQL الحقيقية. سيّب نافذة البرنامج مفتوحة واضغط «تحليل المصدر» مرة ثانية.';
+  }
+  if (/illegal migration job transition/i.test(m)) {
+    return 'حالة المهمة لا تسمح بهذه الخطوة. اضغط «إيقاف التشغيل» ثم «تحليل المصدر» أو «معاينة جافة».';
+  }
+  if (/invalid column name ['']RemainingValue['']/i.test(m)) {
+    return 'عمود RemainingValue غير موجود في فاتورة النظام القديم. المتبقي يُحسب من الصافي ناقص المدفوع. حدّث الصفحة وأعد المعاينة الجافة.';
+  }
+  if (/invalid column name ['']([^'']+)['']/i.test(m)) {
+    const col = m.match(/invalid column name ['']([^'']+)['']/i)?.[1] ?? '';
+    return `عمود «${col}» غير موجود في جدول SQL القديم. المعاينة وقفت عند قراءة الفواتير.`;
+  }
   return m;
 }
 
@@ -48,6 +101,34 @@ const BLOCKED_MODULE_AR: Record<string, string> = {
 
 export function blockedModuleLabelAr(english: string): string {
   return BLOCKED_MODULE_AR[english] ?? english;
+}
+
+/** Plain Arabic for core-area gap lines (operator view — not blockers by default). */
+const CORE_COVERAGE_GAP_AR: Record<string, string> = {
+  'Wide CompanySettings row (logo/theme) — not all keys have typed targets':
+    'بعض إعدادات الشركة (شعار/مظهر) تُحفظ كما هي — بدون حقول منفصلة في النظام الجديد',
+  'BalanceAccounts monetary amounts live in GL — header slots preserved only':
+    'أرصدة الحسابات الافتتاحية من القيود؛ خانات الرأس في القديم تُحفظ للمرجع فقط',
+  'Party opening balances from subledger only if not in GL — not fabricated':
+    'رصيد العميل/المورد من القيود فقط — لا يُختلق رصيد من دفتر مساعد منفصل',
+  'Reversed invoice semantics — no reversalOf column in legacy header':
+    'فواتير المرتجع تُربط بالأصل عند توفر البيانات — بدون عمود reversal في القديم',
+  'Landed cost / expense invoices — separate legacy types may BLOCK':
+    'فواتير مصاريف/تكلفة وصول قد تتطلب مراجعة إن وُجدت في المصدر',
+  'Inter-safe transfers without CashTrxHeader evidence':
+    'تحويلات بين الخزائن بدون سند واضح في القديم — قد لا تُرحّل',
+  'Advance/unapplied cash without invoice columns — not fabricated':
+    'دفعات غير مطبّقة على فواتير لا تُختلق — تُرحّل فقط عند وجود أعمدة الربط',
+  'Securities PKTrx beyond PK01 cheque lifecycle':
+    'أوراق مالية خارج دورة شيك PK01 القياسية — قد تحتاج مراجعة',
+  'Extra sub-collections logged as INFO only':
+    'تحصيلات فرعية إضافية تُسجّل كمعلومة فقط',
+  'Inventory valuation GL cutover — owner policy (FULL_CUTOVER_READINESS)':
+    'تقييم المخزون في GL يتبع السياسة المحفوظة على المهمة (افتراضي: دوري بدون إعادة ترحيل GL)',
+};
+
+export function coreCoverageGapAr(english: string): string {
+  return CORE_COVERAGE_GAP_AR[english] ?? 'ملاحظة للفريق التقني — لا تمنع الترحيل في أغلب الحالات';
 }
 
 export function supportedLegacyEngineAr(english?: string): string {

@@ -232,6 +232,7 @@ import automationMetadataRoutes from './modules/automation/routes/automation-met
 import automationTemplatesRoutes from './modules/automation/routes/automation-templates.routes';
 import systemSettingRoutes from './modules/common/routes/system-setting.routes';
 import databaseToolsRoutes from './modules/database-tools/routes/database-backup.routes';
+import migrationEngineRoutes from './modules/migration-engine/routes/migration-engine.routes';
 import operationsManagementRoutes from './modules/operations-management/routes/operations-management.routes';
 import translationRoutes from './modules/translation/routes/translation.routes';
 import importExportRoutes from './modules/import-export/routes/index.routes';
@@ -690,6 +691,7 @@ app.use('/api/v1/system-settings', cache({ ttl: 300 }), systemSettingRoutes);
 
 // Database Tools routes
 app.use('/api/v1/database-tools', databaseToolsRoutes);
+app.use('/api/v1/migration-engine', migrationEngineRoutes);
 
 // Operations Management routes
 app.use('/api/v1/operations-management', operationsManagementRoutes);

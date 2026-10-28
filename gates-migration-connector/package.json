@@ -1,0 +1,38 @@
+{
+  "name": "gates-migration-connector",
+  "version": "0.2.4",
+  "private": true,
+  "description": "On-premise outbound connector for Gates ERP legacy SQL Server migration reads",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": "dist/agent.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "agent": "node dist/agent.js",
+    "pack:win": "npm run build && npm run pack:win:cjs && npm run pack:win:exe",
+    "pack:win:cjs": "tsc -p tsconfig.pack.json && node -e \"require('fs').writeFileSync('dist-cjs/package.json', JSON.stringify({type:'commonjs'}))\"",
+    "pack:win:exe": "pkg dist-cjs/agent.js --targets node22-win-x64 --no-bytecode --public --public-packages \"*\" --output dist-exe/GatesMigrationAgent.exe"
+  },
+  "pkg": {
+    "scripts": [
+      "dist-cjs/**/*.js"
+    ],
+    "assets": [
+      "dist-cjs/**/*.js"
+    ],
+    "targets": [
+      "node22-win-x64"
+    ],
+    "outputPath": "dist-exe"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mssql": "^11.0.1"
+  },
+  "devDependencies": {
+    "@types/mssql": "^12.3.0",
+    "@yao-pkg/pkg": "6.24.0",
+    "typescript": "^5.6.3"
+  }
+}

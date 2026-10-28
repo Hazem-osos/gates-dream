@@ -11,3 +11,15 @@ export const LEGACY_GL_DETAIL_JOIN = `
    AND h.YearID = d.YearID
    AND h.GlNum = d.GLNum
 `;
+
+/** Posted details without multiplying lines when two headers share GlNum (invoice + receipt). */
+export const LEGACY_POSTED_DETAIL_EXISTS = `
+  EXISTS (
+    SELECT 1 FROM dbo.GLTrxHeader h
+    WHERE h.CompanyCode = d.CompanyCode
+      AND h.BranchCode = d.BranchCode
+      AND h.YearID = d.YearID
+      AND h.GlNum = d.GLNum
+      AND ${LEGACY_POSTED_GL_HEADER_WHERE}
+  )
+`;

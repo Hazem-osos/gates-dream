@@ -1,7 +1,7 @@
 /** Normalize legacy account codes without stripping significant leading zeros. */
 export function normalizeLegacyAccountCode(raw: unknown): string {
   if (raw === null || raw === undefined) return '';
-  const s = String(raw).replace(/\u0000/g, '').trim();
+  const s = String(raw).split(String.fromCharCode(0)).join('').trim();
   return s;
 }
 

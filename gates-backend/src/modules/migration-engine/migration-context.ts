@@ -82,4 +82,9 @@ export class MigrationContext {
     const safe = { jobId: this.migrationJobId, stage: meta?.stage, entity: meta?.entity };
     console.log('[migration]', message, safe);
   }
+
+  async throwIfPaused(meta?: { stage?: string; entity?: string }) {
+    const { throwIfMigrationPaused } = await import('./migration-cooperative-pause');
+    await throwIfMigrationPaused(this, meta);
+  }
 }

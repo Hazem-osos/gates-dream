@@ -7,11 +7,26 @@ export class CoaHierarchyError extends Error {
   }
 }
 
+export function findDuplicateAccountCodes(masters: LegacyAccountMasterRow[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const master of masters) {
+    const code = master.accountCode;
+    if (seen.has(code)) duplicates.add(code);
+    seen.add(code);
+  }
+  return [...duplicates].sort();
+}
+
 /** Topological order: parents before children. Detects cycles and missing parents. */
 export function orderMasterAccountsForInsert(
   masters: LegacyAccountMasterRow[],
   extraCodes: string[] = []
 ): string[] {
+  const duplicates = findDuplicateAccountCodes(masters);
+  if (duplicates.length) {
+    throw new CoaHierarchyError(`Duplicate account codes: ${duplicates.join(', ')}`);
+  }
   const byCode = new Map(masters.map((m) => [m.accountCode, m]));
   const allCodes = new Set([...masters.map((m) => m.accountCode), ...extraCodes]);
 

@@ -4,11 +4,27 @@ export type LegacyRow = Record<string, unknown>;
 
 export function transformBranch(row: LegacyRow, companyId: string) {
   const branchCode = legacyTrim(row.BranchCode);
+  const street = legacyTrim(row.Street);
+  const building = legacyTrim(row.Building);
+  const addr =
+    legacyTrim(row.Address) ||
+    [street, building].filter(Boolean).join(' ') ||
+    null;
   return {
     companyId,
     legacyBranchCode: branchCode,
     arabicName: legacyTrim(row.BranchNameA) || `Branch ${branchCode}`,
-    address: legacyTrim(row.Address) || null,
+    address: addr,
+    city: legacyTrim(row.City) || null,
+    country: legacyTrim(row.CountryCode) || null,
+    streetName: street || null,
+    buildingNumber: building || null,
+    governorate: legacyTrim(row.StateName) || null,
+    district: legacyTrim(row.Place) || null,
+    activityCode: legacyTrim(row.ActivityCode) || null,
+    priceList: legacyTrim(row.PriceListCode) || null,
+    barcodePrice: legacyTrim(row.BarCodePrice) || null,
+    registrationNumber: legacyTrim(row.TaxOfficeCode) || null,
   };
 }
 
@@ -20,8 +36,8 @@ export function transformFiscalYear(row: LegacyRow, companyId: string) {
     legacyYearId: yearCode,
     arabicName: legacyTrim(row.YearNameA) || yearCode,
     englishName: legacyTrim(row.YearNameE) || null,
-    startDate: legacyDate(row.FromDate) ?? new Date(),
-    endDate: legacyDate(row.ToDate) ?? new Date(),
+    startDate: legacyDate(row.FromDate ?? row.StartDate) ?? new Date(),
+    endDate: legacyDate(row.ToDate ?? row.EndDate) ?? new Date(),
     status: statusRaw.includes('close') ? 'Close' : 'Open',
   };
 }

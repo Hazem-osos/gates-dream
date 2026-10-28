@@ -5,6 +5,7 @@ import { prisma } from '../database/prisma';
 import { AppError } from './error-handler';
 import { logger } from '../logger';
 import { authenticate } from './auth.middleware';
+import { isPublicMigrationAgentPath } from '../http/public-api-paths';
 import { runWithTenantContext } from '../database/tenant-context';
 import { resolveApiAuthMode } from './api-auth-mode.middleware';
 import { assertTenantRequestAllowed } from '../../modules/platform-admin/services/platform-access.service';
@@ -61,6 +62,10 @@ export const setTenantContext = async (
     const tenantId = req.tenantId || req.companyId;
 
     if (!tenantId) {
+      // Windows migration agent routes authenticate with a device token, not a user JWT.
+      if (isPublicMigrationAgentPath((req.originalUrl || req.url || '').split('?')[0])) {
+        return next();
+      }
       throw new AppError(400, 'Tenant ID is required');
     }
 

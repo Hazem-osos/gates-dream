@@ -44,8 +44,12 @@ export type MigrationStageName =
   | 'COA'
   | 'PARTIES'
   | 'ACCOUNTING'
+  | 'ITEMS'
   | 'INVENTORY'
-  | 'COMMERCIAL';
+  | 'COMMERCIAL'
+  | 'TREASURY_HISTORICAL'
+  | 'SETTLEMENT_HISTORICAL'
+  | 'CHEQUE_HISTORICAL';
 
 export interface MigrationEngineOptions {
   legacyCompanyCode: string;
@@ -57,8 +61,32 @@ export interface SourceBatch<T = Record<string, unknown>> {
   nextCursor: string | null;
 }
 
+export const LEGACY_SOURCE_MODES = [
+  'REMOTE_SQL_SERVER',
+  'ON_PREMISE_CONNECTOR',
+  'BACKUP_RESTORE',
+] as const;
+
+export type LegacySourceMode = (typeof LEGACY_SOURCE_MODES)[number];
+
+export interface LegacySchemaTable {
+  name: string;
+  columnCount: number;
+}
+
+export interface LegacySourceHealth {
+  ok: boolean;
+  mode: LegacySourceMode;
+  message?: string;
+  latencyMs?: number;
+}
+
 export interface LegacySourceAdapter {
+  mode(): LegacySourceMode;
+  connect(): Promise<void>;
   testConnection(): Promise<void>;
+  discoverSchema(): Promise<LegacySchemaTable[]>;
+  reportHealth(): Promise<LegacySourceHealth>;
   getFingerprint(legacyCompanyCode: string): Promise<string>;
   getDatabaseName(): Promise<string>;
   count(table: string, legacyCompanyCode: string): Promise<number>;
@@ -69,7 +97,42 @@ export interface LegacySourceAdapter {
     limit: number
   ): Promise<SourceBatch>;
   querySql<T = Record<string, unknown>>(sql: string, params?: Record<string, unknown>): Promise<T[]>;
+  streamRows(
+    table: string,
+    legacyCompanyCode: string,
+    onBatch: (batch: SourceBatch) => Promise<void> | void,
+    options?: { batchSize?: number; maxRows?: number }
+  ): Promise<void>;
   close(): Promise<void>;
+}
+
+export function normalizeLegacySourceMode(input?: string | null): LegacySourceMode {
+  const v = (input ?? '').trim().toUpperCase();
+  if (v === 'LEGACY_CONNECTION' || v === 'REMOTE' || v === 'REMOTE_SQL_SERVER') {
+    return 'REMOTE_SQL_SERVER';
+  }
+  if (v === 'PACKAGE' || v === 'BACKUP' || v === 'BACKUP_RESTORE') {
+    return 'BACKUP_RESTORE';
+  }
+  if (v === 'CONNECTOR' || v === 'ON_PREMISE' || v === 'ON_PREMISE_CONNECTOR') {
+    return 'ON_PREMISE_CONNECTOR';
+  }
+  return 'REMOTE_SQL_SERVER';
+}
+
+/** Provisional fingerprint for package-only jobs before SQL is bound. */
+export function packageProvisionalFingerprint(sha256: string): string {
+  return `package:${sha256.slice(0, 64)}`;
+}
+
+/** Provisional fingerprint until the Windows agent answers analyze. */
+export function connectorProvisionalFingerprint(configId: string): string {
+  return `connector:${configId}`;
+}
+
+export function isProvisionalPackageFingerprint(fp: string): boolean {
+  const v = (fp ?? '').trim();
+  return v.startsWith('package:') || v.startsWith('connector:') || v === 'pending';
 }
 
 export interface MigrationWriteResult {
@@ -80,7 +143,7 @@ export interface MigrationWriteResult {
 
 export interface StageRunReport {
   stage: MigrationStageName;
-  sourceCounts: Record<string, number>;
+  sourceCounts: Record<string, number | string>;
   transformed: number;
   written: number;
   simulated: number;

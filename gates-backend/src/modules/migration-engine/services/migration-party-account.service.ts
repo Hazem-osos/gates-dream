@@ -1,4 +1,5 @@
 import type { MigrationContext } from '../migration-context';
+import { DRY_RUN_PLANNED_TARGET_ID } from './migration-id-map.service';
 
 export type PartyAccountLinkClass =
   | 'EXACT_COA_ACCOUNT'
@@ -31,6 +32,13 @@ export async function resolvePartyLegacyAccount(
     companyCode: ctx.legacyCompanyCode,
     accountCode: code,
   });
+  if (map?.targetId === DRY_RUN_PLANNED_TARGET_ID) {
+    return {
+      legacyAccountCode: code,
+      classification: 'EXACT_COA_ACCOUNT',
+      evidence: `Legacy account ${code} is planned by the COA dry-run`,
+    };
+  }
   if (map?.targetId) {
     const acc = await ctx.prisma.account.findFirst({
       where: { id: map.targetId, companyId: ctx.targetCompanyId, deletedAt: null },

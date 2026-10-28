@@ -1,5 +1,5 @@
 import type { LegacySourceAdapter } from './types';
-import { LEGACY_GL_DETAIL_JOIN, LEGACY_POSTED_GL_HEADER_WHERE } from './coa/legacy-posted-gl';
+import { LEGACY_POSTED_DETAIL_EXISTS, LEGACY_POSTED_GL_HEADER_WHERE } from './coa/legacy-posted-gl';
 
 export interface AccountingSourceCapabilities {
   hasAccountMaster: boolean;
@@ -18,7 +18,7 @@ export interface AccountingSourceCapabilities {
   glPostedFilterColumns: string[];
 }
 
-async function tableExists(adapter: LegacySourceAdapter, name: string): Promise<boolean> {
+export async function legacyTableExists(adapter: LegacySourceAdapter, name: string): Promise<boolean> {
   const rows = await adapter.querySql<{ cnt: number }>(
     `SELECT COUNT(*) AS cnt FROM sys.tables WHERE name = @name AND is_ms_shipped = 0`,
     { name }
@@ -42,18 +42,18 @@ export async function buildAccountingSourceCapabilities(
   adapter: LegacySourceAdapter,
   legacyCompanyCode: string
 ): Promise<AccountingSourceCapabilities> {
-  const accountTable = (await tableExists(adapter, 'Account'))
+  const accountTable = (await legacyTableExists(adapter, 'Account'))
     ? 'Account'
-    : (await tableExists(adapter, 'Accounts'))
+    : (await legacyTableExists(adapter, 'Accounts'))
       ? 'Accounts'
       : null;
 
-  const hasGlTrxHeader = await tableExists(adapter, 'GLTrxHeader');
-  const hasGlTrxDetail = await tableExists(adapter, 'GLTrxDetail');
-  const hasBalanceAccountsH = await tableExists(adapter, 'BalanceAccountsH');
-  const hasBalanceAccountsD = await tableExists(adapter, 'BalanceAccountsD');
-  const hasInvoiceTrxHeader = await tableExists(adapter, 'InvoiceTrxHeader');
-  const hasInvoiceTrxDetail = await tableExists(adapter, 'InvoiceTrxDetail');
+  const hasGlTrxHeader = await legacyTableExists(adapter, 'GLTrxHeader');
+  const hasGlTrxDetail = await legacyTableExists(adapter, 'GLTrxDetail');
+  const hasBalanceAccountsH = await legacyTableExists(adapter, 'BalanceAccountsH');
+  const hasBalanceAccountsD = await legacyTableExists(adapter, 'BalanceAccountsD');
+  const hasInvoiceTrxHeader = await legacyTableExists(adapter, 'InvoiceTrxHeader');
+  const hasInvoiceTrxDetail = await legacyTableExists(adapter, 'InvoiceTrxDetail');
 
   let postedGlHeaderCount = 0;
   if (hasGlTrxHeader) {
@@ -98,10 +98,9 @@ export async function countDistinctPostedGlAccounts(
   const rows = await adapter.querySql<{ cnt: number }>(
     `SELECT COUNT(DISTINCT RTRIM(d.AccountNo)) AS cnt
      FROM dbo.GLTrxDetail d
-     ${LEGACY_GL_DETAIL_JOIN}
      WHERE RTRIM(d.CompanyCode)=@cc
        AND RTRIM(ISNULL(d.AccountNo,'')) <> ''
-       AND ${LEGACY_POSTED_GL_HEADER_WHERE}`,
+       AND ${LEGACY_POSTED_DETAIL_EXISTS}`,
     { cc: legacyCompanyCode }
   );
   return Number(rows[0]?.cnt ?? 0);

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import type { LegacyAccountOverrideRecord } from '../policies/approved-legacy-account-overrides';
 import { normalizeLegacyAccountCode } from '../coa/legacy-account-code';
+import { LEGACY_POSTED_DETAIL_EXISTS } from '../coa/legacy-posted-gl';
 import type { MigrationContext } from '../migration-context';
 import {
   OWNER_APPROVED_LEGACY_ACCOUNT_OVERRIDES,
@@ -26,10 +27,13 @@ export interface ResolvedOverrideTarget {
 
 export async function ensureOwnerApprovedOverrideCatalog(
   prisma: PrismaClient,
-  targetCompanyId: string
+  targetCompanyId: string,
+  /** When given, seeds it rejects are neither written nor returned. */
+  isRelevant?: (seed: ApprovedLegacyAccountOverrideSeed) => Promise<boolean>
 ): Promise<LegacyAccountOverrideRecord[]> {
   const out: LegacyAccountOverrideRecord[] = [];
   for (const seed of OWNER_APPROVED_LEGACY_ACCOUNT_OVERRIDES) {
+    if (isRelevant && !(await isRelevant(seed))) continue;
     const legacyAccountCode = normalizeLegacyAccountCode(seed.legacyAccountCode);
     const sourceCompanyCode = seed.sourceCompanyCode.trim();
     const existing = await prisma.legacyAccountOverride.findUnique({
@@ -145,7 +149,16 @@ export async function syncOwnerApprovedPostedGlMappings(ctx: MigrationContext): 
   mappingsRecorded: number;
   skippedDryRun: boolean;
 }> {
-  const overrides = await ensureOwnerApprovedOverrideCatalog(ctx.prisma, ctx.targetCompanyId);
+  // The catalog holds decisions made for one specific legacy database. A seed only
+  // applies when THIS source's posted GL actually uses its legacy account; otherwise
+  // it is not written into the target company and not enforced.
+  const overrides = await ensureOwnerApprovedOverrideCatalog(
+    ctx.prisma,
+    ctx.targetCompanyId,
+    async (seed) =>
+      seed.sourceCompanyCode.trim() === ctx.legacyCompanyCode.trim() &&
+      (await postedGlUsesLegacyAccount(ctx, seed.legacyAccountCode))
+  );
   if (ctx.dryRun) {
     return { overridesEnsured: overrides.length, mappingsRecorded: 0, skippedDryRun: true };
   }
@@ -198,6 +211,27 @@ export async function syncOwnerApprovedPostedGlMappings(ctx: MigrationContext): 
   }
 
   return { overridesEnsured: overrides.length, mappingsRecorded, skippedDryRun: false };
+}
+
+/**
+ * True when the source's posted GL lines use this legacy account code.
+ * No result row (source could not answer) counts as true, which keeps the strict
+ * "override must resolve" check rather than silently dropping a decision.
+ */
+export async function postedGlUsesLegacyAccount(
+  ctx: MigrationContext,
+  legacyAccountCode: string
+): Promise<boolean> {
+  const rows = await ctx.source.querySql<{ cnt: number }>(
+    `SELECT COUNT(*) AS cnt
+     FROM dbo.GLTrxDetail d
+     WHERE RTRIM(d.CompanyCode)=@cc
+       AND RTRIM(ISNULL(d.AccountNo,''))=@code
+       AND ${LEGACY_POSTED_DETAIL_EXISTS}`,
+    { cc: ctx.legacyCompanyCode, code: normalizeLegacyAccountCode(legacyAccountCode) }
+  );
+  if (!rows.length) return true;
+  return Number(rows[0]?.cnt ?? 0) > 0;
 }
 
 export function buildOwnerApprovedReadinessReason(override: LegacyAccountOverrideRecord): string {

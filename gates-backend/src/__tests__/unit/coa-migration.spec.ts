@@ -2,7 +2,11 @@ import {
   longestMasterPrefix,
   normalizeLegacyAccountCode,
 } from '../../modules/migration-engine/coa/legacy-account-code';
-import { orderMasterAccountsForInsert, CoaHierarchyError } from '../../modules/migration-engine/coa/hierarchy-order';
+import {
+  orderMasterAccountsForInsert,
+  CoaHierarchyError,
+  findDuplicateAccountCodes,
+} from '../../modules/migration-engine/coa/hierarchy-order';
 import { classifyAccountUniverse } from '../../modules/migration-engine/services/account-classifier.service';
 import { buildAccountUniverse } from '../../modules/migration-engine/services/account-universe.service';
 import type { LegacyCoaSnapshot } from '../../modules/migration-engine/services/legacy-coa-data.service';
@@ -89,6 +93,45 @@ describe('coa-migration', () => {
       },
     ];
     expect(() => orderMasterAccountsForInsert(masters)).toThrow(CoaHierarchyError);
+  });
+
+  it('rejects duplicate account codes instead of silently merging', () => {
+    const masters = [
+      {
+        accountCode: '101',
+        parentAccount: '',
+        fullPath: '',
+        accountLevel: 0,
+        arabicName: 'A',
+        englishName: '',
+        accountStatus: '',
+        accountType: 'D',
+        reportType: 'I',
+        accountSide: 'D',
+        currencyCode: '',
+        ccType: 'O',
+        hasChild: false,
+        deleted: false,
+      },
+      {
+        accountCode: '101',
+        parentAccount: '',
+        fullPath: '',
+        accountLevel: 0,
+        arabicName: 'B',
+        englishName: '',
+        accountStatus: '',
+        accountType: 'D',
+        reportType: 'I',
+        accountSide: 'D',
+        currencyCode: '',
+        ccType: 'O',
+        hasChild: false,
+        deleted: false,
+      },
+    ];
+    expect(findDuplicateAccountCodes(masters)).toEqual(['101']);
+    expect(() => orderMasterAccountsForInsert(masters)).toThrow(/Duplicate account codes/);
   });
 
   it('classifies GL-only under long prefix as derived', () => {

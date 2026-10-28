@@ -2,15 +2,17 @@
 
 import { motion } from 'framer-motion';
 import type { MigrationProgressSnapshot } from '@/lib/migration/migration-types';
+import { resolveMigrationRunDisplay } from '@/lib/migration/resolve-migration-run-display';
 
 type Props = {
   progress: MigrationProgressSnapshot | null;
 };
 
 export default function MigrationPipelineVisual({ progress }: Props) {
+  const display = resolveMigrationRunDisplay(progress);
   const pct = progress?.overallPercent ?? 0;
   const stage = progress?.currentStage ?? '—';
-  const status = progress?.status ?? 'DRAFT';
+  const status = display.statusKey;
   const elapsedSec =
     progress?.elapsedMs != null ? Math.max(0, Math.floor(progress.elapsedMs / 1000)) : null;
   const etaSec =
@@ -19,20 +21,6 @@ export default function MigrationPipelineVisual({ progress }: Props) {
   const totalSuccess = progress?.modules?.reduce((s, m) => s + m.success, 0) ?? 0;
   const totalErrors = progress?.modules?.reduce((s, m) => s + m.errors, 0) ?? 0;
   const totalWarnings = progress?.modules?.reduce((s, m) => s + m.warnings, 0) ?? 0;
-
-  const statusLabel: Record<string, string> = {
-    DRAFT: 'مسودة',
-    ANALYZING: 'تحليل',
-    READY_FOR_DRY_RUN: 'جاهز للمعاينة',
-    DRY_RUNNING: 'معاينة جافة',
-    READY: 'جاهز للتنفيذ',
-    RUNNING: 'ترحيل',
-    RECONCILING: 'مطابقة',
-    COMPLETED: 'مكتمل',
-    FAILED: 'فشل',
-    BLOCKED: 'محظور',
-    PAUSED: 'متوقف',
-  };
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-6 dark:border-slate-700 dark:from-slate-900 dark:to-slate-950">
@@ -43,7 +31,7 @@ export default function MigrationPipelineVisual({ progress }: Props) {
         </div>
         <div className="text-left">
           <p className="text-sm text-slate-500 dark:text-slate-400">الحالة</p>
-          <p className="text-lg font-semibold text-[#0E78AA]">{statusLabel[status] ?? status}</p>
+          <p className="text-lg font-semibold text-[#0E78AA]">{display.label}</p>
         </div>
         <div className="min-w-[120px] text-left">
           <p className="text-sm text-slate-500 dark:text-slate-400">التقدم</p>
@@ -62,9 +50,22 @@ export default function MigrationPipelineVisual({ progress }: Props) {
 
       <div className="relative flex min-h-[140px] items-center justify-between gap-4 px-2">
         <DatabaseNode title="قاعدة المصدر" subtitle="Legacy SQL Server" side="source" />
-        <PipelineTrack active={['RUNNING', 'DRY_RUNNING', 'ANALYZING', 'RECONCILING'].includes(status)} />
+        <PipelineTrack
+          active={display.active || ['RUNNING', 'DRY_RUNNING', 'ANALYZING', 'RECONCILING', 'QUEUED'].includes(status)}
+        />
         <DatabaseNode title="GATES" subtitle="الشركة الهدف" side="target" />
       </div>
+
+      {display.lastError ? (
+        <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+          آخر خطأ: {display.lastError}
+        </p>
+      ) : display.statusKey === 'QUEUED' ? (
+        <p className="mt-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+          تم جدولة التشغيل — التحليل يبدأ الآن. اترك الصفحة مفتوحة. إن بقيت «في الانتظار» أكثر من دقيقة
+          راجع اتصال SQL والعامل (أو MIGRATION_RUN_INLINE محلياً).
+        </p>
+      ) : null}
 
       {progress?.modules?.length ? (
         <div className="mt-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

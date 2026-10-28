@@ -1,0 +1,12 @@
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+const require = createRequire(new URL('../../../package.json', import.meta.url));
+const mssql = require('mssql');
+const [saFile, rdFile] = process.argv.slice(2);
+const sa = fs.readFileSync(saFile, 'utf8').trim();
+const rd = fs.readFileSync(rdFile, 'utf8').trim().replace(/'/g, "''");
+const p = await new mssql.ConnectionPool({ server: '127.0.0.1', port: 14333, user: 'sa', password: sa, database: 'master', options: { encrypt: true, trustServerCertificate: true } }).connect();
+await p.request().batch(`IF SUSER_ID('gates_mig_reader') IS NULL CREATE LOGIN gates_mig_reader WITH PASSWORD = N'${rd}', CHECK_POLICY = OFF; ELSE ALTER LOGIN gates_mig_reader WITH PASSWORD = N'${rd}';`);
+await p.request().batch(`USE GatesSyntheticLegacy; IF USER_ID('gates_mig_reader') IS NULL CREATE USER gates_mig_reader FOR LOGIN gates_mig_reader; ALTER ROLE db_datareader ADD MEMBER gates_mig_reader;`);
+console.log('reader ok');
+await p.close();

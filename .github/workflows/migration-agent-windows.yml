@@ -1,0 +1,80 @@
+name: migration-agent-windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - gates-migration-connector/**
+      - .github/workflows/migration-agent-windows.yml
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: gates-migration-connector
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gates-migration-connector/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Compile TypeScript and package Windows executable
+        run: npm run pack:win
+      - name: Require executable
+        run: |
+          if (-not (Test-Path -LiteralPath "dist-exe\GatesMigrationAgent.exe")) {
+            throw "GatesMigrationAgent.exe was not produced"
+          }
+      - name: Smoke version
+        run: |
+          $exe = Join-Path (Get-Location) "dist-exe\GatesMigrationAgent.exe"
+          $ver = & $exe --version
+          Write-Host $ver
+          if ($LASTEXITCODE -ne 0) { throw "GatesMigrationAgent.exe --version exited $LASTEXITCODE" }
+          $text = if ($ver -is [System.Array]) { $ver -join "`n" } else { [string]$ver }
+          if ($text -notmatch "0\.2\.4") { throw "unexpected version output" }
+      - name: Smoke start
+        run: |
+          $exe = Join-Path (Get-Location) "dist-exe\GatesMigrationAgent.exe"
+          $out = & $exe --self-test
+          if ($null -ne $out) { Write-Host ($out | Out-String) }
+          if ($LASTEXITCODE -ne 0) {
+            throw "GatesMigrationAgent.exe --self-test exited $LASTEXITCODE"
+          }
+          $text = if ($out -is [System.Array]) { $out -join "`n" } else { [string]$out }
+          if ($text -notmatch "self-test ok") {
+            throw "GatesMigrationAgent.exe started but did not print self-test ok"
+          }
+      - name: SHA-256
+        run: |
+          $hash = (Get-FileHash -LiteralPath "dist-exe\GatesMigrationAgent.exe" -Algorithm SHA256).Hash.ToLower()
+          Write-Host "SHA256=$hash"
+          Set-Content -LiteralPath "dist-exe\GatesMigrationAgent.exe.sha256" -Value $hash -Encoding ascii -NoNewline
+          echo "AGENT_SHA256=$hash" >> $env:GITHUB_STEP_SUMMARY
+          echo "- SHA-256: ``$hash``" >> $env:GITHUB_STEP_SUMMARY
+          $manifest = @{
+            version = "0.2.4"
+            sha256 = $hash
+            fileName = "GatesMigrationAgent.exe"
+            channel = "internal-testing"
+            signed = $false
+            minAgentVersion = "0.2.3"
+            connectorProtocol = "v1"
+          } | ConvertTo-Json -Compress
+          Set-Content -LiteralPath "dist-exe\release.json" -Value $manifest -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GatesMigrationAgent-0.2.4
+          path: |
+            gates-migration-connector/dist-exe/GatesMigrationAgent.exe
+            gates-migration-connector/dist-exe/GatesMigrationAgent.exe.sha256
+            gates-migration-connector/dist-exe/release.json
+          if-no-files-found: error
+          retention-days: 14

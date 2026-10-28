@@ -24,6 +24,15 @@ export interface LegacyCustomerRow {
   mozana: string;
   personCode: string;
   customerCategoryCode: string;
+  nationCode: string;
+  priceCode: string;
+  discPercent: string;
+  priceListCode: string;
+  countryCode: string;
+  regionCode: string;
+  building: string;
+  /** Full legacy row for metadata preservation. */
+  _raw?: Record<string, unknown>;
 }
 
 export interface LegacySupplierRow {
@@ -43,6 +52,7 @@ export interface LegacySupplierRow {
   address: string;
   street: string;
   mozana: string;
+  _raw?: Record<string, unknown>;
 }
 
 export interface LegacyPartySnapshot {
@@ -101,6 +111,14 @@ export async function loadLegacyPartySnapshot(
     mozana: trim(r.Mozana),
     personCode: trim(r.PersonCode),
     customerCategoryCode: trim(r.CustomerCategoryCode ?? ''),
+    nationCode: trim(r.NationCode),
+    priceCode: trim(r.PriceCode),
+    discPercent: trim(r.DiscPercent),
+    priceListCode: trim(r.PriceListCode),
+    countryCode: trim(r.CountryCode),
+    regionCode: trim(r.RegionCode),
+    building: trim(r.Building),
+    _raw: r,
   }));
 
   const suppliers: LegacySupplierRow[] = supplierRows.map((r) => ({
@@ -120,6 +138,7 @@ export async function loadLegacyPartySnapshot(
     address: trim(r.Address),
     street: trim(r.Street),
     mozana: trim(r.Mozana),
+    _raw: r,
   }));
 
   return {

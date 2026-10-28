@@ -431,7 +431,11 @@ export async function rebuildCompanyBalances(
   await tx.accountPeriodBalance.deleteMany({ where: { companyId } });
   await tx.partnerRunningBalance.deleteMany({ where: { companyId } });
 
-  const rows = await tx.$queryRaw<PeriodRebuildRow[]>(Prisma.sql`
+  // MySQL returns YEAR()/MONTH() as BigInt through $queryRaw; sorting BigInt differences throws
+  // "Cannot convert a BigInt value to a number". Normalise the period keys before sorting.
+  const rawRows = await tx.$queryRaw<
+    Array<Omit<PeriodRebuildRow, 'fiscalYear' | 'periodMonth'> & { fiscalYear: number | bigint; periodMonth: number | bigint }>
+  >(Prisma.sql`
     SELECT
       jel.accountId AS accountId,
       YEAR(je.date) AS fiscalYear,
@@ -453,6 +457,11 @@ export async function rebuildCompanyBalances(
       )
     GROUP BY jel.accountId, YEAR(je.date), MONTH(je.date), je.currencyCode
   `);
+  const rows: PeriodRebuildRow[] = rawRows.map((row) => ({
+    ...row,
+    fiscalYear: Number(row.fiscalYear),
+    periodMonth: Number(row.periodMonth),
+  }));
 
   rows.sort((left, right) => {
     const byAccount = compareLedgerKey(left.accountId, right.accountId);

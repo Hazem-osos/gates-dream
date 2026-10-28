@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import type { LegacySourceAdapter, SourceBatch } from '../types';
+import type {
+  LegacySchemaTable,
+  LegacySourceAdapter,
+  LegacySourceHealth,
+  LegacySourceMode,
+  SourceBatch,
+} from '../types';
 import { assertSafeLegacyReadOnly } from '../target-safety';
 
 type MssqlModule = typeof import('mssql');
@@ -7,7 +13,18 @@ type MssqlModule = typeof import('mssql');
 export class LegacyGatesSqlServerAdapter implements LegacySourceAdapter {
   private pool: import('mssql').ConnectionPool | null = null;
 
-  constructor(private readonly connectionString: string) {}
+  constructor(
+    private readonly connectionString: string,
+    private readonly sourceMode: LegacySourceMode = 'REMOTE_SQL_SERVER'
+  ) {}
+
+  mode(): LegacySourceMode {
+    return this.sourceMode;
+  }
+
+  async connect(): Promise<void> {
+    await this.getPool();
+  }
 
   private async getPool() {
     assertSafeLegacyReadOnly();
@@ -15,16 +32,73 @@ export class LegacyGatesSqlServerAdapter implements LegacySourceAdapter {
     let mssql: MssqlModule;
     try {
       mssql = await import('mssql');
-    } catch {
-      throw new Error('Package "mssql" is required for LegacyGatesSqlServerAdapter. npm install mssql');
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Package "mssql" is required for LegacyGatesSqlServerAdapter (${reason}). Keep mssql in dependencies and redeploy gates-backend and gates-workers.`
+      );
     }
-    this.pool = await mssql.default.connect(this.connectionString);
+    // A private pool per adapter. mssql.connect() hands back the one process-wide
+    // global pool once it exists — whatever connection string is passed — so two jobs
+    // reading two different legacy databases in one process would read the same one,
+    // and close() would shut it for both.
+    const pool = new mssql.default.ConnectionPool(this.connectionString);
+    await pool.connect();
+    this.pool = pool;
     return this.pool;
   }
 
   async testConnection(): Promise<void> {
     const pool = await this.getPool();
     await pool.request().query('SELECT 1 AS ok');
+  }
+
+  async discoverSchema(): Promise<LegacySchemaTable[]> {
+    const rows = await this.querySql<{ name: string; column_count: number }>(
+      `SELECT t.name, COUNT(c.column_id) AS column_count
+       FROM sys.tables t
+       JOIN sys.columns c ON c.object_id = t.object_id
+       WHERE t.is_ms_shipped = 0
+       GROUP BY t.name
+       ORDER BY t.name`
+    );
+    return rows.map((r) => ({ name: r.name, columnCount: Number(r.column_count ?? 0) }));
+  }
+
+  async reportHealth(): Promise<LegacySourceHealth> {
+    const start = Date.now();
+    try {
+      await this.testConnection();
+      return { ok: true, mode: this.sourceMode, latencyMs: Date.now() - start };
+    } catch (err) {
+      return {
+        ok: false,
+        mode: this.sourceMode,
+        latencyMs: Date.now() - start,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  async streamRows(
+    table: string,
+    legacyCompanyCode: string,
+    onBatch: (batch: SourceBatch) => Promise<void> | void,
+    options?: { batchSize?: number; maxRows?: number }
+  ): Promise<void> {
+    const batchSize = Math.max(1, Math.min(options?.batchSize ?? 500, 5000));
+    const maxRows = options?.maxRows;
+    let cursor: string | null = null;
+    let total = 0;
+    for (;;) {
+      const batch = await this.queryBatch(table, legacyCompanyCode, cursor, batchSize);
+      if (batch.rows.length === 0) break;
+      await onBatch(batch);
+      total += batch.rows.length;
+      if (maxRows != null && total >= maxRows) break;
+      if (!batch.nextCursor) break;
+      cursor = batch.nextCursor;
+    }
   }
 
   async getDatabaseName(): Promise<string> {

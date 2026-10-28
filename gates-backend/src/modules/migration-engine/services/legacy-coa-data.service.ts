@@ -1,4 +1,4 @@
-import { LEGACY_GL_DETAIL_JOIN, LEGACY_POSTED_GL_HEADER_WHERE } from '../coa/legacy-posted-gl';
+import { LEGACY_POSTED_DETAIL_EXISTS } from '../coa/legacy-posted-gl';
 import { normalizeLegacyAccountCode } from '../coa/legacy-account-code';
 import type { LegacySourceAdapter } from '../types';
 
@@ -81,10 +81,9 @@ export async function loadLegacyCoaSnapshot(
   const postedGl = await adapter.querySql<{ accountNo: string }>(
     `SELECT DISTINCT RTRIM(d.AccountNo) AS accountNo
      FROM dbo.GLTrxDetail d
-     ${LEGACY_GL_DETAIL_JOIN}
      WHERE RTRIM(d.CompanyCode)=@cc
        AND RTRIM(ISNULL(d.AccountNo,'')) <> ''
-       AND ${LEGACY_POSTED_GL_HEADER_WHERE}`,
+       AND ${LEGACY_POSTED_DETAIL_EXISTS}`,
     { cc: legacyCompanyCode }
   );
   const postedGlCodes = new Set(postedGl.map((r) => normalizeLegacyAccountCode(r.accountNo)).filter(Boolean));
@@ -136,10 +135,9 @@ export async function loadLegacyCoaSnapshot(
             MAX(CASE WHEN RTRIM(ISNULL(d.DetailDescA,'')) <> ''
                 THEN RTRIM(d.DetailDescA) END) AS hint
      FROM dbo.GLTrxDetail d
-     ${LEGACY_GL_DETAIL_JOIN}
      WHERE RTRIM(d.CompanyCode)=@cc
        AND RTRIM(ISNULL(d.AccountNo,'')) <> ''
-       AND ${LEGACY_POSTED_GL_HEADER_WHERE}
+       AND ${LEGACY_POSTED_DETAIL_EXISTS}
      GROUP BY RTRIM(d.AccountNo)`,
     { cc: legacyCompanyCode }
   );
@@ -152,13 +150,12 @@ export async function loadLegacyCoaSnapshot(
 
   const balanceRows = await adapter.querySql<{ accountNo: string; deb: string; cred: string }>(
     `SELECT RTRIM(d.AccountNo) AS accountNo,
-            SUM(CAST(d.DebitValue AS DECIMAL(18,4)) * CAST(d.Change AS DECIMAL(18,4))) AS deb,
-            SUM(CAST(d.CreditValue AS DECIMAL(18,4)) * CAST(d.Change AS DECIMAL(18,4))) AS cred
+            SUM(CAST(d.DebitValue AS DECIMAL(18,4)) * CAST(ISNULL(d.Change,1) AS DECIMAL(18,4))) AS deb,
+            SUM(CAST(d.CreditValue AS DECIMAL(18,4)) * CAST(ISNULL(d.Change,1) AS DECIMAL(18,4))) AS cred
      FROM dbo.GLTrxDetail d
-     ${LEGACY_GL_DETAIL_JOIN}
      WHERE RTRIM(d.CompanyCode)=@cc
        AND RTRIM(ISNULL(d.AccountNo,'')) <> ''
-       AND ${LEGACY_POSTED_GL_HEADER_WHERE}
+       AND ${LEGACY_POSTED_DETAIL_EXISTS}
      GROUP BY RTRIM(d.AccountNo)`,
     { cc: legacyCompanyCode }
   );

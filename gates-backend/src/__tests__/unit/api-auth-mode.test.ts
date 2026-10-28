@@ -1,4 +1,5 @@
 import { resolveApiAuthMode } from '../../shared/middleware/api-auth-mode.middleware';
+import { isPublicMigrationAgentPath } from '../../shared/http/public-api-paths';
 
 describe('resolveApiAuthMode', () => {
   // H21 fix (Item 39): `anonymous` must never be the *implicit* fallback —
@@ -35,5 +36,19 @@ describe('resolveApiAuthMode', () => {
 
   it('rejects unknown values', () => {
     expect(() => resolveApiAuthMode({ API_AUTH_MODE: 'open' })).toThrow(/Invalid API_AUTH_MODE/);
+  });
+});
+
+describe('isPublicMigrationAgentPath', () => {
+  it('allows connector pair/poll/complete without a user JWT', () => {
+    expect(isPublicMigrationAgentPath('/api/v1/migration-engine/connector/v1/pair')).toBe(true);
+    expect(isPublicMigrationAgentPath('/api/v1/migration-engine/connector/v1/poll')).toBe(true);
+    expect(isPublicMigrationAgentPath('/api/v1/migration-engine/connector/v1/complete')).toBe(true);
+  });
+
+  it('does not open the rest of the migration engine', () => {
+    expect(isPublicMigrationAgentPath('/api/v1/migration-engine/capabilities')).toBe(false);
+    expect(isPublicMigrationAgentPath('/api/v1/migration-engine/jobs')).toBe(false);
+    expect(isPublicMigrationAgentPath('/api/v1/invoices')).toBe(false);
   });
 });

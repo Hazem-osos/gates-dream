@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-cjs/
+dist-exe/
+*.exe
+*.bak
+.env

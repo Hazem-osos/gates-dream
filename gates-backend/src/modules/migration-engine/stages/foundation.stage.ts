@@ -4,13 +4,21 @@ import {
   transformFiscalYear,
   transformWarehouse,
 } from '../transforms/foundation-transform';
-import { legacyTrim } from '../transforms/legacy-values';
+import { legacyDate, legacyTrim } from '../transforms/legacy-values';
 import type { MigrationContext } from '../migration-context';
 import type { MigrationStageName, StageRunReport } from '../types';
+import { legacyTableExists } from '../accounting-source-profile';
+import { companySettingService } from '../../platform/services/company-setting.service';
+import { loadCompanySettingBatch } from '../services/legacy-foundation-ext.service';
+import { syncDocumentSequencesFromLegacy } from '../services/migration-document-sequence-sync.service';
+import { bridgeLegacySettingsToTypedTargets } from '../services/migration-legacy-settings-bridge.service';
+import { BRANCH_SCOPED_SETTING_KEYS } from '../../platform/data/legacy-module-setting-patterns';
+import { preserveLegacySnapshot } from '../services/migration-legacy-snapshot-preserve.service';
+import { IMPORTER_PRESERVE_CONFIG } from '../services/migration-core-importer-preserve-config';
 
 const STAGE: MigrationStageName = 'FOUNDATION';
 
-const ENTITIES = ['Branch', 'Year', 'Currency', 'CostCenter', 'Store'] as const;
+const ENTITIES = ['Branch', 'Year', 'Currency', 'CostCenter', 'Store', 'CompanySetting'] as const;
 
 export const FOUNDATION_STAGE_DEPS: MigrationStageName[] = [];
 
@@ -28,6 +36,7 @@ export async function analyzeFoundation(ctx: MigrationContext): Promise<Record<s
 }
 
 export async function runFoundationStage(ctx: MigrationContext): Promise<StageRunReport> {
+  const batchSize = ctx.options.batchSize ?? 200;
   const sourceCounts = await analyzeFoundation(ctx);
   let transformed = 0;
   let written = 0;
@@ -61,6 +70,7 @@ export async function runFoundationStage(ctx: MigrationContext): Promise<StageRu
     const existingMap = await ctx.idMap.findMapping(ctx.migrationJobId, 'Branch', key);
     if (existingMap) return;
     if (ctx.dryRun) {
+      ctx.idMap.planMapping(ctx.migrationJobId, 'Branch', key);
       simulated += 1;
       return;
     }
@@ -83,6 +93,12 @@ export async function runFoundationStage(ctx: MigrationContext): Promise<StageRu
       targetId: branch.id,
       outcome: created ? 'CREATED_BY_MIGRATION' : 'ALREADY_MAPPED',
     });
+    await preserveLegacySnapshot(ctx, {
+      namespace: IMPORTER_PRESERVE_CONFIG.Branch.preserveNamespace,
+      sourceKey: branchCode,
+      raw: row,
+      mappedColumns: IMPORTER_PRESERVE_CONFIG.Branch.mappedColumns,
+    });
   });
 
   // Fiscal years
@@ -93,6 +109,7 @@ export async function runFoundationStage(ctx: MigrationContext): Promise<StageRu
     const existingMap = await ctx.idMap.findMapping(ctx.migrationJobId, 'Year', key);
     if (existingMap) return;
     if (ctx.dryRun) {
+      ctx.idMap.planMapping(ctx.migrationJobId, 'Year', key);
       simulated += 1;
       return;
     }
@@ -116,6 +133,12 @@ export async function runFoundationStage(ctx: MigrationContext): Promise<StageRu
       targetId: year.id,
       outcome: 'CREATED_BY_MIGRATION',
     });
+    await preserveLegacySnapshot(ctx, {
+      namespace: IMPORTER_PRESERVE_CONFIG.Year.preserveNamespace,
+      sourceKey: yearCode,
+      raw: row,
+      mappedColumns: IMPORTER_PRESERVE_CONFIG.Year.mappedColumns,
+    });
   });
 
   await streamEntity(ctx, 'Currency', async (row) => {
@@ -123,6 +146,7 @@ export async function runFoundationStage(ctx: MigrationContext): Promise<StageRu
     const key = { companyCode: ctx.legacyCompanyCode, code };
     if (await ctx.idMap.findMapping(ctx.migrationJobId, 'Currency', key)) return;
     if (ctx.dryRun) {
+      ctx.idMap.planMapping(ctx.migrationJobId, 'Currency', key);
       simulated += 1;
       return;
     }
@@ -135,6 +159,7 @@ export async function runFoundationStage(ctx: MigrationContext): Promise<StageRu
         arabicName: legacyTrim(row.CurrencyNameA ?? row.NameA) || code,
         englishName: legacyTrim(row.CurrencyNameE ?? row.NameE) || null,
         exchangeRate: 1,
+        symbol: legacyTrim(row.Symbol) || null,
       },
     });
     written += 1;
@@ -146,6 +171,12 @@ export async function runFoundationStage(ctx: MigrationContext): Promise<StageRu
       targetId: cur.id,
       outcome: 'CREATED_BY_MIGRATION',
     });
+    await preserveLegacySnapshot(ctx, {
+      namespace: IMPORTER_PRESERVE_CONFIG.Currency.preserveNamespace,
+      sourceKey: code,
+      raw: row,
+      mappedColumns: IMPORTER_PRESERVE_CONFIG.Currency.mappedColumns,
+    });
   });
 
   await streamEntity(ctx, 'CostCenter', async (row) => {
@@ -154,6 +185,7 @@ export async function runFoundationStage(ctx: MigrationContext): Promise<StageRu
     const key = { companyCode: ctx.legacyCompanyCode, code };
     if (await ctx.idMap.findMapping(ctx.migrationJobId, 'CostCenter', key)) return;
     if (ctx.dryRun) {
+      ctx.idMap.planMapping(ctx.migrationJobId, 'CostCenter', key);
       simulated += 1;
       return;
     }
@@ -170,6 +202,12 @@ export async function runFoundationStage(ctx: MigrationContext): Promise<StageRu
       targetModel: 'CostCenter',
       targetId: cc.id,
       outcome: 'CREATED_BY_MIGRATION',
+    });
+    await preserveLegacySnapshot(ctx, {
+      namespace: IMPORTER_PRESERVE_CONFIG.CostCenter.preserveNamespace,
+      sourceKey: code,
+      raw: row,
+      mappedColumns: IMPORTER_PRESERVE_CONFIG.CostCenter.mappedColumns,
     });
   });
 
@@ -188,6 +226,7 @@ export async function runFoundationStage(ctx: MigrationContext): Promise<StageRu
     const key = { companyCode: ctx.legacyCompanyCode, storeCode };
     if (await ctx.idMap.findMapping(ctx.migrationJobId, 'Store', key)) return;
     if (ctx.dryRun) {
+      ctx.idMap.planMapping(ctx.migrationJobId, 'Store', key);
       simulated += 1;
       return;
     }
@@ -206,7 +245,116 @@ export async function runFoundationStage(ctx: MigrationContext): Promise<StageRu
       targetId: wh.id,
       outcome: 'CREATED_BY_MIGRATION',
     });
+    await preserveLegacySnapshot(ctx, {
+      namespace: IMPORTER_PRESERVE_CONFIG.Store.preserveNamespace,
+      sourceKey: storeCode,
+      raw: row,
+      mappedColumns: IMPORTER_PRESERVE_CONFIG.Store.mappedColumns,
+    });
   });
+
+  if (await legacyTableExists(ctx.source, 'CompanySetting')) {
+    let csCursor: string | null = null;
+    for (;;) {
+      await ctx.throwIfPaused({ stage: STAGE, entity: 'CompanySetting' });
+      const batch = await loadCompanySettingBatch(ctx.source, ctx.legacyCompanyCode, csCursor, batchSize);
+      if (!batch.rows.length) break;
+      csCursor = batch.nextCursor;
+      for (const row of batch.rows) {
+        const name = legacyTrim(row.Name);
+        if (!name) continue;
+        const key = {
+          companyCode: ctx.legacyCompanyCode,
+          branchCode: legacyTrim(row.BranchCode),
+          name,
+        };
+        if (await ctx.idMap.findMapping(ctx.migrationJobId, 'CompanySetting', key)) continue;
+        if (ctx.dryRun) {
+          ctx.idMap.planMapping(ctx.migrationJobId, 'CompanySetting', key);
+          simulated += 1;
+          continue;
+        }
+        let branchId: string | null = null;
+        const branchCode = legacyTrim(row.BranchCode);
+        if (branchCode && (BRANCH_SCOPED_SETTING_KEYS as readonly string[]).includes(name)) {
+          const bMap = await ctx.idMap.findMapping(ctx.migrationJobId, 'Branch', {
+            companyCode: ctx.legacyCompanyCode,
+            branchCode,
+          });
+          branchId = bMap?.targetId ?? null;
+        }
+        const value = legacyTrim(row.Value);
+        const entry = await companySettingService.setEntry(ctx.targetCompanyId, name, value, {
+          branchId,
+        });
+        written += 1;
+        await ctx.idMap.recordMapping({
+          jobId: ctx.migrationJobId,
+          sourceEntity: 'CompanySetting',
+          sourceKeyParts: key,
+          targetModel: 'CompanySettingEntry',
+          targetId: entry.id,
+          outcome: 'CREATED_BY_MIGRATION',
+        });
+      }
+      if (!batch.nextCursor) break;
+    }
+    if (!ctx.dryRun) {
+      const seq = await syncDocumentSequencesFromLegacy(ctx);
+      written += seq.upserted;
+      await bridgeLegacySettingsToTypedTargets(ctx);
+    } else {
+      simulated += 1;
+    }
+  }
+
+  if (await legacyTableExists(ctx.source, 'CurrencyHistory')) {
+    const rates = await ctx.source.querySql<{
+      CurrencyCode?: unknown;
+      Change?: unknown;
+      Date?: unknown;
+    }>(
+      `SELECT CurrencyCode, Change, Date FROM dbo.CurrencyHistory WHERE RTRIM(CompanyCode)=@cc`,
+      { cc: ctx.legacyCompanyCode }
+    );
+    for (const r of rates) {
+      const code = legacyTrim(r.CurrencyCode);
+      if (!code) continue;
+      const key = { companyCode: ctx.legacyCompanyCode, currencyCode: code, date: legacyTrim(r.Date) };
+      if (await ctx.idMap.findMapping(ctx.migrationJobId, 'CurrencyHistory', key)) continue;
+      if (ctx.dryRun) {
+        ctx.idMap.planMapping(ctx.migrationJobId, 'CurrencyHistory', key);
+        simulated += 1;
+        continue;
+      }
+      const recordedAt = legacyDate(r.Date) ?? new Date();
+      const row = await ctx.prisma.exchangeRateHistory.create({
+        data: {
+          companyId: ctx.targetCompanyId,
+          currencyCode: code,
+          rate: Number(r.Change ?? 1),
+          sourceType: 'MIGRATION_LEGACY',
+          sourceId: `${code}|${legacyTrim(r.Date)}`,
+          recordedAt,
+        },
+      });
+      written += 1;
+      await preserveLegacySnapshot(ctx, {
+        namespace: IMPORTER_PRESERVE_CONFIG.CurrencyHistory.preserveNamespace,
+        sourceKey: `${code}|${legacyTrim(r.Date)}`,
+        raw: r as Record<string, unknown>,
+        mappedColumns: IMPORTER_PRESERVE_CONFIG.CurrencyHistory.mappedColumns,
+      });
+      await ctx.idMap.recordMapping({
+        jobId: ctx.migrationJobId,
+        sourceEntity: 'CurrencyHistory',
+        sourceKeyParts: key,
+        targetModel: 'ExchangeRateHistory',
+        targetId: row.id,
+        outcome: 'CREATED_BY_MIGRATION',
+      });
+    }
+  }
 
   // Default unit PCS
   if (!ctx.dryRun) {
@@ -249,6 +397,7 @@ async function streamEntity(
   if (cp?.cursorKey) cursor = cp.cursorKey;
 
   for (;;) {
+    await ctx.throwIfPaused({ stage: STAGE, entity });
     const batch = await ctx.source.queryBatch(entity, ctx.legacyCompanyCode, cursor, batchSize);
     for (const row of batch.rows) {
       await handler(trimRow(row));

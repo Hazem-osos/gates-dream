@@ -1,5 +1,4 @@
 import { normalizeLegacyAccountCode } from '../coa/legacy-account-code';
-import { loadLegacyCoaSnapshot } from './legacy-coa-data.service';
 import { loadLegacyPartySnapshot } from './legacy-party-data.service';
 import type { MigrationContext } from '../migration-context';
 import { reconcileCoa } from '../stages/coa.stage';

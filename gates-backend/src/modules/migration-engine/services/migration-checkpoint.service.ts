@@ -9,6 +9,27 @@ export class MigrationCheckpointService {
     });
   }
 
+  /**
+   * Persists checkpoint only after `commitBatch` succeeds — cursor must reflect committed work.
+   */
+  async saveAfterCommittedBatch<T>(
+    params: {
+      jobId: string;
+      stage: string;
+      entity: string;
+      cursorKey: string | null;
+      processedCount: bigint;
+      successCount: bigint;
+      warningCount: bigint;
+      errorCount: bigint;
+    },
+    commitBatch: () => Promise<T>
+  ): Promise<T> {
+    const result = await commitBatch();
+    await this.save(params);
+    return result;
+  }
+
   async save(params: {
     jobId: string;
     stage: string;

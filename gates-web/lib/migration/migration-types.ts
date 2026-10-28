@@ -33,10 +33,26 @@ export type MigrationProgressSnapshot = {
   updatedAt: string;
 };
 
+export type MigrationAgentRelease = {
+  version: string;
+  sha256: string;
+  fileName: string;
+  channel: 'internal-testing';
+  signed: false;
+  available: boolean;
+  sizeBytes: number | null;
+  minAgentVersion: string;
+  connectorProtocol: string;
+  warningAr: string;
+};
+
 export type MigrationCapabilities = {
   engineEnabled: boolean;
   targetSafe: boolean;
   message?: string;
+  customerExecuteEnabled?: boolean;
+  agentPairingApiBase?: string | null;
+  agentRelease?: MigrationAgentRelease;
   legacyForensicConfigured?: boolean;
   /** REMOTE_SQL_SERVER wizard row status for this company (DRAFT until test passes). */
   legacyRemoteSqlStatus?: string | null;

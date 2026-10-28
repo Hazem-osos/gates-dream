@@ -4,6 +4,7 @@ import { jwtVerificationService } from '../auth/jwt.verify';
 import { authenticate } from './auth.middleware';
 import { anonymousApiContext } from './anonymous-api-context.middleware';
 import { logger } from '../logger';
+import { isPublicMigrationAgentPath } from '../http/public-api-paths';
 
 export type ApiAuthMode = 'enforce' | 'anonymous';
 
@@ -56,21 +57,13 @@ export function resolveApiAuthMode(env: NodeJS.ProcessEnv = process.env): ApiAut
 export function apiAuthGate(env: NodeJS.ProcessEnv = process.env): RequestHandler {
   const mode = resolveApiAuthMode(env);
 
-  if (mode === 'enforce') {
-    logger.info({ apiAuthMode: mode }, 'API auth enforced (JWT required on /api/v1)');
-    return authenticate;
-  }
-
-  logger.warn(
-    { apiAuthMode: mode },
-    'API anonymous fallback when no Bearer token (local dev only). Logged-in requests use JWT.'
-  );
-
-  const anonymousOrJwt: RequestHandler = (
-    req: AuthRequest,
-    res: Response,
-    next: NextFunction
-  ) => {
+  const skipPublicAgent: RequestHandler = (req, res, next) => {
+    if (isPublicMigrationAgentPath(req.originalUrl || req.url || '')) {
+      return next();
+    }
+    if (mode === 'enforce') {
+      return authenticate(req, res, next);
+    }
     const token = jwtVerificationService.extractTokenFromHeader(req.headers.authorization);
     if (token) {
       return authenticate(req, res, next);
@@ -78,5 +71,14 @@ export function apiAuthGate(env: NodeJS.ProcessEnv = process.env): RequestHandle
     return anonymousApiContext(req, res, next);
   };
 
-  return anonymousOrJwt;
+  if (mode === 'enforce') {
+    logger.info({ apiAuthMode: mode }, 'API auth enforced (JWT required on /api/v1)');
+  } else {
+    logger.warn(
+      { apiAuthMode: mode },
+      'API anonymous fallback when no Bearer token (local dev only). Logged-in requests use JWT.'
+    );
+  }
+
+  return skipPublicAgent;
 }

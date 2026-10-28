@@ -4,6 +4,7 @@ import type { MigrationPackageRow } from './migration-types';
 const CHUNK_SIZE = 4 * 1024 * 1024;
 const CHUNK_UPLOAD_TIMEOUT_MS = 15 * 60 * 1000;
 const MIGRATION_POST_TIMEOUT_MS = 5 * 60 * 1000;
+const quietNotify = { skipErrorNotify: true as const, skipSuccessNotify: true as const };
 
 export type MigrationUploadProgress = {
   percent: number;
@@ -53,7 +54,7 @@ async function uploadMigrationPackageChunked(
       originalName: file.name,
       totalChunks,
     },
-    { timeout: MIGRATION_POST_TIMEOUT_MS }
+    { timeout: MIGRATION_POST_TIMEOUT_MS, ...quietNotify }
   );
   const uploadId = init.data?.uploadId;
   if (!uploadId) {
@@ -72,6 +73,7 @@ async function uploadMigrationPackageChunked(
     form.append('file', blob, file.name);
     await apiClient.upload<{ percent: number }>('/migration-engine/packages/upload/chunk', form, {
       timeout: CHUNK_UPLOAD_TIMEOUT_MS,
+      ...quietNotify,
     });
     const uploadedBytes = end;
     const percent = 2 + Math.round(((index + 1) / totalChunks) * 93);
@@ -89,7 +91,7 @@ async function uploadMigrationPackageChunked(
   const done = await apiClient.post<MigrationPackageRow>(
     '/migration-engine/packages/upload/complete',
     { uploadId },
-    { timeout: MIGRATION_POST_TIMEOUT_MS }
+    { timeout: MIGRATION_POST_TIMEOUT_MS, ...quietNotify }
   );
   if (!done.data?.id) {
     throw new Error('فشل إتمام الرفع — أعد المحاولة');

@@ -1,6 +1,8 @@
 const PRODUCTION_HOST_PATTERNS = [
   /railway\.app/i,
   /rlwy\.net/i,
+  // Railway private network (the live app's own DATABASE_URL is mysql.railway.internal).
+  /railway\.internal/i,
   /\.prod\./i,
   /production/i,
 ];
@@ -58,4 +60,22 @@ export function assertSafeLegacyReadOnly(): void {
   if (process.env.MIGRATION_LEGACY_WRITABLE === 'true') {
     throw new MigrationTargetSafetyError('Legacy source must remain read-only.');
   }
+}
+
+/** Execute/auto stay off until an explicit internal-testing flag (and optional user allowlist). */
+export function customerExecuteAllowed(userId?: string): boolean {
+  if (process.env.MIGRATION_CUSTOMER_EXECUTE_ENABLED !== 'true') return false;
+  const allow = (process.env.MIGRATION_INTERNAL_TEST_USER_IDS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (allow.length === 0) return true;
+  return Boolean(userId && allow.includes(userId));
+}
+
+export function assertCustomerExecuteAllowed(userId?: string): void {
+  if (customerExecuteAllowed(userId)) return;
+  throw new MigrationTargetSafetyError(
+    'تنفيذ الترحيل غير مفعّل للاختبار الداخلي. التحليل والمعاينة متاحان. لا يُكتب على قاعدة الإنتاج حتى يُفعَّل MIGRATION_CUSTOMER_EXECUTE_ENABLED لحساب اختبار وعلى هدف غير إنتاجي.'
+  );
 }

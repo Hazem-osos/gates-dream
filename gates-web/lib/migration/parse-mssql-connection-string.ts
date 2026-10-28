@@ -7,6 +7,25 @@ export type ParsedMssqlConnection = {
   password: string;
 };
 
+/** Split `host,1433` / `host:1433` so Host and Port stay in separate fields. */
+export function normalizeSqlHostPort(host: string, port: string): { host: string; port: string } {
+  let h = host.trim();
+  let p = port.trim() || '1433';
+  if (h.includes(',')) {
+    const [a, b] = h.split(',', 2);
+    h = a.trim();
+    if ((b ?? '').trim()) p = b.trim();
+  } else if (h.includes(':') && !h.includes('\\')) {
+    const idx = h.lastIndexOf(':');
+    const maybePort = h.slice(idx + 1);
+    if (/^\d+$/.test(maybePort)) {
+      p = maybePort;
+      h = h.slice(0, idx).trim();
+    }
+  }
+  return { host: h, port: p };
+}
+
 function pick(parts: Record<string, string>, keys: string[]): string {
   for (const k of keys) {
     const v = parts[k.toLowerCase()];

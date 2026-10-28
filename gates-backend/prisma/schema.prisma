@@ -12475,13 +12475,16 @@ model MigrationJob {
   targetCompanyId      String
   legacyCompanyCode    String    @db.VarChar(20)
   sourceType           String    @db.VarChar(40)
+  /// REMOTE_SQL_SERVER | ON_PREMISE_CONNECTOR | BACKUP_RESTORE
+  sourceMode           String?   @db.VarChar(32)
   sourceFingerprint    String    @db.VarChar(128)
   sourceDatabaseName   String?   @db.VarChar(128)
   status               String    @db.VarChar(32)
   currentStage         String?   @db.VarChar(64)
   dryRun               Boolean   @default(false)
-  /// Env var name holding legacy connection (never store password)
+  /// Env var name or migration_legacy_source_configs id (never store password)
   legacyConnectionRef  String?   @db.VarChar(64)
+  legacySourceConfigId String?   @db.VarChar(36)
   reconciliationBaseline Json?
   progress             Json?
   lockToken            String?   @db.VarChar(64)
@@ -12499,6 +12502,7 @@ model MigrationJob {
   @@index([targetCompanyId])
   @@index([status])
   @@index([sourceFingerprint])
+  @@index([legacySourceConfigId])
   @@map("migration_jobs")
 }
 
@@ -12803,4 +12807,153 @@ model FixedAssetDisposal {
   @@index([companyId, disposalDate])
   @@index([assetId])
   @@map("fixed_asset_disposals")
+}
+
+model MigrationPackageUploadSession {
+  id           String   @id @default(uuid())
+  companyId    String
+  originalName String   @db.VarChar(255)
+  totalChunks  Int
+  tempPath     String   @db.VarChar(512)
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  chunks MigrationPackageUploadChunk[]
+
+  @@index([companyId])
+  @@index([expiresAt])
+  @@map("migration_package_upload_sessions")
+}
+
+model MigrationPackageUploadChunk {
+  id         String   @id @default(uuid())
+  sessionId  String
+  chunkIndex Int
+  sha256     String   @db.VarChar(64)
+  createdAt  DateTime @default(now())
+
+  session MigrationPackageUploadSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, chunkIndex])
+  @@map("migration_package_upload_chunks")
+}
+
+model MigrationStoredPackage {
+  id           String   @id @default(uuid())
+  companyId    String
+  originalName String   @db.VarChar(255)
+  storedPath   String   @db.VarChar(512)
+  sizeBytes    BigInt
+  sha256       String   @db.VarChar(64)
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([companyId])
+  @@index([expiresAt])
+  @@map("migration_stored_packages")
+}
+
+model MigrationLegacySourceConfig {
+  id              String    @id @default(uuid())
+  companyId       String
+  mode            String    @db.VarChar(32)
+  status          String    @default("DRAFT") @db.VarChar(32)
+  configEncrypted String    @db.Text
+  fingerprint     String?   @db.VarChar(128)
+  databaseName    String?   @db.VarChar(128)
+  lastTestedAt    DateTime?
+  lastTestOk      Boolean?
+  lastTestMessage String?   @db.VarChar(512)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([companyId, mode])
+  @@index([companyId])
+  @@map("migration_legacy_source_configs")
+}
+
+model MigrationLegacySourceAudit {
+  id        String   @id @default(uuid())
+  companyId String
+  action    String   @db.VarChar(64)
+  mode      String?  @db.VarChar(32)
+  actorId   String?  @db.VarChar(64)
+  detail    String?  @db.VarChar(512)
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@map("migration_legacy_source_audits")
+}
+
+model MigrationConnectorPairingCode {
+  id        String   @id @default(uuid())
+  companyId String
+  codeHash  String   @db.VarChar(128)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
+  @@index([expiresAt])
+  @@map("migration_connector_pairing_codes")
+}
+
+model MigrationConnectorDevice {
+  id              String    @id @default(uuid())
+  companyId       String
+  label           String    @db.VarChar(128)
+  tokenHash       String    @unique @db.VarChar(128)
+  status          String    @default("ACTIVE") @db.VarChar(32)
+  connectorVersion String?  @db.VarChar(32)
+  lastHeartbeatAt DateTime?
+  lastError       String?   @db.VarChar(512)
+  pairedAt        DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([companyId])
+  @@map("migration_connector_devices")
+}
+
+model MigrationConnectorCommand {
+  id             String    @id @default(uuid())
+  companyId      String
+  deviceId       String?
+  migrationJobId String?
+  operation      String    @db.VarChar(64)
+  payloadJson    Json
+  status         String    @default("PENDING") @db.VarChar(32)
+  resultJson     Json?
+  errorMessage   String?   @db.VarChar(1024)
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
+
+  @@index([companyId, status])
+  @@index([expiresAt])
+  @@map("migration_connector_commands")
+}
+
+model MigrationBakRestoreRun {
+  id                   String    @id @default(uuid())
+  companyId            String
+  packageId            String
+  migrationJobId       String?
+  status               String    @default("UPLOADED") @db.VarChar(32)
+  legacySourceConfigId String?   @db.VarChar(36)
+  restoredDatabaseName String?   @db.VarChar(128)
+  progressPercent      Int       @default(0)
+  diagnosticsJson      Json?
+  errorMessage         String?   @db.Text
+  startedAt            DateTime?
+  completedAt          DateTime?
+  expiresAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([status])
+  @@index([packageId])
+  @@map("migration_bak_restore_runs")
 }
