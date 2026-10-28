@@ -15,11 +15,13 @@ import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
 const defaults: HrEmployeeValueUnitReasonFormInput = {
   serialNumber: '',
   employee: '',
-  date: '2025-11-26',
-  hijriDate: '2025-11-26',
+  date: todayIso(),
+  hijriDate: '',
   value: '',
   unit: 'جنية',
   reason: '',

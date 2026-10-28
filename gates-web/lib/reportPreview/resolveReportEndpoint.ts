@@ -117,6 +117,19 @@ export function resolveReportApiPath(
       'hr/payroll-report': 'payroll',
       'hr/leave-entitlements-report': 'leave',
       'hr/end-of-service-report': 'end-of-service',
+      'hr/employee-loans-report': 'loans',
+      // Employee-procedure based reports (/hr/reports/procedures/:kind).
+      'hr/employee-penalties-report': 'procedures/penalties',
+      'hr/employee-rewards-report': 'procedures/rewards',
+      'hr/employee-warnings-report': 'procedures/warnings',
+      'hr/employee-promotions-report': 'procedures/promotions',
+      'hr/employee-transfer-report': 'procedures/transfer',
+      'hr/employee-suspensions-report': 'procedures/suspensions',
+      'hr/employee-termination-report': 'procedures/termination',
+      'hr/employee-secondment-report': 'procedures/secondment',
+      'hr/employee-courses-report': 'procedures/courses',
+      'hr/employee-recommendations-report': 'procedures/recommendations',
+      'hr/housing-allowance-report': 'procedures/housing-allowance',
     };
     const seg = HR_REPORT_PATHS[registryPath];
     return seg ? `/hr/reports/${seg}` : null;

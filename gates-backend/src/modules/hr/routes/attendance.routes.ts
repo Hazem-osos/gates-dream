@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { z } from 'zod';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
@@ -6,6 +6,7 @@ import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import { AuthRequest } from '../../../shared/auth/types';
 import prisma from '../../../shared/database/prisma';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
 const KINDS = ['shift', 'holiday', 'working_day', 'absence', 'delay', 'sheet'] as const;
 
@@ -20,7 +21,7 @@ const createSchema = z.object({
   payload: z.any().optional().nullable(),
 });
 
-const router = Router();
+const router = asyncSafeRouter();
 router.use(authenticate);
 router.use(setTenantContext);
 

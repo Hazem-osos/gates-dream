@@ -1,12 +1,13 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import { AppError } from '../../../shared/middleware/error-handler';
 import type { AuthRequest } from '../../../shared/auth/types';
 import { payrollAdvanceService } from '../services/payroll-advance.service';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
-const router = Router();
+const router = asyncSafeRouter();
 
 router.use(authenticate);
 router.use(setTenantContext);

@@ -1,6 +1,8 @@
 import prisma from '../../../shared/database/prisma';
 import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { hrEntitlementPayoutService } from './hr-entitlement-payout.service';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CreateEOSDisbursementInput, UpdateEOSDisbursementInput } from '../schemas/eos-disbursement.schema';
 
@@ -20,22 +22,28 @@ export class EOSDisbursementService {
       });
 
       if (!employee) {
-        throw new Error('Employee not found');
+        throw new AppError(404, 'الموظف غير موجود');
       }
 
       // Validate amount
       if (data.amount <= 0) {
-        throw new Error('Amount must be greater than 0');
+        throw new AppError(422, 'قيمة الصرف يجب أن تكون أكبر من صفر');
       }
 
-      const disbursement = await prisma.endOfServiceDisbursement.create({
+      const prepared = await hrEntitlementPayoutService.prepare(companyId, data.date, {
+        safeId: data.safeId,
+        bankAccountId: data.bankAccountId,
+      });
+
+      const disbursement = await prisma.$transaction(async (tx) => {
+      const row = await tx.endOfServiceDisbursement.create({
         data: {
           companyId,
           employeeId: data.employeeId,
           serial: data.serial,
           date: data.date,
           hijriDate: data.hijriDate,
-          paymentMethod: data.paymentMethod,
+          paymentMethod: data.safeId ? 'fund' : 'bank',
           vacationId: data.vacationId,
           amount: new Decimal(data.amount),
           notes: data.notes,
@@ -53,6 +61,18 @@ export class EOSDisbursementService {
             },
           },
         },
+      });
+      await hrEntitlementPayoutService.postInTx(tx, {
+        companyId,
+        userId,
+        kind: 'EOS',
+        disbursementId: row.id,
+        employeeName: employee.arabicName,
+        amount: data.amount,
+        date: data.date,
+        prepared,
+      });
+      return row;
       });
 
       logger.info(
@@ -272,6 +292,31 @@ export class EOSDisbursementService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Cancel a disbursement: claim it (isActive true -> false) and reverse its
+   * payout journal in one transaction. A second concurrent cancel gets 409.
+   */
+  async cancelEOSDisbursement(companyId: string, userId: string, disbursementId: string) {
+    return prisma.$transaction(async (tx) => {
+      const claimed = await tx.endOfServiceDisbursement.updateMany({
+        where: { id: disbursementId, companyId, isActive: true },
+        data: { isActive: false },
+      });
+      if (claimed.count !== 1) {
+        const exists = await tx.endOfServiceDisbursement.findFirst({ where: { id: disbursementId, companyId }, select: { id: true } });
+        throw new AppError(exists ? 409 : 404, exists ? 'تم إلغاء هذا الصرف بالفعل' : 'سجل الصرف غير موجود');
+      }
+      const reversed = await hrEntitlementPayoutService.reverseInTx(tx, {
+        companyId,
+        userId,
+        kind: 'EOS',
+        disbursementId,
+      });
+      logger.info({ companyId, disbursementId, reversed }, 'End of service disbursement cancelled');
+      return { id: disbursementId, cancelled: true, journalReversed: reversed };
+    });
   }
 }
 

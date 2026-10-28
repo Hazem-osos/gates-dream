@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import type { AuthRequest } from '../../../shared/auth/types';
@@ -13,7 +13,8 @@ import { todayAttendanceService } from '../services/time/today-attendance.servic
 import { csvPunchImportService } from '../services/time/csv-punch-import.service';
 import { enqueueHcmTimeRecalc } from '../services/time/hcm-time-job.service';
 import { scheduleAssignmentService } from '../services/time/schedule-assignment.service';
-const router = Router();
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
+const router = asyncSafeRouter();
 router.use(authenticate);
 router.use(setTenantContext);
 

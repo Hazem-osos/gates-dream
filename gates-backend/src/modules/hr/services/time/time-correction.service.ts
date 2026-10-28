@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import prisma from '../../../../shared/database/prisma';
 import { AppError } from '../../../../shared/middleware/error-handler';
 import { toDateOnly } from '../../utils/hr-effective-date.util';
@@ -21,7 +22,7 @@ export class TimeCorrectionService {
         employmentId: input.employmentId,
         logicalWorkDate: toDateOnly(input.logicalWorkDate),
         correctionType: input.correctionType,
-        payload: input.payload,
+        payload: input.payload as Prisma.InputJsonValue,
         reason: input.reason,
         requestedBy: input.requestedBy,
         status: 'REQUESTED',

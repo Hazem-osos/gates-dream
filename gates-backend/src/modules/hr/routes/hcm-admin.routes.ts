@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
@@ -8,8 +8,9 @@ import { hcmBackfillService } from '../services/hcm/hcm-backfill.service';
 import { payrollCanonicalReadService } from '../services/hcm/payroll-canonical-read.service';
 import { canViewPayrollAmounts } from '../services/payroll/payroll-permission.util';
 import { asPayrollApiData } from '../services/payroll/payroll-response.serializer';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
-const router = Router();
+const router = asyncSafeRouter();
 router.use(authenticate);
 router.use(setTenantContext);
 

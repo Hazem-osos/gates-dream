@@ -12,12 +12,14 @@ import {
   type CompanyLeaveDaysDefinitionInput,
 } from '@/lib/validation/hr.schema';
 
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
 const defaults: CompanyLeaveDaysDefinitionInput = {
   code: '',
   arabicName: '',
   englishName: '',
-  date: '2025-11-26',
-  hijriDate: '2025-11-26',
+  date: todayIso(),
+  hijriDate: '',
 };
 
 const inputCls =

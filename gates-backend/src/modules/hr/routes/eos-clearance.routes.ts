@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
@@ -7,8 +7,10 @@ import { eosClearanceSchema } from '../schemas/eos-clearance.schema';
 import { eosClearanceService } from '../services/eos-clearance.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
-const router = Router();
+const router = asyncSafeRouter();
 
 router.use(authenticate);
 router.use(setTenantContext);
@@ -35,10 +37,8 @@ router.post(
 
       const data = {
         ...req.body,
-        clearanceDate:
-          typeof req.body.clearanceDate === 'string'
-            ? new Date(req.body.clearanceDate)
-            : req.body.clearanceDate,
+        // The schema validates `date`; the service reads `clearanceDate`.
+        clearanceDate: new Date(req.body.clearanceDate ?? req.body.date),
       };
 
       const result = await eosClearanceService.clearEOSEntitlements(
@@ -55,11 +55,8 @@ router.post(
     } catch (error) {
       logger.error({ error }, 'Error clearing EOS entitlements');
       const status =
-        error instanceof Error &&
-        (error.message === 'Employee not found' ||
-          error.message === 'Active contract not found for employee' ||
-          error.message === 'Account not found')
-          ? 404
+        error instanceof AppError
+          ? error.statusCode
           : 500;
       return void res.status(status).json({
         status: 'error',

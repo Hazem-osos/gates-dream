@@ -1,10 +1,10 @@
-// @ts-nocheck — strict cleanup pending; tracked for incremental typing.
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import { hrGlAccountResolverService } from './hr-gl-account-resolver.service';
+import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { journalLines } from '../../trade/utils/journal-lines.util';
 
 export interface EOSClearanceData {
@@ -43,12 +43,12 @@ export class EOSClearanceService {
       });
 
       if (!employee) {
-        throw new Error('Employee not found');
+        throw new AppError(404, 'الموظف غير موجود');
       }
 
       const contract = employee.contracts[0];
       if (!contract) {
-        throw new Error('Active contract not found for employee');
+        throw new AppError(404, 'لا يوجد عقد ساري لهذا الموظف');
       }
 
       // Calculate years of service
@@ -59,6 +59,21 @@ export class EOSClearanceService {
         (1000 * 60 * 60 * 24 * 365.25);
 
       const procedure = await prisma.$transaction(async (tx) => {
+        // One EOS clearance per contract: lock the employee, then check.
+        await tx.$executeRaw`SELECT id FROM employees WHERE id = ${data.employeeId} FOR UPDATE`;
+        const alreadyCleared = await tx.employeeProcedure.findFirst({
+          where: {
+            employeeId: data.employeeId,
+            employee: { companyId },
+            procedureType: 'eos_clearance',
+            date: { gte: contract.contractStartDate },
+          },
+          select: { id: true },
+        });
+        if (alreadyCleared) {
+          throw new AppError(409, 'تمت تصفية مستحقات نهاية الخدمة لهذا العقد من قبل');
+        }
+
         const created = await tx.employeeProcedure.create({
           data: {
             employeeId: data.employeeId,
@@ -81,27 +96,19 @@ export class EOSClearanceService {
           },
         });
 
-        if (data.accountId) {
+        {
+          const accounts = await hrGlAccountResolverService.resolveAccounts(companyId);
+          const expenseAccountId = data.accountId || accounts.salariesExpenseAccountId;
           const account = await tx.account.findFirst({
-            where: { id: data.accountId, companyId },
+            where: { id: expenseAccountId, companyId },
           });
 
           if (!account) {
-            throw new Error('Account not found');
+            throw new AppError(404, 'حساب المصروف غير موجود');
           }
 
-          const company = await tx.company.findUnique({
-            where: { id: companyId },
-            select: { defaultCurrency: true },
-          });
-          const fiscalYear = await tx.fiscalYear.findFirst({
-            where: { companyId, status: 'Open', isActive: true },
-            orderBy: { startDate: 'desc' },
-          });
-          if (!fiscalYear) {
-            throw new AppError(400, 'لا توجد سنة مالية مفتوحة لترحيل تصفية نهاية الخدمة');
-          }
-          const accounts = await hrGlAccountResolverService.resolveAccounts(companyId);
+          const company = await tx.companySettings.findUnique({ where: { companyId }, select: { defaultCurrency: true } });
+          const fiscalYear = { id: await fiscalYearService.assertOpenForDate(companyId, data.clearanceDate) };
           if (!accounts.accruedPayrollAccountId) {
             throw new AppError(400, 'حساب مستحقات الرواتب غير معرّف في إعدادات الموارد البشرية');
           }
@@ -116,10 +123,11 @@ export class EOSClearanceService {
               currencyCode: company?.defaultCurrency?.trim() || 'EGP',
               exchangeRate: 1,
               entryType: 'EosClearance',
-              sourceType: 'HR',
+              sourceType: 'HR-EOS',
+              sourceId: created.id,
               lines: journalLines([
                 {
-                  accountId: data.accountId,
+                  accountId: expenseAccountId,
                   debit: amount,
                   credit: 0,
                   description: `مصروف نهاية الخدمة - ${employee.arabicName}`,

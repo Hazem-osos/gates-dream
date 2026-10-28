@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { z } from 'zod';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
@@ -6,6 +6,7 @@ import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import { AuthRequest } from '../../../shared/auth/types';
 import prisma from '../../../shared/database/prisma';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
 const KINDS = ['qualification', 'document_type', 'ticket', 'specialization', 'procedure'] as const;
 
@@ -16,7 +17,7 @@ const createSchema = z.object({
   englishName: z.string().optional().nullable(),
 });
 
-const router = Router();
+const router = asyncSafeRouter();
 router.use(authenticate);
 router.use(setTenantContext);
 
@@ -73,6 +74,23 @@ router.put(
       },
     });
     return void res.json({ status: 'success', message: 'تم التحديث', data: row });
+  }
+);
+
+/** Soft delete: lookups may be referenced by employee records. */
+router.delete(
+  '/:id',
+  authorize({ resource: 'employee', action: 'delete' }),
+  validate({ params: z.object({ id: z.string().uuid() }) }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    const result = await prisma.hrLookup.updateMany({
+      where: { id: req.params.id, companyId, isActive: true },
+      data: { isActive: false },
+    });
+    if (result.count !== 1) return void res.status(404).json({ status: 'error', message: 'التعريف غير موجود' });
+    return void res.json({ status: 'success', message: 'تم الحذف' });
   }
 );
 

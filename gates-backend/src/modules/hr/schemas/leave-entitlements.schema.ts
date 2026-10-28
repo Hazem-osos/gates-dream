@@ -31,6 +31,18 @@ export const leaveEntitlementsDisbursementSchema = z.object({
   record: z.string().optional(),
 });
 
+export const annualLeaveClearanceSchema = z.object({
+  employeeId: z.string().uuid('معرّف الموظف غير صالح'),
+  date: z.coerce.date(),
+  year: z.coerce.number().int().min(2000).max(2100).optional(),
+  days: z.number().nonnegative().optional().nullable(),
+  amount: z.number().positive('قيمة المستحقات يجب أن تكون أكبر من صفر'),
+  accountId: z.string().uuid().optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
+export type AnnualLeaveClearanceInput = z.infer<typeof annualLeaveClearanceSchema>;
+
 export type LeaveEntitlementsDisbursementInput = z.infer<
   typeof leaveEntitlementsDisbursementSchema
 >;

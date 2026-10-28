@@ -1,8 +1,9 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import { AuthRequest } from '../../../shared/auth/types';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
 const CATALOG = [
   { id: 'warning', code: 'warning', arabicName: 'إنذار' },
@@ -15,7 +16,7 @@ const CATALOG = [
   { id: 'other', code: 'other', arabicName: 'أخرى' },
 ];
 
-const router = Router();
+const router = asyncSafeRouter();
 router.use(authenticate);
 router.use(setTenantContext);
 

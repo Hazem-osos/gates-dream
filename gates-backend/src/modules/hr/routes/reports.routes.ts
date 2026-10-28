@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
@@ -7,8 +7,11 @@ import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { startOfDayUtc, endOfDayUtc } from '../../../shared/utils/report-date';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { hrProcedureReportsService } from '../services/hr-procedure-reports.service';
 
-const router = Router();
+const router = asyncSafeRouter();
 
 // All routes require authentication and tenant context
 router.use(authenticate);
@@ -22,9 +25,6 @@ function parseRangeStart(value: unknown, field: string): Date {
 }
 function parseRangeEnd(value: unknown, field: string): Date {
   return endOfDayUtc(value, field);
-}
-function todayEndOfDayUtc(): Date {
-  return endOfDayUtc(new Date().toISOString().split('T')[0], 'today');
 }
 
 /**
@@ -224,6 +224,44 @@ router.get(
         message: error instanceof Error ? error.message : 'تعذر تحميل تقرير الإجازات',
       });
     }
+  }
+);
+
+function procedureReportFilters(req: AuthRequest) {
+  const companyId = req.companyId || req.tenantId;
+  if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
+  const now = new Date();
+  const fromRaw = req.query.fromDate ?? `${now.getUTCFullYear()}-01-01`;
+  const toRaw = req.query.toDate ?? now.toISOString().slice(0, 10);
+  return {
+    companyId,
+    fromDate: parseRangeStart(fromRaw, 'fromDate'),
+    toDate: parseRangeEnd(toRaw, 'toDate'),
+    employeeId: typeof req.query.employeeId === 'string' ? req.query.employeeId : undefined,
+    employee: typeof req.query.employee === 'string' ? req.query.employee : undefined,
+    limit: req.query.limit ? Math.min(parseInt(String(req.query.limit), 10) || 1000, 1000) : 1000,
+  };
+}
+
+/**
+ * GET /api/v1/hr/reports/loans — employee advances (السلف) in a date range.
+ */
+router.get('/loans', authorize({ resource: 'report', action: 'view' }), async (req: AuthRequest, res: Response) => {
+  const result = await hrProcedureReportsService.loans(procedureReportFilters(req));
+  return void res.json({ status: 'success', data: result.data, summary: result.summary });
+});
+
+/**
+ * GET /api/v1/hr/reports/procedures/:kind — penalties, rewards, warnings,
+ * promotions, transfer, suspensions, termination, secondment, courses,
+ * recommendations, housing-allowance.
+ */
+router.get(
+  '/procedures/:kind',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    const result = await hrProcedureReportsService.procedures(req.params.kind, procedureReportFilters(req));
+    return void res.json({ status: 'success', data: result.data, summary: result.summary });
   }
 );
 

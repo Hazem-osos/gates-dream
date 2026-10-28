@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import type { Prisma } from '@prisma/client';
 import prisma from '../../../../shared/database/prisma';
 import { AppError } from '../../../../shared/middleware/error-handler';
 import { toDateOnly } from '../../utils/hr-effective-date.util';
@@ -212,7 +213,7 @@ export class AttendanceCalculationService {
         absenceMinutes = 0;
         lateMinutes = 0;
         earlyLeaveMinutes = 0;
-        dayClassificationOut = leaveOverlay.attendanceClassification;
+        dayClassificationOut = leaveOverlay.attendanceClassification as typeof dayClassificationOut;
       } else if (totalLeave > 0) {
         absenceMinutes = clampMinutes(Math.max(0, absenceMinutes - totalLeave));
         const scheduledEnd = scheduledEndAt;
@@ -354,7 +355,7 @@ export class AttendanceCalculationService {
             exceptionType: ex.type,
             severity: 'WARNING',
             status: 'OPEN',
-            details: ex.details ?? {},
+            details: (ex.details ?? {}) as Prisma.InputJsonValue,
           },
         });
       }

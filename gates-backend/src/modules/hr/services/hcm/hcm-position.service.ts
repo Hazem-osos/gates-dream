@@ -21,7 +21,7 @@ async function assertNoReportingCycle(
       throw new AppError(422, 'Reporting hierarchy cycle detected');
     }
     seen.add(cursor);
-    const parent = await prisma.hcmPosition.findFirst({
+    const parent: { reportsToPositionId: string | null } | null = await prisma.hcmPosition.findFirst({
       where: { id: cursor, companyId },
       select: { reportsToPositionId: true },
     });

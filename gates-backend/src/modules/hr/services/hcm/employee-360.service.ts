@@ -175,6 +175,13 @@ export class Employee360Service {
           })
         : [];
 
+    const contracts = employment
+      ? await prisma.employeeContract.findMany({
+          where: { employmentId: employment.id, employee: { companyId } },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        })
+      : [];
     return {
       profile: employee,
       employment,
@@ -188,7 +195,7 @@ export class Employee360Service {
       lifecycleEvents,
       currentCompensation: options.includeCompensation ? currentCompensation : undefined,
       compensationHistory: options.includeCompensation ? compensationHistory : undefined,
-      contracts: employment?.contracts ?? [],
+      contracts,
       recentProcedures,
       payroll: {
         lastPostedRunItem: options.includePayrollAmounts ? lastPayrollItem : null,
@@ -237,7 +244,8 @@ export class Employee360Service {
     const seen = new Set<string>();
     while (cursor && !seen.has(cursor)) {
       seen.add(cursor);
-      const dept = await prisma.department.findFirst({
+      const dept: { id: string; arabicName: string; unitType: string; managementId: string | null } | null =
+        await prisma.department.findFirst({
         where: { id: cursor, companyId },
         select: { id: true, arabicName: true, unitType: true, managementId: true },
       });

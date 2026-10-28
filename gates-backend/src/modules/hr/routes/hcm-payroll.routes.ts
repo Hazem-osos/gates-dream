@@ -1,15 +1,14 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
-import { asyncHandler } from '../../../shared/middleware/async-handler';
+import { asyncHandler, asyncSafeRouter } from '../../../shared/middleware/async-handler';
 import { AppError } from '../../../shared/middleware/error-handler';
 import type { AuthRequest } from '../../../shared/auth/types';
 import prisma from '../../../shared/database/prisma';
 import { payrollRunCalculationService } from '../services/payroll/payroll-run-calculation.service';
 import { payrollRuleEngineService } from '../services/payroll/payroll-rule-engine.service';
 import { payrollContextBuilderService } from '../services/payroll/payroll-context-builder.service';
-import { evaluatePayrollExpression } from '../services/payroll/payroll-expression.evaluator';
 import { payrollDashboardService } from '../services/payroll/payroll-dashboard.service';
 import { payrollReportsService } from '../services/payroll/payroll-reports.service';
 import { payrollEngineModeService } from '../services/payroll/payroll-engine-mode.service';
@@ -27,9 +26,9 @@ import {
   type PayrollConfigAuditSubject,
 } from '../services/payroll/payroll-config-audit.service';
 import type { PayrollReportListQuery } from '../services/payroll/payroll-reports.service';
-import { asPayrollApiData, redactSensitiveDeep } from '../services/payroll/payroll-response.serializer';
+import { asPayrollApiData } from '../services/payroll/payroll-response.serializer';
 
-const router = Router();
+const router = asyncSafeRouter();
 
 router.use(authenticate);
 router.use(setTenantContext);

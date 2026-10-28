@@ -62,7 +62,7 @@ export class HcmEmploymentEventService {
         eventType: input.eventType,
         effectiveDate: toDateOnly(input.effectiveDate),
         status: 'DRAFT',
-        payload: input.payload ?? {},
+        payload: (input.payload ?? {}) as Prisma.InputJsonValue,
         reason: input.reason,
         notes: input.notes,
         requestedBy: input.requestedBy,
@@ -75,10 +75,31 @@ export class HcmEmploymentEventService {
     const event = await this.getEvent(companyId, eventId);
     if (event.status !== 'DRAFT') throw new AppError(400, 'Only DRAFT events can be submitted');
     await this.validateEvent(companyId, event, eventId);
-    return prisma.hcmEmploymentEvent.update({
-      where: { id: eventId },
-      data: { status: 'SUBMITTED', requestedBy: userId, requestedAt: new Date() },
+    await this.claimStatus(companyId, eventId, 'DRAFT', {
+      status: 'SUBMITTED',
+      requestedBy: userId,
+      requestedAt: new Date(),
     });
+    return this.getEvent(companyId, eventId);
+  }
+
+  /**
+   * Claim-first status change: only one concurrent caller can move the event
+   * out of `from`. The loser gets 409 instead of applying the event twice.
+   */
+  private async claimStatus(
+    companyId: string,
+    eventId: string,
+    from: string,
+    data: Prisma.HcmEmploymentEventUpdateManyMutationInput
+  ) {
+    const claimed = await prisma.hcmEmploymentEvent.updateMany({
+      where: { id: eventId, companyId, status: from },
+      data,
+    });
+    if (claimed.count !== 1) {
+      throw new AppError(409, 'تمت معالجة هذا الإجراء بالفعل من مستخدم آخر');
+    }
   }
 
   async approve(companyId: string, eventId: string, approverId: string) {
@@ -92,17 +113,14 @@ export class HcmEmploymentEventService {
       event.effectiveDate
     );
 
-    const approved = await prisma.hcmEmploymentEvent.update({
-      where: { id: eventId },
-      data: {
-        status: 'APPROVED',
-        approvedBy: approverId,
-        approvedAt: new Date(),
-        afterSnapshot: {
-          payrollImpact: impact,
-          requiresPayrollAdjustment: impact.requiresPayrollAdjustment,
-        },
-      },
+    await this.claimStatus(companyId, eventId, 'SUBMITTED', {
+      status: 'APPROVED',
+      approvedBy: approverId,
+      approvedAt: new Date(),
+      afterSnapshot: {
+        payrollImpact: impact,
+        requiresPayrollAdjustment: impact.requiresPayrollAdjustment,
+      } as unknown as Prisma.InputJsonValue,
     });
 
     const applied = await this.applyEvent(companyId, eventId);
@@ -112,15 +130,13 @@ export class HcmEmploymentEventService {
   async reject(companyId: string, eventId: string, userId: string, reason: string) {
     const event = await this.getEvent(companyId, eventId);
     if (event.status !== 'SUBMITTED') throw new AppError(400, 'Only SUBMITTED events can be rejected');
-    return prisma.hcmEmploymentEvent.update({
-      where: { id: eventId },
-      data: {
-        status: 'REJECTED',
-        rejectedBy: userId,
-        rejectedAt: new Date(),
-        rejectionReason: reason,
-      },
+    await this.claimStatus(companyId, eventId, 'SUBMITTED', {
+      status: 'REJECTED',
+      rejectedBy: userId,
+      rejectedAt: new Date(),
+      rejectionReason: reason,
     });
+    return this.getEvent(companyId, eventId);
   }
 
   async applyEvent(companyId: string, eventId: string) {
@@ -169,12 +185,17 @@ export class HcmEmploymentEventService {
       async (tx) => {
       await lockHcmEmploymentRow(tx, event.employmentId);
 
+      // Re-check under the employment lock: a concurrent apply may have won.
+      const current = await tx.hcmEmploymentEvent.findFirst({ where: { id: eventId, companyId } });
+      if (current?.status === 'APPLIED') return current;
+      if (current?.status !== 'APPROVED') throw new AppError(409, 'تغيرت حالة الإجراء أثناء التنفيذ');
+
       const before = await this.snapshotState(tx, companyId, event.employmentId);
 
       let assignmentId: string | undefined;
       let compensationId: string | undefined;
       let contractId: string | undefined;
-      let appliedEmploymentId = event.employmentId;
+      const appliedEmploymentId = event.employmentId;
 
       if (ASSIGNMENT_EVENTS.has(event.eventType)) {
         const input: AssignmentTransitionInput = {

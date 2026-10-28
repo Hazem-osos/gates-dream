@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
@@ -7,8 +7,10 @@ import { housingAllowanceClearanceSchema } from '../schemas/housing-allowance.sc
 import { housingAllowanceService } from '../services/housing-allowance.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
-const router = Router();
+const router = asyncSafeRouter();
 
 router.use(authenticate);
 router.use(setTenantContext);
@@ -55,12 +57,8 @@ router.post(
     } catch (error) {
       logger.error({ error }, 'Error clearing housing allowance');
       const status =
-        error instanceof Error &&
-        (error.message === 'Employee not found' ||
-          error.message === 'Active contract not found for employee' ||
-          error.message === 'Account not found' ||
-          error.message === 'Housing allowance already cleared for this period')
-          ? 404
+        error instanceof AppError
+          ? error.statusCode
           : 500;
       return void res.status(status).json({
         status: 'error',

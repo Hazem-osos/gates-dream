@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { AppError } from '../../../../shared/middleware/error-handler';
 import { planTimelineChange } from './hcm-timeline.domain';
 import { applyCompensationTimelinePlan } from './hcm-timeline-apply.util';
@@ -38,8 +38,8 @@ export async function transitionCompensationInTx(
   let plan;
   try {
     plan = planTimelineChange(existing, effectiveFrom, (source) => ({
-      basicSalary: input.basicSalary,
-      fixedAllowances: input.fixedAllowances ?? source.fixedAllowances,
+      basicSalary: new Prisma.Decimal(input.basicSalary),
+      fixedAllowances: new Prisma.Decimal(input.fixedAllowances ?? source.fixedAllowances),
       changeReason: input.changeReason ?? source.changeReason,
     }));
   } catch (e) {

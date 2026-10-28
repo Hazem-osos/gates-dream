@@ -62,7 +62,7 @@ function segmentEndBeforeNext<T extends TimelineRow>(
 export function planTimelineMutation<T extends TimelineRow>(
   rows: T[],
   effectiveFrom: Date,
-  buildNewSegment: (source: T) => Omit<T, 'id' | 'effectiveFrom' | 'effectiveTo'>
+  buildNewSegment: (source: T) => SegmentBody<T>
 ): TimelineMutationPlan<T> {
   const E = toDateOnly(effectiveFrom);
   const sorted = sortTimeline(rows);
@@ -102,10 +102,13 @@ export function planTimelineMutation<T extends TimelineRow>(
 /**
  * Close the interval covering `effectiveFrom` (or the latest open segment) and append a new open segment.
  */
+/** Fields of a new segment; ids and keys are filled in by the apply step. */
+export type SegmentBody<T> = Partial<Omit<T, 'id' | 'effectiveFrom' | 'effectiveTo'>>;
+
 export function planTimelineAppendOpen<T extends TimelineRow>(
   rows: T[],
   effectiveFrom: Date,
-  buildNewSegment: (source: T | null) => Omit<T, 'id' | 'effectiveFrom' | 'effectiveTo'>
+  buildNewSegment: (source: T | null) => SegmentBody<T>
 ): TimelineMutationPlan<T> {
   const E = toDateOnly(effectiveFrom);
   const sorted = sortTimeline(rows);
@@ -140,7 +143,7 @@ export function planTimelineAppendOpen<T extends TimelineRow>(
 export function planTimelineChange<T extends TimelineRow>(
   rows: T[],
   effectiveFrom: Date,
-  buildNewSegment: (source: T) => Omit<T, 'id' | 'effectiveFrom' | 'effectiveTo'>
+  buildNewSegment: (source: T) => SegmentBody<T>
 ): TimelineMutationPlan<T> {
   const E = toDateOnly(effectiveFrom);
   const host = findContainingRow(sortTimeline(rows), E);

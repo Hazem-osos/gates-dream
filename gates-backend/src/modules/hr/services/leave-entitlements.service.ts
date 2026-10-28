@@ -1,6 +1,12 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
+import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import { journalLines } from '../../trade/utils/journal-lines.util';
+import { hrGlAccountResolverService } from './hr-gl-account-resolver.service';
+import type { AnnualLeaveClearanceInput } from '../schemas/leave-entitlements.schema';
 
 export interface LeaveEntitlementsDisbursementData {
   employeeId: string;
@@ -160,4 +166,93 @@ export class LeaveEntitlementsService {
 }
 
 export const leaveEntitlementsService = new LeaveEntitlementsService();
+
+/**
+ * Annual leave clearance (تصفية مستحقات الإجازة السنوية) — a settlement
+ * document, not the canonical leave ledger (see HCM_LEAVE_CURRENT_STATE.md).
+ * Records the clearance and accrues its value: Dr leave expense / Cr accrued
+ * payroll. The cash payout is the annual-leave disbursement.
+ */
+export async function clearAnnualLeaveEntitlements(
+  companyId: string,
+  userId: string,
+  data: AnnualLeaveClearanceInput
+) {
+  const employee = await prisma.employee.findFirst({
+    where: { id: data.employeeId, companyId },
+    select: { id: true, arabicName: true },
+  });
+  if (!employee) throw new AppError(404, 'الموظف غير موجود');
+
+  const amount = Math.round(Number(data.amount) * 100) / 100;
+  if (!(amount > 0)) throw new AppError(422, 'قيمة المستحقات يجب أن تكون أكبر من صفر');
+
+  const date = new Date(data.date);
+  const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, date);
+  const accounts = await hrGlAccountResolverService.resolveAccounts(companyId);
+  if (!accounts.accruedPayrollAccountId) {
+    throw new AppError(422, 'حساب مستحقات الرواتب غير معرّف في إعدادات الموارد البشرية');
+  }
+  const expenseAccountId = data.accountId || accounts.salariesExpenseAccountId;
+  const company = await prisma.companySettings.findUnique({ where: { companyId }, select: { defaultCurrency: true } });
+  const year = String(data.year ?? date.getUTCFullYear());
+
+  return prisma.$transaction(async (tx) => {
+    // One clearance per employee per leave year. The lock MUST be the first
+    // statement: MySQL REPEATABLE READ fixes the read snapshot at the first
+    // plain read, so a read before the lock would hide a concurrent commit.
+    await tx.$executeRaw`SELECT id FROM employees WHERE id = ${employee.id} FOR UPDATE`;
+
+    const account = await tx.account.findFirst({ where: { id: expenseAccountId, companyId }, select: { id: true } });
+    if (!account) throw new AppError(404, 'حساب المصروف غير موجود');
+
+    const duplicate = await tx.employeeProcedure.findFirst({
+      where: {
+        employeeId: employee.id,
+        employee: { companyId },
+        procedureType: 'annual_leave_clearance',
+        serial: `ALC-${year}`,
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new AppError(409, `تمت تصفية مستحقات إجازة سنة ${year} لهذا الموظف من قبل`);
+    }
+
+    const procedure = await tx.employeeProcedure.create({
+      data: {
+        employeeId: employee.id,
+        serial: `ALC-${year}`,
+        procedureType: 'annual_leave_clearance',
+        date,
+        amount: new Decimal(amount),
+        description: `تصفية مستحقات إجازة سنة ${year}: ${data.days ?? 0} يوم بقيمة ${amount}${data.notes ? `. ${data.notes}` : ''}`,
+        createdBy: userId,
+      },
+    });
+
+    const description = `تصفية مستحقات إجازة سنوية - ${employee.arabicName}`;
+    const journal = await journalPostingService.createAndPostInTx(
+      tx,
+      { companyId, userId, fiscalYearId },
+      {
+        fiscalYearId,
+        date,
+        description,
+        currencyCode: company?.defaultCurrency?.trim() || 'EGP',
+        exchangeRate: 1,
+        entryType: 'AnnualLeaveClearance',
+        sourceType: 'HR-LV-CLR',
+        sourceId: procedure.id,
+        lines: journalLines([
+          { accountId: expenseAccountId, debit: amount, credit: 0, description },
+          { accountId: accounts.accruedPayrollAccountId, debit: 0, credit: amount, description },
+        ]),
+      }
+    );
+
+    logger.info({ companyId, employeeId: employee.id, amount, year }, 'Annual leave entitlements cleared');
+    return { procedure, journalEntryId: journal.id, amount, year };
+  });
+}
 

@@ -1,11 +1,18 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import type { AuthRequest } from '../../../shared/auth/types';
 import { hcmEmploymentEventService } from '../services/hcm/hcm-event.service';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
+import { validate } from '../../../shared/middleware/validate';
+import {
+  createEmploymentEventSchema,
+  rejectEmploymentEventSchema,
+  type CreateEmploymentEventInput,
+} from '../schemas/hcm-employment-event.schema';
 
-const router = Router();
+const router = asyncSafeRouter();
 router.use(authenticate);
 router.use(setTenantContext);
 
@@ -23,12 +30,18 @@ router.get(
 router.post(
   '/',
   authorize({ resource: 'employment', action: 'edit' }),
+  validate({ body: createEmploymentEventSchema }),
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    const body = req.body as CreateEmploymentEventInput;
     const data = await hcmEmploymentEventService.createDraft(companyId, {
-      ...req.body,
-      effectiveDate: new Date(req.body.effectiveDate),
+      employmentId: body.employmentId,
+      eventType: body.eventType,
+      effectiveDate: body.effectiveDate,
+      payload: body.payload,
+      reason: body.reason,
+      notes: body.notes,
       requestedBy: req.user?.sub,
     });
     return void res.status(201).json({ status: 'success', data });
@@ -60,6 +73,7 @@ router.post(
 router.post(
   '/:id/reject',
   authorize({ resource: 'employment', action: 'edit' }),
+  validate({ body: rejectEmploymentEventSchema }),
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });

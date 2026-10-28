@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
@@ -7,8 +7,9 @@ import { hrPayrollSettingsSchema } from '../schemas/hr-settings.schema';
 import { hrSettingsService } from '../services/hr-settings.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
-const router = Router();
+const router = asyncSafeRouter();
 
 router.use(authenticate);
 router.use(setTenantContext);

@@ -67,6 +67,21 @@ export function HrMasterLocalFormPage({
     });
   };
 
+  const remove = useApiMutation<unknown, Record<string, never>>(
+    selectedId ? `/hr/lookups/${selectedId}` : '/hr/lookups',
+    'DELETE',
+    {
+      onSuccess: () => {
+        setSuccess('تم الحذف');
+        setError('');
+        invalidateQuery(['hr-lookups', kind]);
+        setSelectedId(null);
+        reset(empty);
+      },
+      onError: (err: ApiError) => setError(err.message || 'تعذر الحذف'),
+    }
+  );
+
   const onNew = () => {
     setSelectedId(null);
     reset(empty);
@@ -79,6 +94,18 @@ export function HrMasterLocalFormPage({
       <FormSectionCard title={cardTitle}>
         <div className="col-span-full space-y-3">
           <HrMasterCodeFields register={register} errors={errors} />
+          {selectedId ? (
+            <button
+              type="button"
+              className="text-xs text-red-600 underline disabled:opacity-50"
+              disabled={remove.isPending}
+              onClick={() => {
+                if (window.confirm('حذف هذا التعريف؟')) remove.mutate({});
+              }}
+            >
+              حذف التعريف المحدد
+            </button>
+          ) : null}
           {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
           {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
           <ul className="divide-y text-sm">

@@ -354,7 +354,7 @@ export class EmployeeService {
       });
       const authoritativeKeys = ['basicSalary', 'departmentId', 'jobTitleId', 'costCenterId'] as const;
       for (const key of authoritativeKeys) {
-        if (data[key] !== undefined) {
+        if ((data as Record<string, unknown>)[key] !== undefined) {
           if (hcmEmployment) {
             throw new AppError(
               422,

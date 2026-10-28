@@ -6,6 +6,9 @@ export const createHousingAllowanceDisbursementSchema = z.object({
   date: z.coerce.date(),
   hijriDate: z.string().optional(),
   paymentMethod: z.enum(['fund', 'bank']).optional().nullable(),
+  /** Treasury source of the payout — exactly one is required. */
+  safeId: z.string().uuid().optional().nullable(),
+  bankAccountId: z.string().uuid().optional().nullable(),
   housingRef: z.string().optional().nullable(), // Reference to HousingAllowanceClearance or type
   amount: z.number().positive('Amount must be greater than 0'),
   notes: z.string().optional().nullable(),

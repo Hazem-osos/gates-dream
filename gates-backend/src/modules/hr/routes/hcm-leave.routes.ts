@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { Decimal } from '@prisma/client/runtime/library';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
@@ -21,8 +21,9 @@ import { leaveEncashmentService } from '../services/leave/leave-encashment.servi
 import { enqueueLeaveAccrual, runLeaveAccrualSync } from '../services/leave/hcm-leave-job.service';
 import { hcmLeaveScheduleService } from '../services/leave/hcm-leave-schedule.service';
 import { DEFAULT_LEAVE_POLICY } from '../services/leave/leave-policy.domain';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
-const router = Router();
+const router = asyncSafeRouter();
 router.use(authenticate);
 router.use(setTenantContext);
 

@@ -1,17 +1,36 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
-import { leaveEntitlementsDisbursementSchema } from '../schemas/leave-entitlements.schema';
-import { leaveEntitlementsService } from '../services/leave-entitlements.service';
+import { annualLeaveClearanceSchema, leaveEntitlementsDisbursementSchema } from '../schemas/leave-entitlements.schema';
+import { clearAnnualLeaveEntitlements, leaveEntitlementsService } from '../services/leave-entitlements.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
-const router = Router();
+const router = asyncSafeRouter();
 
 router.use(authenticate);
 router.use(setTenantContext);
+
+/**
+ * POST /api/v1/hr/leave-entitlements/clear
+ * Annual leave clearance: record + accrual journal (Dr expense / Cr accrued payroll).
+ */
+router.post(
+  '/clear',
+  authorize({ resource: 'payroll', action: 'post' }),
+  validate({ body: annualLeaveClearanceSchema }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    const result = await clearAnnualLeaveEntitlements(companyId, req.user?.sub || 'system', req.body);
+    return void res.status(201).json({ status: 'success', message: 'تمت التصفية وترحيل القيد', data: result });
+  }
+);
 
 /**
  * POST /api/v1/hr/leave-entitlements/disburse

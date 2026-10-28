@@ -12,19 +12,30 @@ import {
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
+import { applyEmploymentEvent, type HcmEventType } from '@/lib/hr/employment-events';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const defaults: HrEmployeeDepartmentMoveFormInput = {
   serialNumber: '',
   employee: '',
-  date: '2025-11-26',
-  hijriDate: '2025-11-26',
+  date: todayIso(),
+  hijriDate: '',
   reason: '',
   toDepartment: '',
   toSection: '',
   notes: '',
 };
+
+const EVENT_TYPE: Record<HrEmployeeDepartmentMoveFormPageProps['procedureType'], HcmEventType> = {
+  transfer: 'TRANSFER',
+  promotion: 'PROMOTION',
+  suspension: 'SUSPENSION',
+  termination: 'TERMINATION',
+};
+const MOVES_DEPARTMENT = new Set<HrEmployeeDepartmentMoveFormPageProps['procedureType']>(['transfer', 'promotion']);
 
 type EmployeeRow = { id: string; arabicName?: string; serial?: string | null };
 type DepartmentRow = { id: string; arabicName?: string; managementId?: string | null };
@@ -71,21 +82,31 @@ export function HrEmployeeDepartmentMoveFormPage({ title, procedureType }: HrEmp
     setSaving(true);
     const section = departments.find((row) => row.id === values.toSection);
     const management = departments.find((row) => row.id === values.toDepartment);
-    void apiClient
-      .post('/hr/employee-procedures', {
-        employeeId: values.employee,
-        serial: values.serialNumber || undefined,
-        procedureType,
-        date: values.date,
-        hijriDate: values.hijriDate || undefined,
-        reason: values.reason,
-        description: `إلى ${management?.arabicName || ''} / ${section?.arabicName || ''}${values.notes ? ` — ${values.notes}` : ''}`,
-      })
-      .then(async () => {
-        if (procedureType === 'transfer' || procedureType === 'promotion') {
-          await apiClient.put(`/hr/employees/${values.employee}`, { departmentId: values.toSection });
-        }
-        setSuccess('تم الحفظ');
+    const targetDepartmentId = values.toSection || values.toDepartment || undefined;
+    const description = `إلى ${management?.arabicName || ''} / ${section?.arabicName || ''}${values.notes ? ` — ${values.notes}` : ''}`;
+    // The HCM event changes employment/assignment (and so payroll); the
+    // procedure row is kept as the legacy history entry.
+    void applyEmploymentEvent({
+      employeeId: values.employee,
+      eventType: EVENT_TYPE[procedureType],
+      effectiveDate: values.date,
+      payload: MOVES_DEPARTMENT.has(procedureType) && targetDepartmentId ? { departmentId: targetDepartmentId } : {},
+      reason: values.reason,
+      notes: values.notes,
+    })
+      .then(() =>
+        apiClient.post('/hr/employee-procedures', {
+          employeeId: values.employee,
+          serial: values.serialNumber || undefined,
+          procedureType,
+          date: values.date,
+          hijriDate: values.hijriDate || undefined,
+          reason: values.reason,
+          description,
+        })
+      )
+      .then(() => {
+        setSuccess('تم الحفظ وتطبيق الإجراء على بيانات التوظيف');
         reset(defaults);
       })
       .catch((err: unknown) => {

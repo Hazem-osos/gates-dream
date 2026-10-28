@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { apiClient } from '@/lib/api/client';
+import { HrPaymentSourcePicker, paymentSourceBody, type HrPaymentSource } from '@/components/hr/HrPaymentSourcePicker';
 
 type RunReview = {
   run: {
@@ -48,7 +49,7 @@ export default function PayrollRunReviewPage() {
   const params = useParams();
   const runId = String(params.id);
   const qc = useQueryClient();
-  const [safeId, setSafeId] = useState('');
+  const [source, setSource] = useState<HrPaymentSource>({ kind: 'safe', id: '' });
   const [confirmPost, setConfirmPost] = useState(false);
   const [confirmPay, setConfirmPay] = useState(false);
 
@@ -79,7 +80,7 @@ export default function PayrollRunReviewPage() {
   });
 
   const disburse = useMutation({
-    mutationFn: () => apiClient.post(`/hr/payroll-runs/${runId}/disburse`, { safeId }),
+    mutationFn: () => apiClient.post(`/hr/payroll-runs/${runId}/disburse`, paymentSourceBody(source)),
     onSuccess: () => {
       setConfirmPay(false);
       qc.invalidateQueries({ queryKey: ['payroll-run-review', runId] });
@@ -150,8 +151,8 @@ export default function PayrollRunReviewPage() {
           )}
           {confirmPay && (
             <div className="flex items-center gap-2">
-              <input className="border rounded px-2 py-1 text-sm" placeholder="معرّف الخزينة safeId" value={safeId} onChange={(e) => setSafeId(e.target.value)} />
-              <button type="button" className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground" disabled={!safeId || disburse.isPending} onClick={() => disburse.mutate()}>
+              <HrPaymentSourcePicker value={source} onChange={setSource} />
+              <button type="button" className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground" disabled={!source.id || disburse.isPending} onClick={() => disburse.mutate()}>
                 تأكيد الصرف ({r.net?.toLocaleString() ?? '—'})
               </button>
             </div>

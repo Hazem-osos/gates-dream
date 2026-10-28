@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
@@ -21,6 +21,7 @@ import {
   asPayrollApiData,
   serializeEmployeeRecord,
 } from '../services/payroll/payroll-response.serializer';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
 async function canViewCompensation(req: AuthRequest, companyId: string): Promise<boolean> {
   const userId = req.user?.sub;
@@ -39,7 +40,7 @@ async function canViewPayrollAmounts(req: AuthRequest, companyId: string): Promi
   return permissionGrantedFromCache(cached, 'payroll', 'view');
 }
 
-const router = Router();
+const router = asyncSafeRouter();
 
 router.use(authenticate);
 router.use(setTenantContext);

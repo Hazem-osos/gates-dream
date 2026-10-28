@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
@@ -6,8 +6,9 @@ import { payrollQueue } from '../../../workers/queues/payroll.queue';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { requireRedisEnabled } from '../../../shared/jobs/require-redis';
+import { asyncSafeRouter } from '../../../shared/middleware/async-handler';
 
-const router = Router();
+const router = asyncSafeRouter();
 
 // All routes require authentication and tenant context
 router.use(authenticate);
