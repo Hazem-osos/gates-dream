@@ -1,5 +1,5 @@
 import './shared/format/english-digits';
-import express, { Express, Request, Response, NextFunction } from 'express';
+import express, { Express, Request, Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import { buildCorsOptions } from './shared/config/cors-options';
@@ -13,7 +13,6 @@ import { apiAuthGate } from './shared/middleware/api-auth-mode.middleware';
 import { setTenantContext } from './shared/middleware/tenant.middleware';
 import { tenantAndFiscalContextMiddleware } from './shared/middleware/tenant-fiscal-context.middleware';
 import { enforceBranchScope } from './shared/middleware/branch-scope.middleware';
-import { logger } from './shared/logger';
 import { metricsCollector } from './shared/monitoring/metrics';
 
 // Import module routes
@@ -701,55 +700,9 @@ app.use('/api/v1/trade', tradeRoutes);
 // Note: graphqlMiddleware already includes authenticate and setTenantContext
 app.all('/api/graphql', ...(graphqlMiddleware as express.RequestHandler[]));
 
-// Response size limit middleware (prevent memory exhaustion)
-app.use((req: Request, res: Response, next: NextFunction) => {
-  const MAX_RESPONSE_SIZE = 50 * 1024 * 1024; // 50MB
-  let responseSize = 0;
-
-  const originalWrite = res.write.bind(res);
-  const originalEnd = res.end.bind(res);
-
-  res.write = function (chunk: any): boolean {
-    if (chunk) {
-      responseSize += Buffer.byteLength(chunk);
-      if (responseSize > MAX_RESPONSE_SIZE) {
-        logger.error(
-          {
-            path: req.path,
-            method: req.method,
-            responseSize,
-            maxSize: MAX_RESPONSE_SIZE,
-          },
-          'Response size limit exceeded'
-        );
-        if (!res.headersSent) {
-          res.status(413).json({
-            status: 'error',
-            message: 'Response too large',
-          });
-        }
-        return false;
-      }
-    }
-    return originalWrite(chunk);
-  };
-
-  res.end = function (chunk?: any, ...args: any[]) {
-    if (chunk) {
-      responseSize += Buffer.byteLength(chunk);
-      if (responseSize > MAX_RESPONSE_SIZE && !res.headersSent) {
-        res.status(413).json({
-          status: 'error',
-          message: 'Response too large',
-        });
-        return res;
-      }
-    }
-    return (originalEnd as (...a: any[]) => Response).apply(res, [chunk, ...args]);
-  };
-
-  next();
-});
+// A "50MB response size limit" middleware used to be registered here, after every
+// route — so it never ran for any API response. Removed as dead code; large
+// exports belong in BullMQ jobs (audit H-07), not in a response cap.
 
 // Memory monitoring (record memory usage periodically)
 if (process.env.NODE_ENV === 'production') {

@@ -18,9 +18,13 @@ function getConnectionPoolConfig() {
   const url = new URL(dbUrl);
 
   // Extract connection_limit and pool_timeout from URL params
+  // (DB_CONNECTION_LIMIT lets each Railway service set its share of max_connections).
+  const envLimit = Number.parseInt(process.env.DB_CONNECTION_LIMIT ?? '', 10);
   const connectionLimit = url.searchParams.get('connection_limit')
     ? parseInt(url.searchParams.get('connection_limit')!, 10)
-    : getDefaultConnectionLimit();
+    : Number.isFinite(envLimit) && envLimit > 0
+      ? envLimit
+      : getDefaultConnectionLimit();
   const poolTimeout = url.searchParams.get('pool_timeout')
     ? parseInt(url.searchParams.get('pool_timeout')!, 10)
     : 20;
@@ -68,16 +72,35 @@ function getDefaultConnectionLimit(): number {
 
 const poolConfig = getConnectionPoolConfig();
 
+/**
+ * Audit M-11: the pool size above used to be logged but never handed to Prisma,
+ * so the real pool was Prisma's own default (physical CPUs × 2 + 1 of whatever
+ * host the container lands on). Put the values on the URL unless the URL
+ * already sets them.
+ */
+function withPoolParams(databaseUrl: string): string {
+  const url = new URL(databaseUrl);
+  if (!url.searchParams.has('connection_limit')) {
+    url.searchParams.set('connection_limit', String(poolConfig.connectionLimit));
+  }
+  if (!url.searchParams.has('pool_timeout')) {
+    url.searchParams.set('pool_timeout', String(poolConfig.poolTimeout));
+  }
+  return url.toString();
+}
+
 const basePrisma =
   globalForPrisma.prisma ||
   new PrismaClient({
+    // `query` must be emitted as an *event*, otherwise `monitorPrisma`'s
+    // `$on('query')` never fires and slow queries go unreported (audit M-12).
     log:
       process.env.NODE_ENV === 'development'
-        ? ['query', 'error', 'warn']
-        : ['error'],
+        ? [{ emit: 'event', level: 'query' }, 'query', 'error', 'warn']
+        : [{ emit: 'event', level: 'query' }, 'error'],
     datasources: {
       db: {
-        url: env.DATABASE_URL,
+        url: withPoolParams(env.DATABASE_URL),
       },
     },
     // Wave 4 fix: interactive transactions default to a 5s `timeout` /
@@ -148,21 +171,29 @@ export const prisma = basePrisma
 if (env.NODE_ENV === 'production') {
   setInterval(async () => {
     try {
-      // Check active connections (MySQL)
-      const result = await prisma.$queryRaw<Array<{ Threads_connected: bigint }>>`
-        SHOW STATUS LIKE 'Threads_connected'
+      // Threads_connected counts every client of the MySQL server (all API
+      // instances, workers, admin tools), so compare it with the server's own
+      // max_connections — not with this process's pool size.
+      const result = await prisma.$queryRaw<
+        Array<{ threadsConnected: bigint | number | string; maxConnections: bigint | number | string }>
+      >`
+        SELECT
+          (SELECT VARIABLE_VALUE FROM performance_schema.global_status
+            WHERE VARIABLE_NAME = 'Threads_connected') AS threadsConnected,
+          @@max_connections AS maxConnections
       `;
-      const activeConnections = Number(result[0]?.Threads_connected || 0);
-      const maxConnections = poolConfig.connectionLimit;
+      const activeConnections = Number(result[0]?.threadsConnected || 0);
+      const maxConnections = Number(result[0]?.maxConnections || 0);
 
-      if (activeConnections > maxConnections * 0.8) {
+      if (maxConnections > 0 && activeConnections > maxConnections * 0.8) {
         logger.warn(
           {
             activeConnections,
             maxConnections,
             usagePercent: (activeConnections / maxConnections) * 100,
+            poolLimitThisInstance: poolConfig.connectionLimit,
           },
-          'High connection pool usage detected'
+          'MySQL server connections above 80% of max_connections'
         );
       }
     } catch (error) {

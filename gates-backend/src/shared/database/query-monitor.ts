@@ -20,6 +20,9 @@ interface QueryInfo {
 const recentQueries: Map<string, QueryInfo[]> = new Map();
 const N1_DETECTION_WINDOW = 1000; // 1 second window
 const N1_THRESHOLD = 5; // 5+ similar queries in window indicates N+1
+const N1_DETECTION_ENABLED =
+  process.env.NODE_ENV !== 'production' ||
+  ['true', '1'].includes((process.env.PRISMA_N1_DETECTION ?? '').trim().toLowerCase());
 
 export function monitorPrisma(prisma: PrismaClient): void {
   const slowQueryThreshold = 1000; // 1 second (aligned with alerting threshold)
@@ -48,8 +51,9 @@ export function monitorPrisma(prisma: PrismaClient): void {
       );
     }
 
-    // Detect N+1 query patterns
-    detectN1Queries(queryInfo);
+    // N+1 detection normalizes every SQL string with regexes; keep it off the
+    // production hot path unless explicitly requested.
+    if (N1_DETECTION_ENABLED) detectN1Queries(queryInfo);
 
     metricsCollector.recordDatabaseQuery(queryDurationMs);
   });

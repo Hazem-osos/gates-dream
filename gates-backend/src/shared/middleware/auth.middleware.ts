@@ -15,13 +15,7 @@ import { jwtVerificationService } from '../auth/jwt.verify';
 import type { AuthRequest } from '../auth/types';
 import { logger } from '../logger';
 import { AppError } from './error-handler';
-import { isAccountLocked, clearFailedAttempts } from '../security/account-lockout';
-import {
-  isTokenBlacklisted,
-  createSession,
-  updateSessionActivity,
-  getSession,
-} from '../auth/session-manager';
+import { checkAndTouchRequestAuth } from '../auth/request-auth-state';
 
 // ── Authenticate (required) ───────────────────────────────────────────────────
 
@@ -70,40 +64,29 @@ export const authenticate: RequestHandler = async (
       ?? payload.sub;
 
     // Session/lockout must not log out a valid JWT if Redis/DB blips.
+    // One Redis pipeline per request; session bookkeeping is throttled
+    // (see request-auth-state.ts). Revocation and lockout are checked every time.
     try {
-      const isBlacklisted = await isTokenBlacklisted(tokenId);
-      if (isBlacklisted) {
+      const ipAddress =
+        req.ip ??
+        (req.headers['x-forwarded-for'] as string | undefined)
+          ?.split(',')[0]
+          ?.trim() ??
+        'unknown';
+      const state = await checkAndTouchRequestAuth(payload.sub, tokenId, {
+        ipAddress,
+        userAgent: req.headers['user-agent'],
+      });
+      if (state.kind === 'revoked') {
         return next(new AppError(401, 'Token has been revoked'));
       }
-
-      const lockoutInfo = await isAccountLocked(payload.sub);
-      if (lockoutInfo) {
-        const remainingMinutes = Math.ceil(
-          (lockoutInfo.lockedUntil - Date.now()) / 60_000
-        );
+      if (state.kind === 'locked') {
+        const remainingMinutes = Math.ceil((state.lockedUntil - Date.now()) / 60_000);
         return next(
           new AppError(
             423,
             `Account is locked due to repeated failed authentication attempts. Try again in ${remainingMinutes} minute(s).`
           )
-        );
-      }
-
-      await clearFailedAttempts(payload.sub);
-      await updateSessionActivity(payload.sub, tokenId);
-      const existingSession = await getSession(payload.sub, tokenId);
-      if (!existingSession) {
-        const ipAddress =
-          req.ip ??
-          (req.headers['x-forwarded-for'] as string | undefined)
-            ?.split(',')[0]
-            ?.trim() ??
-          'unknown';
-        await createSession(
-          payload.sub,
-          tokenId,
-          ipAddress,
-          req.headers['user-agent']
         );
       }
     } catch (err) {

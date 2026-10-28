@@ -1,10 +1,41 @@
 import { Response, NextFunction } from 'express';
+import { LRUCache } from 'lru-cache';
 import { AuthRequest } from '../auth/types';
 import { prisma } from '../database/prisma';
 import { AppError } from './error-handler';
 import { logger } from '../logger';
 import { authenticate } from './auth.middleware';
 import { runWithTenantContext } from '../database/tenant-context';
+
+/**
+ * Every API request used to read `company` from MySQL just to confirm it exists
+ * and is active. Keep that answer briefly in memory instead: a deactivated
+ * company is refused within COMPANY_STATUS_TTL_MS on every instance, with no
+ * cross-instance invalidation needed. Missing companies are not cached.
+ */
+export const COMPANY_STATUS_TTL_MS = 30_000;
+type CompanyStatusRow = { id: string; isActive: boolean };
+const companyStatusCache = new LRUCache<string, CompanyStatusRow>({
+  max: 5_000,
+  ttl: COMPANY_STATUS_TTL_MS,
+});
+
+async function getActiveCompanyRow(companyId: string): Promise<CompanyStatusRow | null> {
+  const hit = companyStatusCache.get(companyId);
+  if (hit) return hit;
+  const row = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { id: true, isActive: true },
+  });
+  if (row) companyStatusCache.set(companyId, row);
+  return row;
+}
+
+/** Drop the cached status on this instance (e.g. right after deactivating a company). */
+export function forgetCompanyStatus(companyId?: string): void {
+  if (companyId) companyStatusCache.delete(companyId);
+  else companyStatusCache.clear();
+}
 
 /**
  * Tenant Isolation Middleware
@@ -33,10 +64,7 @@ export const setTenantContext = async (
 
     // Verify tenant exists and is active
     // This ensures data isolation at the application level
-    const company = await prisma.company.findUnique({
-      where: { id: tenantId },
-      select: { id: true, isActive: true },
-    });
+    const company = await getActiveCompanyRow(tenantId);
 
     if (!company) {
       throw new AppError(404, 'Company not found');
