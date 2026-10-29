@@ -337,10 +337,17 @@ router.post(
         });
       }
 
-      // Ensure companyId in body matches authenticated company
+      // Tenant isolation: the company always comes from the signed-in user's token.
+      // A different companyId in the body is refused, never used.
+      if (req.body.companyId && req.body.companyId !== companyId) {
+        return void res.status(403).json({
+          status: 'error',
+          message: 'لا يمكنك إضافة مستخدم في شركة أخرى',
+        });
+      }
       const data = {
         ...req.body,
-        companyId: req.body.companyId || companyId,
+        companyId,
       };
 
       const user = await userService.createUser(data);
