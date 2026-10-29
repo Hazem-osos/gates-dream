@@ -153,6 +153,8 @@ export type FixedAssetDisposal = {
   status: DocStatus;
   proceeds: Money;
   vatAmount: Money;
+  customerId?: string | null;
+  proceedsAccountId?: string | null;
   catchUpDepreciation: Money;
   costAmount: Money;
   accumulatedAmount: Money;

@@ -1,10 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import { AppTable, Button, CompactFormField, FormSectionCard } from '@/app/components/ui';
-import { compactControlClass } from '@/components/ui/forms/formTokens';
+import { BookOpen, Layers } from 'lucide-react';
+import {
+  AdvancedFieldsSection,
+  AppTable,
+  CompactFormField,
+  FormSectionCard,
+  Switch,
+  compactControlClass,
+} from '@/components/ui';
+import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import { AccountSelect } from '@/app/components/form/AccountSelect';
-import { CategorySelect, FixedAssetsPage, useFixedAssetCategories } from '@/components/fixed-assets/shared';
+import { CategorySelect, FA_CRUMB, useFixedAssetCategories } from '@/components/fixed-assets/shared';
 import { apiClient } from '@/lib/api/client';
 import { useInvalidateQuery } from '@/lib/hooks/useApi';
 import { queryKeys } from '@/lib/query/query-keys';
@@ -63,17 +71,18 @@ function fromRow(row: FixedAssetCategory): Form {
   };
 }
 
-export default function FixedAssetCategoriesPage() {
-  const { data, isLoading } = useFixedAssetCategories();
+export default function FixedAssetCategoryCardPage() {
+  const { data } = useFixedAssetCategories();
   const invalidate = useInvalidateQuery();
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [browseOpen, setBrowseOpen] = useState(false);
   const rows = data?.data ?? [];
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
 
   const reset = () => {
-    setEditingId(null);
+    setSelectedId(null);
     setForm(EMPTY);
   };
 
@@ -97,10 +106,13 @@ export default function FixedAssetCategoriesPage() {
     };
     setSaving(true);
     try {
-      if (editingId) await apiClient.put(`/fixed-assets/categories/${editingId}`, body);
-      else await apiClient.post('/fixed-assets/categories', body);
+      if (selectedId) {
+        await apiClient.put(`/fixed-assets/categories/${selectedId}`, body);
+      } else {
+        const res = await apiClient.post<FixedAssetCategory>('/fixed-assets/categories', body);
+        if (res.data?.id) setSelectedId(res.data.id);
+      }
       invalidate(queryKeys.fixedAssets.categories());
-      reset();
     } catch {
       /* the API client shows the error */
     } finally {
@@ -108,41 +120,45 @@ export default function FixedAssetCategoriesPage() {
     }
   };
 
-  const remove = async (row: FixedAssetCategory) => {
-    if (!window.confirm(`حذف الفئة ${row.arabicName}؟`)) return;
+  const remove = async () => {
+    if (!selectedId || !window.confirm(`حذف الفئة ${form.arabicName}؟`)) return;
     try {
-      await apiClient.delete(`/fixed-assets/categories/${row.id}`);
+      await apiClient.delete(`/fixed-assets/categories/${selectedId}`);
       invalidate(queryKeys.fixedAssets.categories());
-      if (editingId === row.id) reset();
+      reset();
     } catch {
       /* shown by the API client */
     }
   };
 
+  const advancedCount = [form.englishName, form.parentId, form.isActive ? '' : '1'].filter(Boolean).length;
+
   return (
-    <FixedAssetsPage title="فئات الأصول" description="كل أصل يأخذ حساباته وطريقة وعمر إهلاكه من فئته، ويمكن تعديلها على الأصل نفسه.">
-      <FormSectionCard
-        title={editingId ? 'تعديل فئة' : 'فئة جديدة'}
-        subtitle="تعديل الفئة لا يغيّر الأصول المسجلة قبله — كل أصل يحتفظ بنسخته من الحسابات والتقديرات."
-        headerActions={
-          <>
-            <Button onClick={save} disabled={saving}>
-              {saving ? 'جارٍ الحفظ…' : 'حفظ'}
-            </Button>
-            {editingId ? (
-              <Button variant="ghost" onClick={reset}>
-                إلغاء
-              </Button>
-            ) : null}
-          </>
-        }
-      >
-        <CompactFormField label="الكود" required value={form.code} onChange={(e) => set('code', e.target.value)} />
-        <CompactFormField label="الاسم العربي" required value={form.arabicName} onChange={(e) => set('arabicName', e.target.value)} />
-        <CompactFormField label="الاسم الإنجليزي" value={form.englishName} onChange={(e) => set('englishName', e.target.value)} />
-        <CompactFormField label="الفئة الأب">
-          <CategorySelect value={form.parentId} onChange={(id) => set('parentId', id)} emptyLabel="— بدون —" excludeId={editingId ?? undefined} />
-        </CompactFormField>
+    <MasterCardShell
+      title="فئة أصول"
+      breadcrumbs={[FA_CRUMB, { label: 'فئات الأصول' }]}
+      docNumber={form.code || (selectedId ? 'تعديل' : 'جديد')}
+      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      onSave={() => void save()}
+      savePending={saving}
+      canSave={!saving}
+      onNew={reset}
+      onDelete={() => void remove()}
+      deleteDisabled={!selectedId}
+      currentId={selectedId}
+      onBrowseList={() => setBrowseOpen(true)}
+      favoriteHref="/fixed-assets/categories"
+    >
+      <FormSectionCard title="البيانات الأساسية" subtitle="كل أصل يأخذ طريقة وعمر إهلاكه من فئته" icon={Layers}>
+        <CompactFormField label="كود الفئة" required value={form.code} onChange={(e) => set('code', e.target.value)} placeholder="مثال: VEH" />
+        <CompactFormField
+          label="اسم الفئة"
+          required
+          value={form.arabicName}
+          onChange={(e) => set('arabicName', e.target.value)}
+          placeholder="مثال: سيارات"
+          autoFocus
+        />
         <CompactFormField label="طريقة الإهلاك" required>
           <select
             className={compactControlClass}
@@ -165,6 +181,7 @@ export default function FixedAssetCategoriesPage() {
           value={form.usefulLifeYears}
           disabled={form.depreciationMethod === 'NONE'}
           onChange={(e) => set('usefulLifeYears', e.target.value)}
+          placeholder="0"
         />
         {form.depreciationMethod === 'DECLINING_BALANCE' ? (
           <CompactFormField
@@ -174,6 +191,7 @@ export default function FixedAssetCategoriesPage() {
             inputMode="decimal"
             value={form.decliningRate}
             onChange={(e) => set('decliningRate', e.target.value)}
+            placeholder="25"
           />
         ) : null}
         <CompactFormField
@@ -185,6 +203,13 @@ export default function FixedAssetCategoriesPage() {
           value={form.salvagePercent}
           onChange={(e) => set('salvagePercent', e.target.value)}
         />
+      </FormSectionCard>
+
+      <FormSectionCard
+        title="الحسابات"
+        subtitle="تُنسخ على كل أصل جديد في الفئة؛ تعديلها لا يغيّر الأصول المسجلة قبله"
+        icon={BookOpen}
+      >
         <CompactFormField label="حساب الأصل (التكلفة)" required>
           <AccountSelect value={form.assetAccountId} onChange={(id) => set('assetAccountId', id)} />
         </CompactFormField>
@@ -199,71 +224,54 @@ export default function FixedAssetCategoriesPage() {
           />
         </CompactFormField>
         <CompactFormField label="حساب أرباح بيع الأصول">
-          <AccountSelect value={form.disposalGainAccountId} onChange={(id) => set('disposalGainAccountId', id)} />
+          <AccountSelect value={form.disposalGainAccountId} onChange={(id) => set('disposalGainAccountId', id)} statementType="INCOME_STATEMENT" />
         </CompactFormField>
         <CompactFormField label="حساب خسائر استبعاد الأصول">
-          <AccountSelect value={form.disposalLossAccountId} onChange={(id) => set('disposalLossAccountId', id)} />
+          <AccountSelect value={form.disposalLossAccountId} onChange={(id) => set('disposalLossAccountId', id)} statementType="INCOME_STATEMENT" />
         </CompactFormField>
-        <label className="flex items-center gap-2 self-end text-sm">
-          <input type="checkbox" checked={form.isActive} onChange={(e) => set('isActive', e.target.checked)} />
-          فئة نشطة
-        </label>
       </FormSectionCard>
 
-      <AppTable<FixedAssetCategory>
-        isLoading={isLoading}
-        data={rows}
-        getRowKey={(r) => r.id}
-        emptyTitle="لا توجد فئات أصول بعد"
-        emptyDescription="ابدأ بتعريف فئة مثل: مباني، سيارات، أجهزة حاسب، أثاث."
-        exportFileName="fixed-asset-categories"
-        columns={[
-          { id: 'code', header: 'الكود', accessor: 'code' },
-          { id: 'name', header: 'الفئة', accessor: 'arabicName' },
-          { id: 'method', header: 'الطريقة', cell: (r) => METHOD_LABELS[r.depreciationMethod] },
-          {
-            id: 'life',
-            header: 'العمر / النسبة',
-            cell: (r) =>
-              r.depreciationMethod === 'DECLINING_BALANCE'
-                ? `${toNumber(r.decliningRate)}% سنويًا`
-                : r.usefulLifeMonths
-                  ? `${r.usefulLifeMonths / 12} سنة`
-                  : '—',
-          },
-          { id: 'asset', header: 'حساب الأصل', cell: (r) => (r.assetAccount ? `${r.assetAccount.code} - ${r.assetAccount.arabicName}` : '—') },
-          {
-            id: 'acc',
-            header: 'مجمع الإهلاك',
-            cell: (r) =>
-              r.accumulatedDepreciationAccount
-                ? `${r.accumulatedDepreciationAccount.code} - ${r.accumulatedDepreciationAccount.arabicName}`
-                : '—',
-          },
-          { id: 'count', header: 'عدد الأصول', numeric: true, cell: (r) => String(r._count?.assets ?? 0) },
-          {
-            id: 'actions',
-            header: '',
-            cell: (r) => (
-              <div className="flex gap-1">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setEditingId(r.id);
-                    setForm(fromRow(r));
-                  }}
-                >
-                  تعديل
-                </Button>
-                <Button size="sm" variant="danger" onClick={() => remove(r)}>
-                  حذف
-                </Button>
-              </div>
-            ),
-          },
-        ]}
-      />
-    </FixedAssetsPage>
+      <AdvancedFieldsSection title="الحقول والإعدادات المتقدمة" badgeCount={advancedCount}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <CompactFormField label="الاسم الإنجليزي" value={form.englishName} onChange={(e) => set('englishName', e.target.value)} />
+          <CompactFormField label="الفئة الأب (اختياري)">
+            <CategorySelect value={form.parentId} onChange={(id) => set('parentId', id)} emptyLabel="— فئة رئيسية —" excludeId={selectedId ?? undefined} />
+          </CompactFormField>
+          <CompactFormField label="حالة الفئة">
+            <Switch checked={form.isActive} onCheckedChange={(checked) => set('isActive', checked)} label="فئة نشطة" />
+          </CompactFormField>
+        </div>
+      </AdvancedFieldsSection>
+
+      <DocumentBrowseDrawer open={browseOpen} onClose={() => setBrowseOpen(false)} title="فئات الأصول">
+        <AppTable<FixedAssetCategory>
+          data={rows}
+          getRowKey={(r) => r.id}
+          emptyTitle="لا توجد فئات أصول بعد"
+          onRowClick={(r) => {
+            setSelectedId(r.id);
+            setForm(fromRow(r));
+            setBrowseOpen(false);
+          }}
+          rowClassName={(r) => (selectedId === r.id ? 'bg-sky-50 even:bg-sky-50 hover:bg-sky-100' : undefined)}
+          columns={[
+            { id: 'code', header: 'الكود', accessor: 'code' },
+            { id: 'name', header: 'الفئة', accessor: 'arabicName' },
+            { id: 'method', header: 'الطريقة', cell: (r) => METHOD_LABELS[r.depreciationMethod] },
+            {
+              id: 'life',
+              header: 'العمر / النسبة',
+              cell: (r) =>
+                r.depreciationMethod === 'DECLINING_BALANCE'
+                  ? `${toNumber(r.decliningRate)}% سنويًا`
+                  : r.usefulLifeMonths
+                    ? `${r.usefulLifeMonths / 12} سنة`
+                    : '—',
+            },
+            { id: 'count', header: 'الأصول', numeric: true, cell: (r) => String(r._count?.assets ?? 0) },
+          ]}
+        />
+      </DocumentBrowseDrawer>
+    </MasterCardShell>
   );
 }

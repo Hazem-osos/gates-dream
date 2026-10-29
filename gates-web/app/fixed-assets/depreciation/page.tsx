@@ -1,50 +1,91 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { AppTable, Button, CompactFormField, FormSectionCard, StatusBadge } from '@/app/components/ui';
-import { FixedAssetsPage, JournalPreviewTable } from '@/components/fixed-assets/shared';
+import { useMemo, useState } from 'react';
+import { Calculator, ListChecks } from 'lucide-react';
+import { AppTable, Button, CompactFormField, FormSectionCard, StatusBadge, compactControlClass } from '@/components/ui';
+import { formActionButtonClass } from '@/components/ui/forms/formTokens';
+import {
+  DocumentBrowseDrawer,
+  ErpDocumentBottomSplit,
+  ErpDocumentLayout,
+  ErpDocumentPageHeader,
+  ErpFormHeaderCard,
+} from '@/components/erp';
+import { FA_CRUMB, JournalPreviewTable } from '@/components/fixed-assets/shared';
 import { apiClient } from '@/lib/api/client';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { queryKeys } from '@/lib/query/query-keys';
 import {
   formatDay,
   formatMoney,
-  journalHref,
   lastMonthEndIso,
+  toNumber,
   type DepreciationRun,
   type RunPreview,
 } from '@/lib/fixed-assets/types';
 
-export default function DepreciationRunsPage() {
+type AssetRow = { assetId: string; code: string; name: string; months: number; amount: number; accumulatedAfter: number };
+
+export default function DepreciationRunPage() {
   const invalidate = useInvalidateQuery();
+  const [runId, setRunId] = useState<string | null>(null);
   const [periodEnd, setPeriodEnd] = useState(lastMonthEndIso());
   const [notes, setNotes] = useState('');
   const [preview, setPreview] = useState<RunPreview | null>(null);
   const [busy, setBusy] = useState(false);
-  const [openRunId, setOpenRunId] = useState<string | null>(null);
+  const [browseOpen, setBrowseOpen] = useState(false);
 
-  const { data, isLoading } = useApiQuery<DepreciationRun[]>(queryKeys.fixedAssets.runs(), '/fixed-assets/depreciation-runs', undefined, {
-    staleTime: 0,
-  });
-  const runs = data?.data ?? [];
-  const { data: runDetail } = useApiQuery<DepreciationRun>(
-    queryKeys.fixedAssets.run(openRunId ?? ''),
-    `/fixed-assets/depreciation-runs/${openRunId}`,
+  const { data: runsRes, isLoading: runsLoading } = useApiQuery<DepreciationRun[]>(
+    queryKeys.fixedAssets.runs(),
+    '/fixed-assets/depreciation-runs',
     undefined,
-    { enabled: Boolean(openRunId), staleTime: 0 }
+    { staleTime: 0 }
   );
+  const { data: runRes } = useApiQuery<DepreciationRun>(
+    queryKeys.fixedAssets.run(runId ?? 'new'),
+    `/fixed-assets/depreciation-runs/${runId}`,
+    undefined,
+    { enabled: Boolean(runId), staleTime: 0 }
+  );
+  const run = runId ? runRes?.data ?? null : null;
+  const runs = runsRes?.data ?? [];
+
+  const assetRows: AssetRow[] = useMemo(() => {
+    if (!run) return preview?.assets ?? [];
+    const byAsset = new Map<string, AssetRow>();
+    for (const line of run.lines ?? []) {
+      const row = byAsset.get(line.asset.id) ?? {
+        assetId: line.asset.id,
+        code: line.asset.code,
+        name: line.asset.arabicName,
+        months: 0,
+        amount: 0,
+        accumulatedAfter: 0,
+      };
+      row.months += 1;
+      row.amount = Math.round((row.amount + toNumber(line.amount)) * 10000) / 10000;
+      row.accumulatedAfter = toNumber(line.accumulatedAfter);
+      byAsset.set(line.asset.id, row);
+    }
+    return [...byAsset.values()];
+  }, [run, preview]);
+
+  const total = run ? toNumber(run.totalAmount) : preview?.totalAmount ?? 0;
+  const monthCount = assetRows.reduce((s, r) => s + r.months, 0);
 
   const refresh = () => invalidate(queryKeys.fixedAssets.all);
 
-  const runPreview = async () => {
+  const startNew = () => {
+    setRunId(null);
+    setPreview(null);
+    setNotes('');
+    setPeriodEnd(lastMonthEndIso());
+  };
+
+  const calculate = async () => {
     setBusy(true);
     try {
-      const res = await apiClient.post<RunPreview>(
-        '/fixed-assets/depreciation-runs/preview',
-        { periodEnd },
-        { skipSuccessNotify: true }
-      );
+      const res = await apiClient.post<RunPreview>('/fixed-assets/depreciation-runs/preview', { periodEnd }, { skipSuccessNotify: true });
       setPreview(res.data ?? null);
     } catch {
       setPreview(null);
@@ -54,12 +95,19 @@ export default function DepreciationRunsPage() {
   };
 
   const post = async () => {
-    if (!window.confirm(`ترحيل إهلاك الأصول حتى ${formatDay(preview?.periodEnd)} بمبلغ ${formatMoney(preview?.totalAmount)}؟`)) return;
     setBusy(true);
     try {
-      await apiClient.post('/fixed-assets/depreciation-runs', { periodEnd, notes: notes.trim() || null });
-      setPreview(null);
-      setNotes('');
+      if (run && run.status === 'UNPOSTED') {
+        await apiClient.post(`/fixed-assets/depreciation-runs/${run.id}/repost`);
+      } else {
+        if (!window.confirm(`ترحيل إهلاك الأصول حتى ${formatDay(preview?.periodEnd)} بمبلغ ${formatMoney(total)}؟`)) return;
+        const res = await apiClient.post<DepreciationRun>('/fixed-assets/depreciation-runs', {
+          periodEnd,
+          notes: notes.trim() || null,
+        });
+        if (res.data?.id) setRunId(res.data.id);
+        setPreview(null);
+      }
       refresh();
     } catch {
       /* shown by the API client */
@@ -68,17 +116,11 @@ export default function DepreciationRunsPage() {
     }
   };
 
-  const action = async (run: DepreciationRun, kind: 'unpost' | 'repost' | 'delete') => {
-    const text = {
-      unpost: `إلغاء ترحيل تشغيل الإهلاك رقم ${run.runNumber}؟ يُلغى ترحيل القيد في مكانه ويعود الأصل لحالته السابقة.`,
-      repost: `إعادة ترحيل التشغيل رقم ${run.runNumber}؟ يُعاد الحساب على بيانات الأصول الحالية بنفس رقم القيد.`,
-      delete: `حذف التشغيل رقم ${run.runNumber}؟ سيُلغى قيده.`,
-    }[kind];
-    if (!window.confirm(text)) return;
+  const unpost = async () => {
+    if (!run || !window.confirm(`إلغاء ترحيل التشغيل ${run.runNumber}؟ يُلغى ترحيل القيد في مكانه ويعود الإهلاك على الأصول.`)) return;
     setBusy(true);
     try {
-      if (kind === 'delete') await apiClient.delete(`/fixed-assets/depreciation-runs/${run.id}`);
-      else await apiClient.post(`/fixed-assets/depreciation-runs/${run.id}/${kind}`);
+      await apiClient.post(`/fixed-assets/depreciation-runs/${run.id}/unpost`);
       refresh();
     } catch {
       /* shown by the API client */
@@ -86,132 +128,163 @@ export default function DepreciationRunsPage() {
       setBusy(false);
     }
   };
+
+  const remove = async () => {
+    if (!run || !window.confirm(`حذف التشغيل ${run.runNumber}؟ سيُلغى قيده.`)) return;
+    setBusy(true);
+    try {
+      await apiClient.delete(`/fixed-assets/depreciation-runs/${run.id}`);
+      refresh();
+      startNew();
+    } catch {
+      /* shown by the API client */
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const isNew = !run;
+  const statusLabel = isNew ? 'جديد' : run.status === 'POSTED' ? 'مرحّل' : 'غير مرحّل';
+  const statusTone = isNew ? 'info' : run.status === 'POSTED' ? 'success' : 'warning';
 
   return (
-    <FixedAssetsPage
-      title="الإهلاك الشهري"
-      description="يُحسب إهلاك كل الأصول في الخدمة حتى نهاية الشهر المختار — بما فيها أي أشهر سابقة لم تُهلك — ويُرحَّل في قيد واحد: من مصروف الإهلاك إلى مجمع الإهلاك."
-    >
-      <FormSectionCard
-        title="تشغيل إهلاك جديد"
-        subtitle="الإهلاك يُرحل بالتتابع: كل تشغيل لشهر بعد آخر شهر مرحل. للتعديل ألغِ ترحيل آخر تشغيل ثم أعد ترحيله."
-        headerActions={
-          <>
-            <Button variant="secondary" disabled={busy} onClick={runPreview}>
+    <ErpDocumentLayout>
+      <ErpDocumentPageHeader
+        compact
+        lockWhenPosted={false}
+        breadcrumbs={[FA_CRUMB, { label: 'الإهلاك الشهري' }]}
+        title="تشغيل إهلاك الأصول"
+        docNumber={run?.runNumber ?? 'جديد'}
+        statusLabel={statusLabel}
+        statusTone={statusTone}
+        currentId={run?.id ?? null}
+        hideStandalonePost={false}
+        postLabel={run?.status === 'UNPOSTED' ? 'إعادة الترحيل' : 'ترحيل'}
+        onPost={run?.status === 'POSTED' ? undefined : () => void post()}
+        canPost={!busy && (run?.status === 'UNPOSTED' || (isNew && Boolean(preview) && total > 0))}
+        postPending={busy}
+        onBrowseList={() => setBrowseOpen(true)}
+        favoriteHref="/fixed-assets/depreciation"
+        extraActions={
+          isNew ? (
+            <Button type="button" variant="secondary" size="sm" className={`${formActionButtonClass} gap-1.5`} disabled={busy} onClick={() => void calculate()}>
+              <Calculator className="h-3.5 w-3.5" aria-hidden />
               احسب ومعاينة
             </Button>
-            <Button disabled={busy || !preview || preview.totalAmount <= 0} onClick={post}>
-              ترحيل
-            </Button>
-          </>
+          ) : null
         }
-      >
-        <CompactFormField
-          label="حتى نهاية شهر"
-          required
-          type="date"
-          value={periodEnd}
-          onChange={(e) => {
-            setPeriodEnd(e.target.value);
-            setPreview(null);
-          }}
-        />
-        <CompactFormField label="ملاحظات" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        {preview ? (
-          <div className="space-y-3 md:col-span-full">
-            <p className="text-sm">
-              الإجمالي حتى {formatDay(preview.periodEnd)}: <b>{formatMoney(preview.totalAmount)}</b> على {preview.assets.length} أصل
-            </p>
-            <AppTable
-              data={preview.assets}
-              getRowKey={(r) => r.assetId}
-              emptyTitle="لا يوجد إهلاك مستحق"
-              exportFileName="depreciation-preview"
-              columns={[
-                { id: 'code', header: 'الكود', accessor: 'code' },
-                { id: 'name', header: 'الأصل', accessor: 'name' },
-                { id: 'months', header: 'عدد الأشهر', numeric: true, cell: (r) => String(r.months) },
-                { id: 'amount', header: 'الإهلاك', numeric: true, cell: (r) => formatMoney(r.amount) },
-                { id: 'acc', header: 'المجمع بعده', numeric: true, cell: (r) => formatMoney(r.accumulatedAfter) },
-              ]}
-            />
-            <JournalPreviewTable lines={preview.journal} />
-          </div>
-        ) : null}
-      </FormSectionCard>
-
-      <AppTable<DepreciationRun>
-        isLoading={isLoading}
-        data={runs}
-        getRowKey={(r) => r.id}
-        emptyTitle="لم يُرحل إهلاك بعد"
-        onRowClick={(r) => setOpenRunId(openRunId === r.id ? null : r.id)}
-        columns={[
-          { id: 'number', header: 'رقم التشغيل', accessor: 'runNumber' },
-          { id: 'period', header: 'حتى', cell: (r) => formatDay(r.periodEnd) },
-          {
-            id: 'status',
-            header: 'الحالة',
-            align: 'center',
-            cell: (r) => (
-              <StatusBadge compact variant={r.status === 'POSTED' ? 'success' : 'warning'} label={r.status === 'POSTED' ? 'مرحل' : 'غير مرحل'} />
-            ),
-          },
-          { id: 'total', header: 'الإجمالي', numeric: true, cell: (r) => formatMoney(r.totalAmount) },
-          { id: 'lines', header: 'سطور', numeric: true, cell: (r) => String(r._count?.lines ?? 0) },
-          {
-            id: 'journal',
-            header: 'القيد',
-            cell: (r) =>
-              r.journalEntryId ? (
-                <Link className="text-brand underline" href={journalHref(r.journalEntryId)} onClick={(e) => e.stopPropagation()}>
-                  فتح القيد
-                </Link>
-              ) : (
-                '—'
-              ),
-          },
-          {
-            id: 'actions',
-            header: '',
-            cell: (r) => (
-              <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                {r.status === 'POSTED' ? (
-                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => action(r, 'unpost')}>
-                    إلغاء الترحيل
-                  </Button>
-                ) : (
-                  <>
-                    <Button size="sm" disabled={busy} onClick={() => action(r, 'repost')}>
-                      إعادة الترحيل
-                    </Button>
-                    <Button size="sm" variant="danger" disabled={busy} onClick={() => action(r, 'delete')}>
-                      حذف
-                    </Button>
-                  </>
-                )}
-              </div>
-            ),
-          },
+        moreMenuItems={[
+          { id: 'new', label: 'تشغيل جديد', onClick: startNew },
+          ...(run?.status === 'POSTED' ? [{ id: 'unpost', label: 'إلغاء الترحيل', onClick: () => void unpost(), disabled: busy }] : []),
+          ...(run?.status === 'UNPOSTED'
+            ? [{ id: 'delete', label: 'حذف التشغيل', onClick: () => void remove(), disabled: busy, destructive: true }]
+            : []),
         ]}
       />
 
-      {openRunId && runDetail?.data?.lines ? (
-        <FormSectionCard title={`تفاصيل التشغيل ${runDetail.data.runNumber}`} bodyClassName="block">
-          <AppTable
-            data={runDetail.data.lines}
-            getRowKey={(l) => l.id}
-            exportFileName={`depreciation-run-${runDetail.data.runNumber}`}
-            columns={[
-              { id: 'code', header: 'الكود', cell: (l) => l.asset.code },
-              { id: 'name', header: 'الأصل', cell: (l) => l.asset.arabicName },
-              { id: 'month', header: 'الشهر', cell: (l) => formatDay(l.periodMonth) },
-              { id: 'amount', header: 'الإهلاك', numeric: true, cell: (l) => formatMoney(l.amount) },
-              { id: 'acc', header: 'المجمع بعده', numeric: true, cell: (l) => formatMoney(l.accumulatedAfter) },
-            ]}
-          />
-        </FormSectionCard>
-      ) : null}
-    </FixedAssetsPage>
+      <ErpFormHeaderCard
+        fieldsDisabled={!isNew}
+        row1={
+          <>
+            <CompactFormField
+              label="حتى نهاية شهر"
+              required
+              type="date"
+              hint="يُحسب كل شهر لم يُهلك حتى نهاية هذا الشهر"
+              value={run ? formatDay(run.periodEnd) : periodEnd}
+              onChange={(e) => {
+                setPeriodEnd(e.target.value);
+                setPreview(null);
+              }}
+            />
+            <CompactFormField
+              label="البيان / ملاحظات"
+              value={run ? run.notes ?? '' : notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="إهلاك شهر …"
+            />
+          </>
+        }
+        row2={
+          <>
+            <CompactFormField label="عدد الأصول">
+              <input className={compactControlClass} readOnly value={String(assetRows.length)} />
+            </CompactFormField>
+            <CompactFormField label="عدد الأشهر المحسوبة">
+              <input className={compactControlClass} readOnly value={String(monthCount)} />
+            </CompactFormField>
+          </>
+        }
+      />
+
+      <FormSectionCard
+        title="الأصول المحسوبة"
+        subtitle={
+          isNew
+            ? 'الإهلاك يُرحل بالتتابع لشهر بعد آخر شهر مرحل — للتعديل ألغِ ترحيل آخر تشغيل ثم أعد ترحيله'
+            : `حتى ${formatDay(run.periodEnd)}`
+        }
+        icon={ListChecks}
+        bodyClassName="block"
+        className="mt-3"
+      >
+        <AppTable<AssetRow>
+          data={assetRows}
+          getRowKey={(r) => r.assetId}
+          emptyTitle={isNew ? 'اختر الشهر ثم «احسب ومعاينة»' : 'لا توجد سطور'}
+          exportFileName="depreciation-run"
+          columns={[
+            { id: 'code', header: 'الكود', accessor: 'code' },
+            { id: 'name', header: 'الأصل', accessor: 'name' },
+            { id: 'months', header: 'الأشهر', numeric: true, cell: (r) => String(r.months) },
+            { id: 'amount', header: 'الإهلاك', numeric: true, cell: (r) => formatMoney(r.amount) },
+            { id: 'acc', header: 'المجمع بعده', numeric: true, cell: (r) => formatMoney(r.accumulatedAfter) },
+          ]}
+        />
+      </FormSectionCard>
+
+      <ErpDocumentBottomSplit
+        financialRows={[
+          { label: 'عدد الأصول', value: assetRows.length, show: false },
+          { label: 'إجمالي مصروف الإهلاك', value: total },
+        ]}
+        netAmount={total}
+        netLabel="إجمالي إهلاك الفترة"
+        journalEntryId={run?.journalEntryId ?? null}
+        showJournalTab={Boolean(run?.journalEntryId)}
+        tabs={
+          run?.journalEntryId
+            ? []
+            : [{ id: 'preview', label: 'معاينة القيد المحاسبي', content: <JournalPreviewTable lines={preview?.journal ?? []} /> }]
+        }
+      />
+
+      <DocumentBrowseDrawer open={browseOpen} onClose={() => setBrowseOpen(false)} title="تشغيلات الإهلاك السابقة">
+        <AppTable<DepreciationRun>
+          isLoading={runsLoading}
+          data={runs}
+          getRowKey={(r) => r.id}
+          emptyTitle="لم يُرحل إهلاك بعد"
+          onRowClick={(r) => {
+            setRunId(r.id);
+            setPreview(null);
+            setBrowseOpen(false);
+          }}
+          rowClassName={(r) => (runId === r.id ? 'bg-sky-50 even:bg-sky-50 hover:bg-sky-100' : undefined)}
+          columns={[
+            { id: 'number', header: 'الرقم', accessor: 'runNumber' },
+            { id: 'period', header: 'حتى', cell: (r) => formatDay(r.periodEnd) },
+            { id: 'total', header: 'الإجمالي', numeric: true, cell: (r) => formatMoney(r.totalAmount) },
+            {
+              id: 'status',
+              header: 'الحالة',
+              cell: (r) => (
+                <StatusBadge compact variant={r.status === 'POSTED' ? 'success' : 'warning'} label={r.status === 'POSTED' ? 'مرحّل' : 'غير مرحّل'} />
+              ),
+            },
+          ]}
+        />
+      </DocumentBrowseDrawer>
+    </ErpDocumentLayout>
   );
 }

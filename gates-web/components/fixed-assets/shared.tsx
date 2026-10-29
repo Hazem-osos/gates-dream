@@ -1,38 +1,22 @@
 'use client';
 
-import type { ReactNode } from 'react';
-import { PageHeader } from '@/app/components/ui';
-import { compactControlClass } from '@/components/ui/forms/formTokens';
+import { useState } from 'react';
+import { AppTable, FilterToolbar, StatusBadge, compactControlClass } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { queryKeys } from '@/lib/query/query-keys';
 import { useBranchesQuery, useCostCentersQuery } from '@/lib/hooks/useMasterDataQueries';
-import { formatMoney, type FixedAssetCategory, type JournalPreviewLine } from '@/lib/fixed-assets/types';
+import {
+  STATUS_LABELS,
+  STATUS_VARIANT,
+  formatMoney,
+  type FixedAsset,
+  type FixedAssetCategory,
+  type FixedAssetStatus,
+  type JournalPreviewLine,
+} from '@/lib/fixed-assets/types';
 
-export function FixedAssetsPage({
-  title,
-  description,
-  crumb,
-  actions,
-  children,
-}: {
-  title: string;
-  description?: string;
-  crumb?: { label: string; href?: string }[];
-  actions?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div dir="rtl" className="space-y-4">
-      <PageHeader
-        title={title}
-        description={description}
-        actions={actions}
-        breadcrumbs={[{ label: 'الأصول الثابتة', href: '/fixed-assets' }, ...(crumb ?? [{ label: title }])]}
-      />
-      {children}
-    </div>
-  );
-}
+/** Breadcrumb root for every fixed-assets screen. */
+export const FA_CRUMB = { label: 'الأصول الثابتة', href: '/fixed-assets' };
 
 export function useFixedAssetCategories() {
   return useApiQuery<FixedAssetCategory[]>(queryKeys.fixedAssets.categories(), '/fixed-assets/categories', undefined, {
@@ -104,55 +88,131 @@ export function CostCenterSelect({ value, onChange, disabled }: { value: string;
   );
 }
 
-/** Read-only preview of the journal a post will create (من / إلى). */
-export function JournalPreviewTable({ lines }: { lines: JournalPreviewLine[] }) {
-  if (!lines.length) return null;
+/** Preview of the entry a post will create — same look as the journal tab of posted documents. */
+export function JournalPreviewTable({ lines, emptyTitle }: { lines: JournalPreviewLine[]; emptyTitle?: string }) {
+  if (!lines.length) {
+    return <p className="py-6 text-center text-xs text-slate-500">{emptyTitle ?? 'احسب أولًا لعرض القيد'}</p>;
+  }
   const totalDebit = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
   const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full min-w-[560px] text-sm">
-        <thead className="bg-surface-2 text-xs text-foreground-muted">
-          <tr>
-            <th className="p-2 text-start">الحساب</th>
-            <th className="p-2 text-start">البيان</th>
-            <th className="p-2 text-end">مدين</th>
-            <th className="p-2 text-end">دائن</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={`${l.accountId}-${i}`} className="border-t border-border">
-              <td className="p-2">
-                {l.accountCode ? `${l.accountCode} - ` : ''}
-                {l.accountName || l.accountId}
-              </td>
-              <td className="p-2 text-foreground-muted">{l.description ?? ''}</td>
-              <td className="p-2 text-end tabular-nums">{l.debit ? formatMoney(l.debit) : ''}</td>
-              <td className="p-2 text-end tabular-nums">{l.credit ? formatMoney(l.credit) : ''}</td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot className="border-t border-border bg-surface-2 font-semibold">
-          <tr>
-            <td className="p-2" colSpan={2}>
-              الإجمالي
+    <table className="w-full min-w-[520px] text-xs">
+      <thead className="bg-[#F6FBFD] text-[#094C6B]">
+        <tr>
+          <th className="p-2 text-start font-semibold">الحساب</th>
+          <th className="p-2 text-start font-semibold">البيان</th>
+          <th className="p-2 text-end font-semibold">مدين</th>
+          <th className="p-2 text-end font-semibold">دائن</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lines.map((l, i) => (
+          <tr key={`${l.accountId}-${i}`} className="border-t border-[#E8F1F6]">
+            <td className="p-2 font-medium text-[#0A3D5E]">
+              {l.accountCode ? `${l.accountCode} - ` : ''}
+              {l.accountName || l.accountId}
             </td>
-            <td className="p-2 text-end tabular-nums">{formatMoney(totalDebit)}</td>
-            <td className="p-2 text-end tabular-nums">{formatMoney(totalCredit)}</td>
+            <td className="p-2 text-slate-500">{l.description ?? ''}</td>
+            <td className="p-2 text-end tabular-nums">{l.debit ? formatMoney(l.debit) : ''}</td>
+            <td className="p-2 text-end tabular-nums">{l.credit ? formatMoney(l.credit) : ''}</td>
           </tr>
-        </tfoot>
-      </table>
-    </div>
+        ))}
+      </tbody>
+      <tfoot className="border-t border-[#D6EAF3] font-bold text-[#094C6B]">
+        <tr>
+          <td className="p-2" colSpan={2}>
+            الإجمالي
+          </td>
+          <td className="p-2 text-end tabular-nums">{formatMoney(totalDebit)}</td>
+          <td className="p-2 text-end tabular-nums">{formatMoney(totalCredit)}</td>
+        </tr>
+      </tfoot>
+    </table>
   );
 }
 
-export function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+/** «السابق» list of assets — server-side search, opens the card on the same page. */
+export function AssetBrowseList({
+  onSelect,
+  selectedId,
+  onlyInService,
+}: {
+  onSelect: (asset: FixedAsset) => void;
+  selectedId?: string | null;
+  onlyInService?: boolean;
+}) {
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<'' | FixedAssetStatus>('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const params: Record<string, string | number> = { page, limit: pageSize };
+  if (search.trim()) params.search = search.trim();
+  if (status) params.status = status;
+  const { data, isLoading } = useApiQuery<FixedAsset[]>(
+    queryKeys.fixedAssets.assets({ browse: true, ...params }),
+    '/fixed-assets/assets',
+    params,
+    { staleTime: 0 }
+  );
+  const all = data?.data ?? [];
+  const rows = onlyInService ? all.filter((a) => a.status === 'ACTIVE' || a.status === 'FULLY_DEPRECIATED') : all;
+  const total = (data as { pagination?: { total?: number } } | undefined)?.pagination?.total ?? rows.length;
+
   return (
-    <div className="rounded-xl border border-border bg-surface-1 p-4 shadow-sm">
-      <div className="text-xs font-semibold text-foreground-muted">{label}</div>
-      <div className="mt-1 text-xl font-bold tabular-nums text-foreground">{value}</div>
-      {hint ? <div className="mt-1 text-xs text-foreground-muted">{hint}</div> : null}
+    <div className="space-y-3">
+      <FilterToolbar
+        searchPlaceholder="بحث بالكود أو الاسم أو الباركود…"
+        onSearchChange={(v) => {
+          setPage(1);
+          setSearch(v);
+        }}
+      >
+        {onlyInService ? null : (
+          <select
+            className={`${compactControlClass} w-40`}
+            value={status}
+            onChange={(e) => {
+              setPage(1);
+              setStatus(e.target.value as '' | FixedAssetStatus);
+            }}
+          >
+            <option value="">كل الحالات</option>
+            {(Object.keys(STATUS_LABELS) as FixedAssetStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABELS[s]}
+              </option>
+            ))}
+          </select>
+        )}
+      </FilterToolbar>
+      <AppTable<FixedAsset>
+        isLoading={isLoading}
+        data={rows}
+        getRowKey={(r) => r.id}
+        emptyTitle="لا توجد أصول"
+        onRowClick={onSelect}
+        rowClassName={(r) => (selectedId === r.id ? 'bg-sky-50 even:bg-sky-50 hover:bg-sky-100' : undefined)}
+        columns={[
+          { id: 'code', header: 'الكود', accessor: 'code' },
+          { id: 'name', header: 'الأصل', accessor: 'arabicName' },
+          { id: 'nbv', header: 'صافي القيمة', numeric: true, cell: (r) => formatMoney(r.bookValue) },
+          {
+            id: 'status',
+            header: 'الحالة',
+            cell: (r) => <StatusBadge compact variant={STATUS_VARIANT[r.status]} label={STATUS_LABELS[r.status]} />,
+          },
+        ]}
+        pagination={{
+          page,
+          pageSize,
+          totalItems: total,
+          onPageChange: setPage,
+          onPageSizeChange: (n) => {
+            setPage(1);
+            setPageSize(n);
+          },
+        }}
+      />
     </div>
   );
 }
