@@ -11841,11 +11841,62 @@ model PlatformAdmin {
   passwordHash String
   name         String?   @db.VarChar(120)
   isActive     Boolean   @default(true)
+  /// OWNER | SUPPORT | FINANCE | SALES | VIEWER — see platform-admin-roles.ts.
+  role         String    @default("OWNER") @db.VarChar(20)
+  /// AES-GCM encrypted TOTP secret; set during 2FA setup, active once totpEnabledAt is set.
+  totpSecretEnc String?  @db.VarChar(255)
+  totpEnabledAt DateTime?
+  /// Last accepted TOTP time step, so a code cannot be replayed.
+  totpLastStep  Int?
+  /// Bumped on password/2FA/role change or deactivation; older tokens stop working.
+  sessionVersion Int     @default(0)
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   @@map("platform_admins")
+}
+
+/// Every tenant password login attempt (success and failure), for the admin panel.
+model UserLoginEvent {
+  id         String   @id @default(uuid())
+  userId     String?
+  companyId  String?
+  /// What was typed as username/email (kept for failed attempts on unknown accounts).
+  identifier String   @db.VarChar(191)
+  success    Boolean
+  /// Failure reason: BAD_CREDENTIALS, COMPANY_DISABLED, LICENSE_*, PLATFORM_MAINTENANCE, …
+  reason     String?  @db.VarChar(40)
+  ip         String?  @db.VarChar(64)
+  userAgent  String?  @db.VarChar(255)
+  at         DateTime @default(now())
+
+  @@index([userId, at])
+  @@index([companyId, at])
+  @@index([success, at])
+  @@index([at])
+  @@map("user_login_events")
+}
+
+/// Messages shown to tenant users inside the ERP (all companies or selected ones).
+model PlatformAnnouncement {
+  id         String    @id @default(uuid())
+  title      String    @db.VarChar(200)
+  body       String    @db.Text
+  /// info | warning | critical
+  level      String    @default("info") @db.VarChar(16)
+  /// ALL | COMPANIES
+  audience   String    @default("ALL") @db.VarChar(16)
+  companyIds Json?
+  startsAt   DateTime  @default(now())
+  endsAt     DateTime?
+  isActive   Boolean   @default(true)
+  createdBy  String    @db.VarChar(191)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([isActive, startsAt])
+  @@map("platform_announcements")
 }
 
 /// Every change made from the platform admin panel.

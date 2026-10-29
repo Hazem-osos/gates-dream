@@ -4,6 +4,9 @@
  * Signed with a key that differs from `JWT_DEV_SECRET`, and carrying their own audience and
  * `typ`, so a platform token is rejected by the tenant `authenticate` middleware and a tenant
  * token (even a company `admin`) is rejected by the platform admin guard.
+ *
+ * `sv` is the admin's session version at sign-in; bumping `PlatformAdmin.sessionVersion`
+ * (password, 2FA or role change, deactivation) makes every older token stop working.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
@@ -18,6 +21,8 @@ export interface PlatformAdminTokenPayload {
   sub: string;
   email: string;
   typ: typeof TOKEN_TYPE;
+  /** Session version; tokens issued before this field existed count as 0. */
+  sv: number;
 }
 
 function signingKey(): string {
@@ -35,11 +40,21 @@ function signingKey(): string {
   throw new AppError(503, 'لوحة إدارة المنصة غير مهيأة على هذا الخادم');
 }
 
-export function signPlatformAdminToken(admin: { id: string; email: string }): {
+/** A 32-byte key for a named purpose, derived from the admin signing key (never the key itself). */
+export function deriveAdminKey(purpose: string): Buffer {
+  return createHash('sha256').update(`${purpose}:${signingKey()}`).digest();
+}
+
+export function signPlatformAdminToken(admin: { id: string; email: string; sessionVersion?: number }): {
   accessToken: string;
   expiresIn: number;
 } {
-  const payload: PlatformAdminTokenPayload = { sub: admin.id, email: admin.email, typ: TOKEN_TYPE };
+  const payload: PlatformAdminTokenPayload = {
+    sub: admin.id,
+    email: admin.email,
+    typ: TOKEN_TYPE,
+    sv: admin.sessionVersion ?? 0,
+  };
   const accessToken = jwt.sign(payload, signingKey(), {
     algorithm: 'HS256',
     audience: AUDIENCE,
@@ -64,5 +79,6 @@ export function verifyPlatformAdminToken(token: string): PlatformAdminTokenPaylo
   ) {
     throw new AppError(401, 'رمز دخول الإدارة غير صالح');
   }
-  return { sub: decoded.sub, email: decoded.email, typ: TOKEN_TYPE };
+  const sv = typeof decoded.sv === 'number' && Number.isInteger(decoded.sv) ? decoded.sv : 0;
+  return { sub: decoded.sub, email: decoded.email, typ: TOKEN_TYPE, sv };
 }

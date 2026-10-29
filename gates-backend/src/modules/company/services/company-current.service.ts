@@ -7,6 +7,7 @@ import type {
   UpsertTenantFiscalYearInput,
 } from '../schemas/company-current.schema';
 import { upsertCompanyFiscalYear } from './fiscal-year-sync.service';
+import { assertWithinLicenseLimit } from '../../platform-admin/services/platform-access.service';
 import { companyOnboardingService } from './company-onboarding.service';
 import { ensureDefaultPieceUnit } from '../../inventory/services/ensure-default-unit';
 import { ensureDefaultUngroupedCategory } from '../../inventory/services/ensure-default-item-category';
@@ -228,6 +229,7 @@ export class CompanyCurrentService {
       return updated;
     }
 
+    await assertWithinLicenseLimit(companyId, 'branches');
     const created = await prisma.branch.create({
       data: { companyId, ...payload },
       include: {

@@ -176,6 +176,7 @@ import permissionDefinitionsRoutes from './modules/users/routes/permission-defin
 import roleDefinitionsRoutes from './modules/users/routes/role-definitions.routes';
 import authRoutes from './modules/auth/routes/auth.routes';
 import platformAdminRoutes from './modules/platform-admin/routes/platform-admin.routes';
+import platformAnnouncementTenantRoutes from './modules/platform-admin/routes/platform-announcements.tenant.routes';
 import projectRoutes from './modules/extracts/routes/project.routes';
 import contractorRoutes from './modules/extracts/routes/contractor.routes';
 import extractRoutes from './modules/extracts/routes/extract.routes';
@@ -468,6 +469,7 @@ app.use('/api/v1/onboarding', onboardingRoutes);
 // User routes
 app.use('/api/v1/users', cache({ ttl: 300 }), userRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
+app.use('/api/v1/platform-announcements', platformAnnouncementTenantRoutes);
 app.use('/api/v1/user-groups', cache({ ttl: 300 }), userGroupRoutes);
 app.use('/api/v1/permissions', cache({ ttl: 300 }), permissionDefinitionsRoutes);
 app.use('/api/v1/rbac/permissions', cache({ ttl: 300 }), permissionDefinitionsRoutes);

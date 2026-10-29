@@ -1,6 +1,7 @@
 import prisma from '../../../shared/database/prisma';
 import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
+import { assertWithinLicenseLimit } from '../../platform-admin/services/platform-access.service';
 import bcrypt from 'bcryptjs';
 
 export interface CreateUserData {
@@ -38,6 +39,9 @@ export class UserService {
       if (!company) {
         throw new Error('Company not found');
       }
+
+      // License seat limit (no-op when the company has no license row).
+      await assertWithinLicenseLimit(data.companyId, 'users');
 
       // Check if email already exists
       const existingEmail = await prisma.user.findUnique({
@@ -266,6 +270,11 @@ export class UserService {
         }
       }
 
+      // Re-enabling a user takes a license seat.
+      if (data.isActive === true && !existing.isActive) {
+        await assertWithinLicenseLimit(companyId, 'users');
+      }
+
       // Hash password if being updated
       let passwordHash = undefined;
       if (data.password) {
@@ -345,6 +354,10 @@ export class UserService {
 
       if (!user) {
         throw new Error('User not found');
+      }
+
+      if (!user.isActive) {
+        await assertWithinLicenseLimit(companyId, 'users');
       }
 
       const restored = await prisma.user.update({

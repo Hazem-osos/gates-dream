@@ -9,10 +9,32 @@
 const TOKEN_KEY = 'gates:platform-admin:token';
 const PROFILE_KEY = 'gates:platform-admin:profile';
 
+export type AdminRole = 'OWNER' | 'SUPPORT' | 'FINANCE' | 'SALES' | 'VIEWER';
+export type AdminCap =
+  | 'dashboard.view'
+  | 'companies.view'
+  | 'companies.create'
+  | 'companies.edit'
+  | 'companies.disable'
+  | 'licenses.edit'
+  | 'ai.edit'
+  | 'users.view'
+  | 'users.edit'
+  | 'users.credentials'
+  | 'users.delete'
+  | 'announcements.manage'
+  | 'settings.edit'
+  | 'admins.manage'
+  | 'audit.view'
+  | 'security.view';
+
 export interface PlatformAdminProfile {
   id: string;
   email: string;
   name: string | null;
+  role?: AdminRole;
+  caps?: AdminCap[];
+  twoFactorEnabled?: boolean;
 }
 
 function apiBase(): string {
@@ -71,9 +93,27 @@ export function clearAdminSession(): void {
 export class AdminApiError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
+    readonly code?: string
   ) {
     super(message);
+  }
+}
+
+/** Keep the session but swap the token (after a password or 2FA change bumps the session version). */
+export function replaceAdminToken(token: string, expiresInSec: number): void {
+  try {
+    localStorage.setItem(TOKEN_KEY, JSON.stringify({ token, expiresAt: Date.now() + expiresInSec * 1000 }));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function storeAdminProfile(profile: PlatformAdminProfile): void {
+  try {
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  } catch {
+    /* ignore */
   }
 }
 
@@ -120,7 +160,11 @@ export async function adminRequest<T>(
       clearAdminSession();
       window.dispatchEvent(new Event(ADMIN_UNAUTHORIZED_EVENT));
     }
-    throw new AdminApiError(messageFrom(body, res.status), res.status);
+    const code =
+      body && typeof body === 'object' && typeof (body as { code?: unknown }).code === 'string'
+        ? (body as { code: string }).code
+        : undefined;
+    throw new AdminApiError(messageFrom(body, res.status), res.status, code);
   }
   return (body as { data: T }).data;
 }
@@ -268,6 +312,11 @@ export interface DashboardData {
   licenses: { licensed: number; unlicensed: number; suspended: number; trial: number; expired: number; expiringIn30Days: number };
   ai: { platformEnabled: boolean; companiesDisabled: number; tokensUsedThisMonth: number };
   maintenance: { enabled: boolean; message: string };
+  logins?: {
+    successLast24h: number;
+    failedLast24h: number;
+    mostFailedLast24h: Array<{ identifier: string; attempts: number }>;
+  };
   activitySeries: ActivityPoint[];
   topCompanies: Array<{ companyId: string; arabicName: string; activeMinutes: number }>;
   recentAudit: AuditRow[];
@@ -277,9 +326,68 @@ export interface PlatformAdminRow {
   id: string;
   email: string;
   name: string | null;
+  role: AdminRole;
   isActive: boolean;
+  twoFactorEnabled: boolean;
   lastLoginAt: string | null;
   createdAt: string;
+}
+
+export interface CompanyInsights {
+  months: string[];
+  usage: Array<{ key: string; label: string; perMonth: number[]; total: number }>;
+  eta: {
+    documents: Record<string, number>;
+    legacyInvoices: Record<string, number>;
+    receipts: Record<string, number>;
+    lastProblem: { createdAt: string; status: string; documentType: string } | null;
+    activeSigningDevices: number;
+  };
+  storage: { usedBytes: number; files: number; limitMb: number | null };
+  limits: { users: { used: number; max: number | null }; branches: { used: number; max: number | null } };
+  integrity: { glViolationsTotal: number; glViolationsLast30Days: number };
+  integrations: {
+    whatsapp: 'active' | 'configured' | 'none';
+    email: 'configured' | 'none';
+    apiKeys: number;
+    automationRules: number;
+    migrationJobs: number;
+  };
+}
+
+export interface LoginEventRow {
+  id: string;
+  userId: string | null;
+  companyId: string | null;
+  identifier: string;
+  success: boolean;
+  reason: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  at: string;
+  user: { id: string; email: string; firstName: string | null; lastName: string | null } | null;
+  companyName: string | null;
+}
+
+export type AnnouncementLevel = 'info' | 'warning' | 'critical';
+
+export interface AnnouncementRow {
+  id: string;
+  title: string;
+  body: string;
+  level: AnnouncementLevel;
+  audience: 'ALL' | 'COMPANIES';
+  companyIds: string[] | null;
+  startsAt: string;
+  endsAt: string | null;
+  isActive: boolean;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface TokenResult {
+  accessToken: string;
+  expiresIn: number;
 }
 
 export interface LicensePayload {

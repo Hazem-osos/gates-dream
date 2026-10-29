@@ -48,4 +48,8 @@ main()
     console.error(err instanceof Error ? err.message : err);
     process.exitCode = 1;
   })
-  .finally(() => prisma.$disconnect());
+  .finally(async () => {
+    await prisma.$disconnect();
+    // The shared app modules keep timers/connections open; without this the script never exits.
+    process.exit(process.exitCode ?? 0);
+  });

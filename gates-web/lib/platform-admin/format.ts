@@ -127,7 +127,61 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'user.password_reset': 'إعادة تعيين كلمة مرور',
   'user.force_logout': 'تسجيل خروج إجباري',
   'platform.settings_updated': 'تعديل إعدادات المنصة',
+  'admin.2fa_enabled': 'تفعيل التحقق الثنائي',
+  'admin.2fa_disabled': 'إيقاف التحقق الثنائي',
+  'admin.2fa_reset': 'إعادة ضبط التحقق الثنائي لمدير',
+  'admin.role_changed': 'تغيير دور مدير',
+  'announcement.created': 'نشر إعلان',
+  'announcement.updated': 'تعديل إعلان',
+  'announcement.enabled': 'تشغيل إعلان',
+  'announcement.disabled': 'إيقاف إعلان',
+  'announcement.deleted': 'حذف إعلان',
 };
+
+export const ROLE_LABEL: Record<string, string> = {
+  OWNER: 'مالك المنصة',
+  SUPPORT: 'دعم فني',
+  FINANCE: 'مالية',
+  SALES: 'مبيعات',
+  VIEWER: 'مشاهد',
+};
+
+export const ROLE_HINT: Record<string, string> = {
+  OWNER: 'كل الصلاحيات وإدارة المديرين',
+  SUPPORT: 'المستخدمون، كلمات المرور، الإعلانات، سجل الدخول',
+  FINANCE: 'التراخيص والذكاء الاصطناعي',
+  SALES: 'عرض الشركات وإنشاء شركات جديدة',
+  VIEWER: 'عرض فقط',
+};
+
+export const LOGIN_REASON_LABEL: Record<string, string> = {
+  BAD_CREDENTIALS: 'بيانات دخول خاطئة',
+  ACCOUNT_LOCKED: 'الحساب مقفول مؤقتاً',
+  COMPANY_DISABLED: 'الشركة موقوفة',
+  LICENSE_SUSPENDED: 'الترخيص موقوف',
+  LICENSE_EXPIRED: 'الترخيص منتهي',
+  LICENSE_NOT_STARTED: 'الترخيص لم يبدأ',
+  PLATFORM_MAINTENANCE: 'وضع الصيانة',
+  UNAVAILABLE: 'الخدمة غير متاحة',
+  INVALID_INPUT: 'بيانات ناقصة',
+  ERROR: 'خطأ',
+};
+
+export function fmtBytes(bytes: number | null | undefined): string {
+  const b = Math.max(0, bytes ?? 0);
+  if (b < 1024) return `${b} بايت`;
+  if (b < 1024 ** 2) return `${(b / 1024).toFixed(1)} ك.ب`;
+  if (b < 1024 ** 3) return `${(b / 1024 ** 2).toFixed(1)} م.ب`;
+  return `${(b / 1024 ** 3).toFixed(2)} ج.ب`;
+}
+
+/** "Mozilla/5.0 (Macintosh…) Chrome/120" → "Chrome · macOS" */
+export function shortAgent(ua: string | null | undefined): string {
+  if (!ua) return '—';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : /curl|node|axios|undici/i.test(ua) ? 'برنامج' : 'متصفح';
+  const os = /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Mac OS X|Macintosh/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '';
+  return os ? `${browser} · ${os}` : browser;
+}
 
 export function auditLabel(action: string): string {
   return AUDIT_ACTION_LABEL[action] ?? action;

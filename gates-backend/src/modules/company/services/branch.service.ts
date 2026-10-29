@@ -1,6 +1,7 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { getTenantCached, invalidateTenantCache, tenantCacheKeys } from '../../../shared/cache/tenant-metadata-cache';
+import { assertWithinLicenseLimit } from '../../platform-admin/services/platform-access.service';
 
 export interface CreateBranchData {
   companyId: string;
@@ -43,6 +44,9 @@ export class BranchService {
       if (!company) {
         throw new Error('Company not found');
       }
+
+      // License branch limit (no-op when the company has no license row).
+      await assertWithinLicenseLimit(data.companyId, 'branches');
 
       // Check if serial already exists
       if (data.serial) {

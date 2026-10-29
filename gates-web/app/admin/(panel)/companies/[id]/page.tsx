@@ -16,9 +16,13 @@ import {
   PauseCircle,
   PlayCircle,
   RotateCcw,
+  BarChart3,
+  ShieldAlert,
 } from 'lucide-react';
 import { adminRequest, type CompanyDetail } from '@/lib/platform-admin/api';
-import { useAdminMutation, useCompany } from '@/lib/platform-admin/hooks';
+import { useAdminMutation, useCan, useCompany } from '@/lib/platform-admin/hooks';
+import { CompanyInsightsTab } from '@/components/platform-admin/CompanyInsightsTab';
+import { LoginEventsTable } from '@/components/platform-admin/LoginEventsTable';
 import {
   daysUntil,
   fmtDate,
@@ -49,11 +53,12 @@ import { CreateUserDialog } from '@/components/platform-admin/Dialogs';
 import { defaultLicenseDraft, LicenseForm, licenseDraftError, licenseDraftToPayload } from '@/components/platform-admin/LicenseForm';
 import { AuditTable } from '@/components/platform-admin/AuditTable';
 
-type Tab = 'overview' | 'users' | 'license' | 'ai' | 'audit';
+type Tab = 'overview' | 'usage' | 'users' | 'logins' | 'license' | 'ai' | 'audit';
 
 export default function PlatformCompanyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data, isLoading, error } = useCompany(id);
+  const can = useCan();
   const [tab, setTab] = useState<Tab>('overview');
   const [confirmToggle, setConfirmToggle] = useState(false);
 
@@ -77,13 +82,15 @@ export default function PlatformCompanyDetailPage() {
           <>
             {data.isActive ? <Badge tone="green" dot>الشركة مفعّلة</Badge> : <Badge tone="red" dot>الشركة موقوفة</Badge>}
             <Badge tone={LICENSE_STATE_TONE[data.license.state]}>الترخيص: {LICENSE_STATE_LABEL[data.license.state]}</Badge>
-            <Button
-              variant={data.isActive ? 'danger' : 'success'}
-              icon={<Power className="h-4 w-4" />}
-              onClick={() => setConfirmToggle(true)}
-            >
-              {data.isActive ? 'إيقاف الشركة' : 'تفعيل الشركة'}
-            </Button>
+            {can('companies.disable') && (
+              <Button
+                variant={data.isActive ? 'danger' : 'success'}
+                icon={<Power className="h-4 w-4" />}
+                onClick={() => setConfirmToggle(true)}
+              >
+                {data.isActive ? 'إيقاف الشركة' : 'تفعيل الشركة'}
+              </Button>
+            )}
           </>
         }
       />
@@ -92,15 +99,23 @@ export default function PlatformCompanyDetailPage() {
         value={tab}
         onChange={setTab}
         items={[
-          { value: 'overview', label: 'نظرة عامة', icon: <Building2 className="h-4 w-4" /> },
-          { value: 'users', label: `المستخدمون (${data.counts.users})`, icon: <Users className="h-4 w-4" /> },
-          { value: 'license', label: 'الترخيص', icon: <KeyRound className="h-4 w-4" /> },
-          { value: 'ai', label: 'الذكاء الاصطناعي', icon: <Sparkles className="h-4 w-4" /> },
-          { value: 'audit', label: 'سجل العمليات', icon: <ScrollText className="h-4 w-4" /> },
+          { value: 'overview' as Tab, label: 'نظرة عامة', icon: <Building2 className="h-4 w-4" /> },
+          { value: 'usage' as Tab, label: 'الاستخدام والصحة', icon: <BarChart3 className="h-4 w-4" /> },
+          { value: 'users' as Tab, label: `المستخدمون (${data.counts.users})`, icon: <Users className="h-4 w-4" /> },
+          ...(can('security.view') ? [{ value: 'logins' as Tab, label: 'سجل الدخول', icon: <ShieldAlert className="h-4 w-4" /> }] : []),
+          { value: 'license' as Tab, label: 'الترخيص', icon: <KeyRound className="h-4 w-4" /> },
+          { value: 'ai' as Tab, label: 'الذكاء الاصطناعي', icon: <Sparkles className="h-4 w-4" /> },
+          ...(can('audit.view') ? [{ value: 'audit' as Tab, label: 'سجل العمليات', icon: <ScrollText className="h-4 w-4" /> }] : []),
         ]}
       />
 
       {tab === 'overview' && <OverviewTab data={data} />}
+      {tab === 'usage' && <CompanyInsightsTab companyId={id} />}
+      {tab === 'logins' && (
+        <Card title="محاولات دخول مستخدمي الشركة">
+          <LoginEventsTable companyId={id} />
+        </Card>
+      )}
       {tab === 'users' && <UsersTab companyId={id} />}
       {tab === 'license' && <LicenseTab data={data} />}
       {tab === 'ai' && <AiTab data={data} />}
@@ -131,6 +146,7 @@ export default function PlatformCompanyDetailPage() {
 }
 
 function OverviewTab({ data }: { data: CompanyDetail }) {
+  const canEdit = useCan()('companies.edit');
   const [form, setForm] = useState({
     arabicName: data.arabicName,
     englishName: data.englishName ?? '',
@@ -197,7 +213,11 @@ function OverviewTab({ data }: { data: CompanyDetail }) {
       <Card
         title="بيانات الشركة"
         subtitle={`أُنشئت في ${fmtDate(data.createdAt)} · ${data.isOnboarded ? 'أكملت الإعداد الأولي' : 'لم تكمل الإعداد الأولي بعد'}`}
-        actions={<Button onClick={() => save.mutate(undefined)} loading={save.isPending} disabled={!form.arabicName.trim()}>حفظ</Button>}
+        actions={
+          canEdit ? (
+            <Button onClick={() => save.mutate(undefined)} loading={save.isPending} disabled={!form.arabicName.trim()}>حفظ</Button>
+          ) : undefined
+        }
       >
         <div className="grid gap-4 md:grid-cols-3">
           <Field label="الاسم بالعربي"><Input value={form.arabicName} onChange={(e) => setForm({ ...form, arabicName: e.target.value })} /></Field>
@@ -213,9 +233,13 @@ function OverviewTab({ data }: { data: CompanyDetail }) {
 }
 
 function UsersTab({ companyId }: { companyId: string }) {
+  const can = useCan();
   const [creating, setCreating] = useState(false);
   return (
-    <Card title="مستخدمو الشركة" actions={<Button icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>مستخدم جديد</Button>}>
+    <Card
+      title="مستخدمو الشركة"
+      actions={can('users.edit') ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>مستخدم جديد</Button> : undefined}
+    >
       <UsersTable companyId={companyId} showCompany={false} />
       {creating && <CreateUserDialog open companyId={companyId} onClose={() => setCreating(false)} />}
     </Card>
@@ -223,6 +247,7 @@ function UsersTab({ companyId }: { companyId: string }) {
 }
 
 function LicenseTab({ data }: { data: CompanyDetail }) {
+  const canEdit = useCan()('licenses.edit');
   const [draft, setDraft] = useState(() => defaultLicenseDraft(data.license));
   const [error, setError] = useState('');
   const [confirm, setConfirm] = useState<null | 'suspend' | 'remove'>(null);
@@ -273,7 +298,7 @@ function LicenseTab({ data }: { data: CompanyDetail }) {
             <div className="flex flex-wrap gap-1.5">
               {sub.allowedModules.map((m) => <Badge key={m} tone="brand">{MODULE_LABEL[m] ?? m}</Badge>)}
             </div>
-            <div className="flex flex-wrap gap-2 border-t border-[#EEF4F8] pt-4">
+            <div className={`flex flex-wrap gap-2 border-t border-[#EEF4F8] pt-4 ${canEdit ? '' : 'hidden'}`}>
               {sub.status === 'SUSPENDED' || sub.status === 'EXPIRED' ? (
                 <Button size="sm" variant="success" icon={<PlayCircle className="h-4 w-4" />} loading={setStatus.isPending} onClick={() => setStatus.mutate('ACTIVE')}>
                   إعادة تفعيل
@@ -291,15 +316,21 @@ function LicenseTab({ data }: { data: CompanyDetail }) {
         )}
       </Card>
 
-      <Card
-        className="xl:col-span-2"
-        title={sub ? 'تعديل الترخيص' : 'إصدار ترخيص'}
-        subtitle="الشركة تُمنع من الدخول تلقائياً قبل تاريخ البداية وبعد تاريخ الانتهاء أو عند الإيقاف"
-        actions={<Button onClick={submit} loading={save.isPending}>{sub ? 'حفظ التعديلات' : 'إصدار الترخيص'}</Button>}
-      >
-        <LicenseForm value={draft} onChange={setDraft} />
-        {error && <p className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-      </Card>
+      {canEdit ? (
+        <Card
+          className="xl:col-span-2"
+          title={sub ? 'تعديل الترخيص' : 'إصدار ترخيص'}
+          subtitle="الشركة تُمنع من الدخول تلقائياً قبل تاريخ البداية وبعد تاريخ الانتهاء أو عند الإيقاف"
+          actions={<Button onClick={submit} loading={save.isPending}>{sub ? 'حفظ التعديلات' : 'إصدار الترخيص'}</Button>}
+        >
+          <LicenseForm value={draft} onChange={setDraft} />
+          {error && <p className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        </Card>
+      ) : (
+        <Card className="xl:col-span-2" title="تعديل الترخيص">
+          <p className="text-sm text-slate-500">تعديل التراخيص متاح لمالك المنصة وفريق المالية فقط.</p>
+        </Card>
+      )}
 
       <ConfirmDialog
         open={confirm === 'suspend'}
@@ -334,6 +365,7 @@ function Item({ k, v }: { k: string; v: string }) {
 }
 
 function AiTab({ data }: { data: CompanyDetail }) {
+  const canEdit = useCan()('ai.edit');
   const [limit, setLimit] = useState(String(data.ai.limit));
   useEffect(() => setLimit(String(data.ai.limit)), [data.ai.limit]);
   const update = useAdminMutation(
@@ -351,7 +383,7 @@ function AiTab({ data }: { data: CompanyDetail }) {
               الإيقاف يمنع المحادثات والتحليلات والتنبيهات الذكية لهذه الشركة فوراً، بما فيها المهام الخلفية.
             </p>
           </div>
-          <Toggle checked={data.ai.enabled} disabled={update.isPending} onChange={(v) => update.mutate({ enabled: v })} label="تشغيل الذكاء الاصطناعي" />
+          <Toggle checked={data.ai.enabled} disabled={update.isPending || !canEdit} onChange={(v) => update.mutate({ enabled: v })} label="تشغيل الذكاء الاصطناعي" />
         </div>
       </Card>
       <Card title="الاستهلاك الشهري" subtitle={`بدأت الدورة الحالية في ${fmtDate(data.ai.windowStartedAt)} (كل 30 يوماً)`}>
@@ -362,7 +394,7 @@ function AiTab({ data }: { data: CompanyDetail }) {
         <div className="h-2.5 rounded-full bg-[#EEF4F8]">
           <div className={`h-2.5 rounded-full ${pct >= 90 ? 'bg-red-500' : 'bg-gradient-to-l from-[#0E78AA] to-[#1787B8]'}`} style={{ width: `${pct}%` }} />
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+        <div className={`mt-5 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end ${canEdit ? '' : 'hidden'}`}>
           <Field label="الحد الشهري (رموز)">
             <Input type="number" min={0} value={limit} onChange={(e) => setLimit(e.target.value)} />
           </Field>

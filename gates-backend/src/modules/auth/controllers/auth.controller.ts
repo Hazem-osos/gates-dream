@@ -20,6 +20,10 @@ import { logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/middleware/error-handler';
 import type { AuthRequest } from '../../../shared/auth/types';
 import type { RegisterInput, LoginInput } from '../schemas/auth.schema';
+import {
+  loginFailureReason,
+  recordLoginAttempt,
+} from '../../platform-admin/services/login-history.service';
 
 // ── Register ─────────────────────────────────────────────────────────────────
 
@@ -71,6 +75,7 @@ export const loginHandler: RequestHandler = async (
   res: Response,
   next: NextFunction
 ): Promise<void> => {
+  const identifier = String((req.body as Partial<LoginInput> | undefined)?.username ?? '');
   try {
     const body = req.body as LoginInput;
     const result = await authService.login(body);
@@ -78,6 +83,7 @@ export const loginHandler: RequestHandler = async (
     logger.info('[Controller] User logged in');
 
     const accessToken = result.token.accessToken;
+    recordLoginAttempt(req, { identifier, success: true, accessToken });
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.json({
       status: 'success',
@@ -91,6 +97,7 @@ export const loginHandler: RequestHandler = async (
       },
     });
   } catch (err) {
+    recordLoginAttempt(req, { identifier, success: false, reason: loginFailureReason(err) });
     next(err);
   }
 };

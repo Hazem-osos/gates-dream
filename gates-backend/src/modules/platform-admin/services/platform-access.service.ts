@@ -195,6 +195,44 @@ export async function assertLoginAllowed(companyId: string): Promise<void> {
   if (company) throw company;
 }
 
+/**
+ * License seat limits. A company without a subscription row stays unrestricted (existing contract).
+ * Read straight from the DB: it runs only when a user/branch is added or re-enabled, not per request.
+ */
+export async function assertWithinLicenseLimit(
+  companyId: string,
+  kind: 'users' | 'branches',
+  adding = 1
+): Promise<void> {
+  const sub = await prisma.tenantSubscription.findUnique({
+    where: { companyId },
+    select: { maxUsers: true, maxBranches: true },
+  });
+  if (!sub) return;
+  if (kind === 'users') {
+    const used = await prisma.user.count({ where: { companyId, isActive: true } });
+    if (used + adding > sub.maxUsers) {
+      throw new AppError(
+        403,
+        `وصلت الشركة للحد الأقصى من المستخدمين في الترخيص (${sub.maxUsers}). أوقف مستخدماً أو تواصل مع إدارة Gates لزيادة الحد.`,
+        true,
+        'LICENSE_USER_LIMIT'
+      );
+    }
+    return;
+  }
+  const used = await prisma.branch.count({ where: { companyId, deletedAt: null } });
+  if (used + adding > sub.maxBranches) {
+    throw new AppError(
+      403,
+      `وصلت الشركة للحد الأقصى من الفروع في الترخيص (${sub.maxBranches}). تواصل مع إدارة Gates لزيادة الحد.`,
+      true,
+      'LICENSE_BRANCH_LIMIT'
+    );
+  }
+}
+
+
 export async function invalidateCompanyAccess(companyId: string): Promise<void> {
   await invalidateTenantCache(platformAccessCacheKeys.company(companyId));
 }

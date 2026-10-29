@@ -4,6 +4,8 @@ import {
   SUBSCRIPTION_PLAN_TYPES,
   SUBSCRIPTION_STATUSES,
 } from '../../platform/types/license-modules';
+import { PLATFORM_ADMIN_ROLES } from '../platform-admin-roles';
+import { ANNOUNCEMENT_AUDIENCES, ANNOUNCEMENT_LEVELS } from '../services/platform-announcements.service';
 
 const page = z.coerce.number().int().min(1).default(1);
 const pageSize = z.coerce.number().int().min(1).max(100).default(20);
@@ -16,7 +18,35 @@ export const idParamSchema = z.object({ id: z.string().min(1).max(64) });
 export const loginSchema = z.object({
   email: z.string().trim().email('بريد إلكتروني غير صالح').max(191),
   password: z.string().min(1).max(128),
+  /** 6-digit authenticator code, required only when the admin turned 2FA on. */
+  code: z.string().trim().max(12).optional(),
 });
+
+const totpCode = z.string().trim().regex(/^\d{6}$/, 'الرمز 6 أرقام');
+export const twoFactorConfirmSchema = z.object({ code: totpCode });
+export const twoFactorDisableSchema = z.object({ password: z.string().min(1).max(128), code: totpCode });
+
+export const loginEventsQuerySchema = z.object({
+  page,
+  pageSize: z.coerce.number().int().min(1).max(100).default(30),
+  userId: z.string().max(64).optional(),
+  companyId: z.string().max(64).optional(),
+  success: z.enum(['all', 'success', 'failed']).default('all'),
+});
+
+export const announcementSchema = z
+  .object({
+    title: z.string().trim().min(1, 'اكتب عنوان الإعلان').max(200),
+    body: z.string().trim().min(1, 'اكتب نص الإعلان').max(2000),
+    level: z.enum(ANNOUNCEMENT_LEVELS).default('info'),
+    audience: z.enum(ANNOUNCEMENT_AUDIENCES).default('ALL'),
+    companyIds: z.array(z.string().min(1).max(64)).max(500).optional(),
+    startsAt: z.coerce.date().optional(),
+    endsAt: z.coerce.date().nullable().optional(),
+    isActive: z.boolean().optional(),
+  });
+
+export const announcementActiveSchema = z.object({ isActive: z.boolean() });
 
 export const companyListQuerySchema = z.object({
   page,
@@ -124,9 +154,16 @@ export const adminCreateSchema = z.object({
   email: z.string().trim().email().max(191),
   name: optionalText(120),
   password,
+  role: z.enum(PLATFORM_ADMIN_ROLES).default('VIEWER'),
 });
 
-export const adminActiveSchema = z.object({ isActive: z.boolean() });
+export const adminUpdateSchema = z
+  .object({
+    isActive: z.boolean().optional(),
+    role: z.enum(PLATFORM_ADMIN_ROLES).optional(),
+    resetTwoFactor: z.literal(true).optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, 'لا توجد تعديلات');
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(128),

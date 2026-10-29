@@ -13,6 +13,7 @@ import {
 import { userService } from '../services/user.service';
 import { authService } from '../../auth/services/auth.service';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { AuthRequest } from '../../../shared/auth/types';
 import userPermissionsRoutes from './user-permissions.routes';
 import permissionDefinitionsRoutes from './permission-definitions.routes';
@@ -351,7 +352,7 @@ router.post(
       });
     } catch (error) {
       logger.error({ error }, 'Error creating user');
-      const status =
+      const status = error instanceof AppError ? error.statusCode :
         error instanceof Error &&
         (error.message === 'Company not found' ||
           error.message.includes('already exists'))
@@ -395,7 +396,7 @@ router.put(
       });
     } catch (error) {
       logger.error({ error }, 'Error updating user');
-      const status =
+      const status = error instanceof AppError ? error.statusCode :
         error instanceof Error &&
         (error.message === 'User not found' ||
           error.message.includes('already exists'))
@@ -473,7 +474,7 @@ router.patch(
       });
     } catch (error) {
       logger.error({ error }, 'Error restoring user');
-      const status =
+      const status = error instanceof AppError ? error.statusCode :
         error instanceof Error && error.message === 'User not found'
           ? 404
           : 500;

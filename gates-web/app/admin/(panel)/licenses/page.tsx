@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { PauseCircle, PlayCircle, Search, Pencil } from 'lucide-react';
 import { adminRequest } from '@/lib/platform-admin/api';
-import { useAdminMutation, useCompanies } from '@/lib/platform-admin/hooks';
+import { useAdminMutation, useCan, useCompanies } from '@/lib/platform-admin/hooks';
 import { daysUntil, fmtDate, LICENSE_STATE_LABEL, LICENSE_STATE_TONE, MODULE_LABEL, PLAN_LABEL } from '@/lib/platform-admin/format';
 import { Badge, Button, Card, EmptyState, ErrorBox, Input, PageHeader, Pager, Spinner, Table, Tabs } from '@/components/platform-admin/ui';
 
@@ -26,6 +26,7 @@ function LicensesView() {
   const [filter, setFilter] = useState<Filter>(initial);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const can = useCan();
   const { data, isLoading, error } = useCompanies({ page, pageSize: 20, license: filter, search: search || undefined });
   const setStatus = useAdminMutation(
     ({ id, status }: { id: string; status: string }) =>
@@ -82,7 +83,7 @@ function LicensesView() {
                         <Link href={`/admin/companies/${c.id}`} className="rounded-lg p-1.5 text-slate-500 hover:bg-[#EEF6FA] hover:text-[#0A3D5E]" title="تعديل">
                           <Pencil className="h-4 w-4" />
                         </Link>
-                        {sub && (sub.status === 'SUSPENDED' || sub.status === 'EXPIRED' ? (
+                        {sub && can('licenses.edit') && (sub.status === 'SUSPENDED' || sub.status === 'EXPIRED' ? (
                           <Button size="sm" variant="success" icon={<PlayCircle className="h-3.5 w-3.5" />} loading={setStatus.isPending && setStatus.variables?.id === c.id} onClick={() => setStatus.mutate({ id: c.id, status: 'ACTIVE' })}>تفعيل</Button>
                         ) : (
                           <Button size="sm" variant="secondary" icon={<PauseCircle className="h-3.5 w-3.5 text-red-600" />} loading={setStatus.isPending && setStatus.variables?.id === c.id} onClick={() => setStatus.mutate({ id: c.id, status: 'SUSPENDED' })}>إيقاف</Button>

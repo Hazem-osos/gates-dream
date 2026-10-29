@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { adminRequest, type CompanyRow } from '@/lib/platform-admin/api';
-import { useAdminMutation, useCompanies } from '@/lib/platform-admin/hooks';
+import { useAdminMutation, useCan, useCompanies } from '@/lib/platform-admin/hooks';
 import { Button, Field, Input, Modal, Select, Toggle } from './ui';
 import { defaultLicenseDraft, LicenseForm, licenseDraftError, licenseDraftToPayload } from './LicenseForm';
 
@@ -52,7 +52,8 @@ export function CreateCompanyDialog({ open, onClose }: { open: boolean; onClose:
   const [contactEmail, setContactEmail] = useState('');
   const [phone1, setPhone1] = useState('');
   const [admin, setAdmin] = useState<NewUserDraft>(emptyUser);
-  const [withLicense, setWithLicense] = useState(true);
+  const canLicense = useCan()('licenses.edit');
+  const [withLicense, setWithLicense] = useState(canLicense);
   const [license, setLicense] = useState(defaultLicenseDraft());
   const [error, setError] = useState('');
 
@@ -124,9 +125,11 @@ export function CreateCompanyDialog({ open, onClose }: { open: boolean; onClose:
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h4 className="text-sm font-bold text-[#0A3D5E]">الترخيص</h4>
-            <span className="flex items-center gap-2 text-xs text-slate-600">
-              إصدار ترخيص الآن <Toggle checked={withLicense} onChange={setWithLicense} label="إصدار ترخيص" />
-            </span>
+            {canLicense && (
+              <span className="flex items-center gap-2 text-xs text-slate-600">
+                إصدار ترخيص الآن <Toggle checked={withLicense} onChange={setWithLicense} label="إصدار ترخيص" />
+              </span>
+            )}
           </div>
           {withLicense ? (
             <LicenseForm value={license} onChange={setLicense} />

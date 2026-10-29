@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Plus, Search, Sparkles } from 'lucide-react';
-import { useCompanies } from '@/lib/platform-admin/hooks';
+import { useCan, useCompanies } from '@/lib/platform-admin/hooks';
 import {
   fmtDate,
   fmtMinutes,
@@ -21,6 +21,7 @@ export default function PlatformCompaniesPage() {
   const [license, setLicense] = useState('all');
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
+  const can = useCan();
   const { data, isLoading, error, isFetching } = useCompanies({ page, pageSize: 20, search: search || undefined, status, license });
 
   const reset = (fn: () => void) => {
@@ -33,7 +34,7 @@ export default function PlatformCompaniesPage() {
       <PageHeader
         title="الشركات"
         subtitle="كل العملاء على المنصة: المستخدمون، النشاط، الترخيص والذكاء الاصطناعي"
-        actions={<Button icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>شركة جديدة</Button>}
+        actions={can('companies.create') ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>شركة جديدة</Button> : undefined}
       />
 
       <Card>

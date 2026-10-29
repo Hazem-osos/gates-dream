@@ -6,15 +6,17 @@ import { useParams } from 'next/navigation';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ArrowRight, Clock, CalendarDays, LogIn, Sparkles, Monitor } from 'lucide-react';
 import { adminRequest } from '@/lib/platform-admin/api';
-import { useAdminMutation, useUser } from '@/lib/platform-admin/hooks';
+import { useAdminMutation, useCan, useUser } from '@/lib/platform-admin/hooks';
 import { fmtDate, fmtDateTime, fmtMinutes, fmtRelative, isOnline } from '@/lib/platform-admin/format';
 import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, PageHeader, Spinner, Stat, Table } from '@/components/platform-admin/ui';
 import { UserActionBar } from '@/components/platform-admin/UserActions';
 import { AuditTable } from '@/components/platform-admin/AuditTable';
+import { LoginEventsTable } from '@/components/platform-admin/LoginEventsTable';
 
 export default function PlatformUserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data, isLoading, error } = useUser(id);
+  const can = useCan();
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', username: '', phone: '' });
 
   useEffect(() => {
@@ -132,7 +134,9 @@ export default function PlatformUserDetailPage() {
         <Card
           title="البيانات الأساسية"
           subtitle={`أُنشئ في ${fmtDate(data.createdAt)}`}
-          actions={<Button onClick={() => save.mutate(undefined)} loading={save.isPending}>حفظ</Button>}
+          actions={
+            can('users.edit') ? <Button onClick={() => save.mutate(undefined)} loading={save.isPending}>حفظ</Button> : undefined
+          }
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="الاسم الأول"><Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} /></Field>
@@ -180,9 +184,17 @@ export default function PlatformUserDetailPage() {
         </Card>
       )}
 
-      <Card className="mt-6" title="ما تم على هذا المستخدم من لوحة الإدارة">
-        <AuditTable targetId={id} />
-      </Card>
+      {can('security.view') && (
+        <Card className="mt-6" title="سجل الدخول" subtitle="كل محاولة دخول لهذا الحساب، ناجحة أو فاشلة">
+          <LoginEventsTable userId={id} showUser={false} />
+        </Card>
+      )}
+
+      {can('audit.view') && (
+        <Card className="mt-6" title="ما تم على هذا المستخدم من لوحة الإدارة">
+          <AuditTable targetId={id} />
+        </Card>
+      )}
     </>
   );
 }

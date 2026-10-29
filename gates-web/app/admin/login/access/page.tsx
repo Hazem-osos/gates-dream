@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react';
 import { GatesDataNetwork } from '@/components/visual/GatesDataNetwork';
 import {
+  AdminApiError,
   adminRequest,
   getAdminToken,
   setAdminSession,
@@ -21,6 +22,8 @@ export default function PlatformAdminLoginPage() {
   const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
+  const [needCode, setNeedCode] = useState(false);
+  const [code, setCode] = useState('');
 
   useEffect(() => {
     if (getAdminToken()) router.replace('/admin/dashboard');
@@ -33,16 +36,26 @@ export default function PlatformAdminLoginPage() {
       setError('أدخل البريد الإلكتروني وكلمة المرور');
       return;
     }
+    if (needCode && !/^\d{6}$/.test(code.trim())) {
+      setError('أدخل الرمز المكوّن من 6 أرقام');
+      return;
+    }
     setPending(true);
     try {
       const res = await adminRequest<{ accessToken: string; expiresIn: number; admin: PlatformAdminProfile }>(
         '/auth/login',
-        { method: 'POST', body: { email: email.trim(), password } }
+        { method: 'POST', body: { email: email.trim(), password, ...(needCode ? { code: code.trim() } : {}) } }
       );
       setAdminSession(res.accessToken, res.expiresIn, res.admin);
       router.replace('/admin/dashboard');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذّر تسجيل الدخول');
+      if (err instanceof AdminApiError && err.code === 'TOTP_REQUIRED') {
+        setNeedCode(true);
+        setError('');
+      } else {
+        setError(err instanceof Error ? err.message : 'تعذّر تسجيل الدخول');
+        if (err instanceof AdminApiError && err.code === 'TOTP_INVALID') setCode('');
+      }
     } finally {
       setPending(false);
     }
@@ -105,6 +118,24 @@ export default function PlatformAdminLoginPage() {
                 </button>
               </div>
             </div>
+            {needCode && (
+              <div>
+                <label htmlFor="admin-code" className="mb-2 block text-sm font-semibold text-[#0A3D5E]">رمز التحقق</label>
+                <input
+                  id="admin-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  dir="ltr"
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                  className={`${input} text-center text-lg tracking-[0.5em]`}
+                  placeholder="000000"
+                />
+                <p className="mt-1.5 text-xs text-slate-500">افتح تطبيق المصادقة على هاتفك واكتب الرمز الظاهر لـ Gates Admin.</p>
+              </div>
+            )}
             {error && (
               <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
             )}

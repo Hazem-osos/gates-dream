@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Search, Sparkles, Power } from 'lucide-react';
 import { adminRequest } from '@/lib/platform-admin/api';
-import { useAdminMutation, useCompanies, useDashboard, useSettings } from '@/lib/platform-admin/hooks';
+import { useAdminMutation, useCan, useCompanies, useDashboard, useSettings } from '@/lib/platform-admin/hooks';
 import { fmtNum } from '@/lib/platform-admin/format';
 import { Badge, Card, ConfirmDialog, EmptyState, ErrorBox, Input, PageHeader, Pager, Spinner, Stat, Table, Toggle } from '@/components/platform-admin/ui';
 
@@ -14,6 +14,7 @@ export default function PlatformAiPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [confirmGlobal, setConfirmGlobal] = useState<null | boolean>(null);
+  const can = useCan();
   const companies = useCompanies({ page, pageSize: 20, search: search || undefined });
 
   const setGlobal = useAdminMutation(
@@ -45,7 +46,7 @@ export default function PlatformAiPage() {
               </p>
             </div>
             {settings.isLoading ? <Spinner label="" /> : (
-              <Toggle checked={globalOn} disabled={setGlobal.isPending} onChange={(v) => setConfirmGlobal(v)} label="المفتاح الرئيسي للذكاء الاصطناعي" />
+              <Toggle checked={globalOn} disabled={setGlobal.isPending || !can('settings.edit')} onChange={(v) => setConfirmGlobal(v)} label="المفتاح الرئيسي للذكاء الاصطناعي" />
             )}
           </div>
         </div>
@@ -91,7 +92,7 @@ export default function PlatformAiPage() {
                     <td className="px-4 py-3">
                       <Toggle
                         checked={c.ai.enabled}
-                        disabled={setCompany.isPending}
+                        disabled={setCompany.isPending || !can('ai.edit')}
                         onChange={(enabled) => setCompany.mutate({ id: c.id, enabled })}
                         label={`تشغيل الذكاء الاصطناعي لـ ${c.arabicName}`}
                       />

@@ -34,6 +34,7 @@ import { AppScreenChromeFallback, AppScreenChromeProvider } from '@/components/e
 import { DocumentToolbarSlot } from '@/components/erp/AppScreenChromeContext';
 import { TabPageCache } from '@/components/erp/TabPageCache';
 import { installCrashProbe } from '@/lib/debug/gates-crash-probe';
+import { PlatformAnnouncementBar } from '@/components/feedback/PlatformAnnouncementBar';
 
 export function ErpApp({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -146,6 +147,7 @@ export function ErpApp({ children }: { children: ReactNode }) {
                           style={mainOffset}
                         >
                           <div className="shrink-0">
+                            <PlatformAnnouncementBar />
                             <Navbar
                               rightSidebarOpen={rightSidebarOpen}
                               setRightSidebarOpen={setRightSidebarOpen}

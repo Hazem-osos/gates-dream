@@ -10,7 +10,7 @@ import { permanentDelete } from '../../../shared/database/permanent-delete.util'
 import { invalidateTenantCache, tenantCacheKeys } from '../../../shared/cache/tenant-metadata-cache';
 import { getUserSessions, revokeAllUserSessions } from '../../../shared/auth/session-manager';
 import { redisClient } from '../../../shared/cache/redis';
-import { invalidateUserAccess } from './platform-access.service';
+import { assertWithinLicenseLimit, invalidateUserAccess } from './platform-access.service';
 import { activityDayDate, activityDayKey } from './user-activity-tracker';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -59,6 +59,7 @@ export async function createTenantUser(input: {
 }) {
   const company = await prisma.company.findUnique({ where: { id: input.companyId }, select: { id: true } });
   if (!company) throw new AppError(404, 'الشركة غير موجودة');
+  await assertWithinLicenseLimit(input.companyId, 'users');
   const email = input.email.trim();
   const username = input.username.trim();
   const [emailTaken, usernameTaken] = await Promise.all([
@@ -240,8 +241,12 @@ export async function updateTenantUser(
     isAdmin?: boolean;
   }
 ) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, companyId: true } });
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, companyId: true, isActive: true },
+  });
   if (!user) throw new AppError(404, 'المستخدم غير موجود');
+  if (data.isActive === true && !user.isActive) await assertWithinLicenseLimit(user.companyId, 'users');
   if (data.email) {
     const taken = await prisma.user.findFirst({ where: { email: data.email, id: { not: userId } }, select: { id: true } });
     if (taken) throw new AppError(409, 'البريد الإلكتروني مستخدم بالفعل');

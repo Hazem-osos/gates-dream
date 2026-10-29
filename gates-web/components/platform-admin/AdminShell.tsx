@@ -15,36 +15,41 @@ import {
   LogOut,
   Menu,
   ShieldCheck,
+  ShieldAlert,
+  Megaphone,
   Wrench,
 } from 'lucide-react';
 import {
   ADMIN_UNAUTHORIZED_EVENT,
-  adminRequest,
   clearAdminSession,
   getAdminToken,
-  getStoredAdminProfile,
-  type PlatformAdminProfile,
+  storeAdminProfile,
+  type AdminCap,
 } from '@/lib/platform-admin/api';
-import { useSettings } from '@/lib/platform-admin/hooks';
+import { useCan, useMe, useSettings } from '@/lib/platform-admin/hooks';
+import { ROLE_LABEL } from '@/lib/platform-admin/format';
 import { cx, Spinner } from './ui';
 
 export const ADMIN_LOGIN_PATH = '/admin/login/access';
 
-const NAV = [
-  { href: '/admin/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard },
-  { href: '/admin/companies', label: 'الشركات', icon: Building2 },
-  { href: '/admin/users', label: 'المستخدمون', icon: Users },
-  { href: '/admin/licenses', label: 'التراخيص', icon: KeyRound },
-  { href: '/admin/ai', label: 'الذكاء الاصطناعي', icon: Sparkles },
-  { href: '/admin/audit', label: 'سجل العمليات', icon: ScrollText },
+const NAV: Array<{ href: string; label: string; icon: typeof LayoutDashboard; cap?: AdminCap }> = [
+  { href: '/admin/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, cap: 'dashboard.view' },
+  { href: '/admin/companies', label: 'الشركات', icon: Building2, cap: 'companies.view' },
+  { href: '/admin/users', label: 'المستخدمون', icon: Users, cap: 'users.view' },
+  { href: '/admin/licenses', label: 'التراخيص', icon: KeyRound, cap: 'companies.view' },
+  { href: '/admin/ai', label: 'الذكاء الاصطناعي', icon: Sparkles, cap: 'companies.view' },
+  { href: '/admin/announcements', label: 'الإعلانات', icon: Megaphone, cap: 'announcements.manage' },
+  { href: '/admin/logins', label: 'محاولات الدخول', icon: ShieldAlert, cap: 'security.view' },
+  { href: '/admin/audit', label: 'سجل العمليات', icon: ScrollText, cap: 'audit.view' },
   { href: '/admin/settings', label: 'إعدادات المنصة', icon: Settings },
 ];
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const can = useCan();
   return (
     <nav className="flex flex-col gap-1">
-      {NAV.map(({ href, label, icon: Icon }) => {
+      {NAV.filter((n) => !n.cap || can(n.cap)).map(({ href, label, icon: Icon }) => {
         const active = pathname === href || pathname?.startsWith(`${href}/`);
         return (
           <Link
@@ -88,9 +93,14 @@ function StatusStrip() {
 export function AdminShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const qc = useQueryClient();
-  const [profile, setProfile] = useState<PlatformAdminProfile | null>(null);
   const [ready, setReady] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  // /auth/me also confirms the token is still accepted (admin disabled, role or password changed).
+  const { data: profile } = useMe();
+
+  useEffect(() => {
+    if (profile?.caps) storeAdminProfile(profile);
+  }, [profile]);
 
   useEffect(() => {
     const goLogin = () => {
@@ -101,10 +111,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       goLogin();
       return;
     }
-    setProfile(getStoredAdminProfile());
     setReady(true);
-    // Confirms the token is still accepted (admin disabled, secret rotated, …).
-    adminRequest<PlatformAdminProfile>('/auth/me').then(setProfile).catch(() => undefined);
     window.addEventListener(ADMIN_UNAUTHORIZED_EVENT, goLogin);
     return () => window.removeEventListener(ADMIN_UNAUTHORIZED_EVENT, goLogin);
   }, [router, qc]);
@@ -135,6 +142,12 @@ export function AdminShell({ children }: { children: ReactNode }) {
       <div className="mt-auto rounded-2xl bg-white/10 p-3">
         <p className="truncate text-sm font-bold text-white">{profile?.name || 'مدير المنصة'}</p>
         <p className="truncate text-xs text-white/70" dir="ltr">{profile?.email}</p>
+        {profile?.role && (
+          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-white/80">
+            {ROLE_LABEL[profile.role] ?? profile.role}
+            {profile.twoFactorEnabled ? <ShieldCheck className="h-3 w-3" aria-label="التحقق الثنائي مفعّل" /> : null}
+          </p>
+        )}
         <button
           type="button"
           onClick={logout}
