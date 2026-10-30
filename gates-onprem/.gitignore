@@ -1,0 +1,6 @@
+# build output and caches (hundreds of MB, contain third-party binaries)
+out/
+.cache/
+# never commit licenses or keys
+*.lic
+*.pem

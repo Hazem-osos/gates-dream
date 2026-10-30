@@ -16,6 +16,7 @@ import { clearEntireL1, clearLocalCacheByPrefix } from './shared/cache/tenant-me
 import { sensorSubscriberService } from './modules/manufacturing/services/sensor-subscriber.service';
 import { initializeTracing, shutdownTracing } from './shared/monitoring/tracing';
 import { prisma, disconnectPrisma } from './shared/database/prisma';
+import { activateOnPremLicense, isOnPremMode } from './shared/onprem-license/onprem-license';
 
 // Wave 6 fix: an unhandled promise rejection or uncaught synchronous
 // exception anywhere in the app used to have no top-level handler at all —
@@ -39,6 +40,30 @@ process.on('uncaughtException', (error) => {
   logger.error({ error }, 'Uncaught exception — exiting');
   process.exit(1);
 });
+
+// On-prem (exe) installs only: refuse to start without a valid license for this machine.
+// isOnPremMode() is false on the SaaS deployment, so nothing here runs there.
+if (isOnPremMode()) {
+  try {
+    const license = activateOnPremLicense();
+    logger.info(
+      { licenseId: license.licenseId, customer: license.customer, maxUsers: license.maxUsers, expiresAt: license.expiresAt },
+      'On-prem license verified'
+    );
+  } catch (error) {
+    logger.error({ errMsg: error instanceof Error ? error.message : String(error) }, 'On-prem license check failed');
+    process.exit(3);
+  }
+  // Re-check hourly (expiry, license file replaced/removed). Failing stops the server.
+  setInterval(() => {
+    try {
+      activateOnPremLicense();
+    } catch (error) {
+      logger.error({ errMsg: error instanceof Error ? error.message : String(error) }, 'On-prem license no longer valid — stopping');
+      void gracefulShutdown('LICENSE');
+    }
+  }, 60 * 60 * 1000).unref();
+}
 
 // Initialize authentication
 initializeAuth();

@@ -401,7 +401,7 @@ export class AuthService {
     }
 
     // Maintenance mode, disabled company, suspended / expired license.
-    await assertLoginAllowed(dbUser.companyId);
+    await assertLoginAllowed(dbUser.companyId, dbUser.id);
 
     try {
       await prisma.user.update({

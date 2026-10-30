@@ -17,6 +17,10 @@ import { logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { getTenantCached, invalidateTenantCache } from '../../../shared/cache/tenant-metadata-cache';
 import { getPlatformSettings } from './platform-settings.service';
+import {
+  assertOnPremLoginAllowed,
+  assertOnPremUserSeat,
+} from '../../../shared/onprem-license/onprem-license';
 
 export const platformAccessCacheKeys = {
   company: (companyId: string) => `platform:access:company:${companyId}`,
@@ -188,11 +192,13 @@ export async function assertTenantRequestAllowed(input: {
 }
 
 /** Called by the password login after the password matched. */
-export async function assertLoginAllowed(companyId: string): Promise<void> {
+export async function assertLoginAllowed(companyId: string, userId?: string): Promise<void> {
   const maintenance = await maintenanceError();
   if (maintenance) throw maintenance;
   const company = await companyError(companyId);
   if (company) throw company;
+  // On-prem (exe) installs: machine license + user limit. No-op on the SaaS deployment.
+  if (userId) await assertOnPremLoginAllowed(userId);
 }
 
 /**
@@ -204,6 +210,8 @@ export async function assertWithinLicenseLimit(
   kind: 'users' | 'branches',
   adding = 1
 ): Promise<void> {
+  // On-prem (exe) installs: user limit from the machine license. No-op on the SaaS deployment.
+  if (kind === 'users') await assertOnPremUserSeat(adding);
   const sub = await prisma.tenantSubscription.findUnique({
     where: { companyId },
     select: { maxUsers: true, maxBranches: true },
